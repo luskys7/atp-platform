@@ -1,0 +1,29 @@
+# 生产/Docker 环境配置
+spring:
+  autoconfigure:
+    exclude: []
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/atp_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER:atp_user}
+    password: ${MYSQL_PASSWORD:atp_pass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+atp:
+  storage:
+    type: minio
+  minio:
+    endpoint: http://${MINIO_HOST:localhost}:9000
+    access-key: ${MINIO_ACCESS_KEY:atp_minio}
+    secret-key: ${MINIO_SECRET_KEY:atp_minio_pass}
+    bucket: atp-recordings
+  executor:
+    url: ${EXECUTOR_URL:http://localhost:9002}

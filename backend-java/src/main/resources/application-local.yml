@@ -1,0 +1,51 @@
+# 本地开发配置：无需 Docker / MySQL / Redis / MinIO
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: jdbc:h2:file:./data/atp_local;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;AUTO_SERVER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+atp:
+  storage:
+    type: local
+    local-path: ./data/recordings
+    reports-path: ./data/reports
+    apps-path: ./data/apps
+  executor:
+    url: http://localhost:9002
+  backup:
+    auto-enabled: true
+    cron: "0 0 2 * * *"
+    retain-days: 30
+  sso:
+    enabled: true
+    provider-name: "企业 SSO (演示)"
+    mock-mode: true
+    mock-secret: testflow-sso-demo
+  ios-wda:
+    auto-deploy-enabled: true
+    wda-ipa-path: ./data/wda/WebDriverAgentRunner.ipa
+    bundle-id: com.facebook.WebDriverAgentRunner.xctrunner
+    wda-port: 8100
+  device:
+    usb-auto-discover-enabled: true
+    usb-scan-interval-ms: 10000
+
+logging:
+  level:
+    com.atp.platform: INFO

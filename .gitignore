@@ -1,0 +1,39 @@
+﻿# Backend
+backend/server
+backend/server.exe
+backend/config/local.yaml
+
+# Frontend / deps / build
+**/node_modules/
+frontend/dist/
+backend-java/target/
+backend-java/build-patch/
+backend-java/data/
+tools/
+*.jar
+*.zip
+*.7z
+*.rar
+*.mp4
+*.mv.db
+*.trace.db
+
+# Agent binaries
+agent/agent
+agent/agent.exe
+
+# IDE / OS / env / logs
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.log
+**/__pycache__/
+*.pyc
+
+# Nested accidental repo
+/atp-platform/

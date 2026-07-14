@@ -1,0 +1,7 @@
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+websockets>=12.0
+pydantic==2.5.3
+Appium-Python-Client==3.1.1
+uiautomator2==3.2.3
+Pillow>=10.0.0

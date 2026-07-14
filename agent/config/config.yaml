@@ -1,0 +1,6 @@
+platform_url: "http://localhost:8080"
+serial_number: "ACTH022219007784"
+platform: "android"
+agent_host: ""
+agent_port: 9100
+heartbeat_sec: 2

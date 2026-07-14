@@ -1,0 +1,23 @@
+# 停旧进程
+Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty OwningProcess -Unique |
+  ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+
+# 打包 + 启动
+Set-Location "e:\自动化测试平台-1\backend-java"
+& "e:\自动化测试平台-1\tools\apache-maven-3.9.6\bin\mvn.cmd" -DskipTests package
+java -jar target\atp-platform-1.0.0.jar --spring.profiles.active=local
+
+
+
+Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty OwningProcess -Unique |
+  ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+
+$env:JAVA_HOME = (Split-Path (Split-Path (Get-Command java).Source))
+Set-Location "e:\自动化测试平台-1\backend-java"
+& "e:\自动化测试平台-1\tools\apache-maven-3.9.6\bin\mvn.cmd" -DskipTests package
+java -jar target\atp-platform-1.0.0.jar --spring.profiles.active=lo
+
+
+e:\自动化测试平台-1\scripts\start-local.ps1cal

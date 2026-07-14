@@ -1,0 +1,37 @@
+name: Recording P0 Verify
+
+on:
+  push:
+    paths:
+      - 'executor/**'
+      - 'backend-java/**/OperationRecord*.java'
+      - 'backend-java/**/VisualScript*.java'
+      - 'frontend/src/**/useVideoRecorder.js'
+      - 'scripts/verify-recording-p0.py'
+  pull_request:
+    paths:
+      - 'executor/**'
+      - 'scripts/verify-recording-p0.py'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run P0 recording verification
+        run: python scripts/verify-recording-p0.py
+
+      - name: Batch API audit (optional)
+        if: ${{ secrets.ATP_API_BASE != '' }}
+        env:
+          ATP_API_BASE: ${{ secrets.ATP_API_BASE }}
+          ATP_TOKEN: ${{ secrets.ATP_TOKEN }}
+          ATP_BATCH_AUDIT: '1'
+          ATP_BATCH_LIMIT: '10'
+        run: python scripts/verify-recording-p0.py

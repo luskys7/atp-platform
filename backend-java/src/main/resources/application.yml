@@ -1,0 +1,52 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: atp-platform
+  profiles:
+    default: local
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+atp:
+  jwt:
+    secret: ${JWT_SECRET:atp-dev-secret-change-in-production}
+    expire-hours: 24
+  scheduler:
+    max-parallel-devices: 20
+    lock-ttl-seconds: 300
+    queue-max-size: 100
+    task-timeout-seconds: 3600
+  executor:
+    url: ${EXECUTOR_URL:http://localhost:9002}
+    fallback-urls: []
+    health-check-interval-ms: 60000
+    execute-timeout-seconds: 3700
+  governance:
+    min-pass-rate: 99.0
+    env-error-codes: E1002,E1003,E2003
+  storage:
+    retain-days: 90
+    auto-cleanup-enabled: true
+    cleanup-cron: "0 0 3 * * *"
+    warn-bytes-threshold: 10737418240
+  security:
+    ip-whitelist-enabled: false
+    ip-whitelist:
+      - 127.0.0.1
+      - 192.168.0.0/16
+      - 10.0.0.0/8
+  recording:
+    v2-enabled: true
+    min-recognition-rate: 95.0
+    min-locator-hit-rate: 98.0
+    max-long-tasks-per-min: 2

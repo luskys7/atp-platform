@@ -1,0 +1,20 @@
+env: development
+server_port: 8080
+mysql_dsn: "atp_user:atp_pass@tcp(localhost:3306)/atp_platform?charset=utf8mb4&parseTime=True&loc=Local"
+redis_addr: "localhost:6379"
+redis_password: ""
+jwt_secret: "atp-dev-secret-change-in-production"
+jwt_expire_hours: 24
+
+minio:
+  endpoint: "localhost:9000"
+  access_key: "atp_minio"
+  secret_key: "atp_minio_pass"
+  bucket: "atp-recordings"
+  use_ssl: false
+
+scheduler:
+  max_parallel_devices: 20
+  lock_ttl_seconds: 300
+  queue_max_size: 100
+  task_timeout_seconds: 3600
