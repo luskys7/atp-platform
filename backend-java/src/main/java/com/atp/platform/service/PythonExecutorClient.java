@@ -6,6 +6,7 @@ import com.atp.platform.entity.TaskExecution;
 import com.atp.platform.entity.TestTask;
 import com.atp.platform.exception.AppException;
 import com.atp.platform.repository.AppPackageRepository;
+import com.atp.platform.repository.DeviceRepository;
 import com.atp.platform.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -39,6 +40,7 @@ public class PythonExecutorClient {
     private final ExecutorPoolService executorPoolService;
     private final AssertPolicyService assertPolicyService;
     private final UserRepository userRepository;
+    private final DeviceRepository deviceRepository;
     private final ObjectMapper objectMapper;
     private final RestClient.Builder restClientBuilder;
     private RestClient restClient;
@@ -48,9 +50,43 @@ public class PythonExecutorClient {
         this.restClient = restClientBuilder.build();
     }
 
+    /** 解析设备对应执行器基址；无绑定则用默认 atp.executor.url */
+    public String resolveBaseUrl(Device device) {
+        if (device != null && device.getExecutorUrl() != null && !device.getExecutorUrl().isBlank()) {
+            return DeviceService.normalizeExecutorUrl(device.getExecutorUrl());
+        }
+        return DeviceService.normalizeExecutorUrl(properties.getExecutor().getUrl());
+    }
+
+    public String resolveBaseUrlBySerial(String serialNumber) {
+        if (serialNumber == null || serialNumber.isBlank()) {
+            return DeviceService.normalizeExecutorUrl(properties.getExecutor().getUrl());
+        }
+        return deviceRepository.findBySerialNumber(serialNumber)
+                .map(this::resolveBaseUrl)
+                .orElseGet(() -> DeviceService.normalizeExecutorUrl(properties.getExecutor().getUrl()));
+    }
+
     public ExecutorResult execute(TestTask task, TaskExecution execution, Device device) {
         ExecutorRequest req = buildRequest(task, execution, device);
-        List<String> urls = executorPoolService.healthyUrls();
+        List<String> urls = new ArrayList<>();
+        String bound = resolveBaseUrl(device);
+        if (bound != null && !bound.isBlank()) {
+            urls.add(bound);
+        }
+        for (String u : executorPoolService.healthyUrls()) {
+            String n = DeviceService.normalizeExecutorUrl(u);
+            if (n != null && !n.isBlank() && urls.stream().noneMatch(n::equalsIgnoreCase)) {
+                // 已绑定专属执行器时，不要 failover 到其他节点（设备不在那边）
+                if (device.getExecutorUrl() != null && !device.getExecutorUrl().isBlank()) {
+                    continue;
+                }
+                urls.add(n);
+            }
+        }
+        if (urls.isEmpty()) {
+            return ExecutorResult.failed("无可用执行器");
+        }
         Exception lastError = null;
         String lastUrl = null;
         for (String baseUrl : urls) {
@@ -90,58 +126,105 @@ public class PythonExecutorClient {
         return ExecutorResult.failed("执行器调用失败: " + (lastError != null ? lastError.getMessage() : "无可用节点"));
     }
 
+    public void installApp(Device device, String appPath) {
+        postJson(resolveBaseUrl(device), "/api/v1/device/install", Map.of(
+                "serial_number", device.getSerialNumber(),
+                "platform", device.getPlatform().name(),
+                "app_path", appPath
+        ));
+    }
+
     public void installApp(String serialNumber, String platform, String appPath) {
-        postJson("/api/v1/device/install", Map.of(
+        postJson(resolveBaseUrlBySerial(serialNumber), "/api/v1/device/install", Map.of(
                 "serial_number", serialNumber,
                 "platform", platform,
                 "app_path", appPath
         ));
     }
 
+    public void uninstallApp(Device device, String appPackage) {
+        postJson(resolveBaseUrl(device), "/api/v1/device/uninstall", Map.of(
+                "serial_number", device.getSerialNumber(),
+                "platform", device.getPlatform().name(),
+                "app_package", appPackage
+        ));
+    }
+
     public void uninstallApp(String serialNumber, String platform, String appPackage) {
-        postJson("/api/v1/device/uninstall", Map.of(
+        postJson(resolveBaseUrlBySerial(serialNumber), "/api/v1/device/uninstall", Map.of(
                 "serial_number", serialNumber,
                 "platform", platform,
                 "app_package", appPackage
         ));
     }
 
+    public void tap(Device device, int x, int y) {
+        postJson(resolveBaseUrl(device), "/api/v1/device/tap", Map.of(
+                "serial_number", device.getSerialNumber(),
+                "x", x,
+                "y", y
+        ));
+    }
+
     public void tap(String serialNumber, int x, int y) {
-        postJson("/api/v1/device/tap", Map.of(
+        postJson(resolveBaseUrlBySerial(serialNumber), "/api/v1/device/tap", Map.of(
                 "serial_number", serialNumber,
                 "x", x,
                 "y", y
         ));
     }
 
+    public void swipe(Device device, int x1, int y1, int x2, int y2, int durationMs) {
+        postJson(resolveBaseUrl(device), "/api/v1/device/swipe", Map.of(
+                "serial_number", device.getSerialNumber(),
+                "x1", x1, "y1", y1, "x2", x2, "y2", y2, "duration_ms", durationMs
+        ));
+    }
+
     public void swipe(String serialNumber, int x1, int y1, int x2, int y2, int durationMs) {
-        postJson("/api/v1/device/swipe", Map.of(
+        postJson(resolveBaseUrlBySerial(serialNumber), "/api/v1/device/swipe", Map.of(
                 "serial_number", serialNumber,
                 "x1", x1, "y1", y1, "x2", x2, "y2", y2, "duration_ms", durationMs
         ));
     }
 
+    public void inputText(Device device, String text, Integer focusX, Integer focusY) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("serial_number", device.getSerialNumber());
+        body.put("text", text != null ? text : "");
+        if (focusX != null) body.put("focus_x", focusX);
+        if (focusY != null) body.put("focus_y", focusY);
+        postJson(resolveBaseUrl(device), "/api/v1/device/input-text", body);
+    }
+
     public void inputText(String serialNumber, String text, Integer focusX, Integer focusY) {
-        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        Map<String, Object> body = new LinkedHashMap<>();
         body.put("serial_number", serialNumber);
         body.put("text", text != null ? text : "");
         if (focusX != null) body.put("focus_x", focusX);
         if (focusY != null) body.put("focus_y", focusY);
-        postJson("/api/v1/device/input-text", body);
+        postJson(resolveBaseUrlBySerial(serialNumber), "/api/v1/device/input-text", body);
+    }
+
+    public void pressSystemKey(Device device, String key) {
+        postJson(resolveBaseUrl(device), "/api/v1/device/system-key", Map.of(
+                "serial_number", device.getSerialNumber(),
+                "key", key != null ? key : ""
+        ));
     }
 
     public void pressSystemKey(String serialNumber, String key) {
-        postJson("/api/v1/device/system-key", Map.of(
+        postJson(resolveBaseUrlBySerial(serialNumber), "/api/v1/device/system-key", Map.of(
                 "serial_number", serialNumber,
                 "key", key != null ? key : ""
         ));
     }
 
-    private void postJson(String path, Map<String, Object> payload) {
+    private void postJson(String baseUrl, String path, Map<String, Object> payload) {
         try {
             byte[] body = objectMapper.writeValueAsBytes(payload);
             restClient.post()
-                    .uri(executorUrl(path))
+                    .uri(baseUrl + path)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -157,11 +240,11 @@ public class PythonExecutorClient {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> postJsonForMap(String path, Map<String, Object> payload) {
+    private Map<String, Object> postJsonForMap(String baseUrl, String path, Map<String, Object> payload) {
         try {
             byte[] body = objectMapper.writeValueAsBytes(payload);
             Map<?, ?> resp = restClient.post()
-                    .uri(executorUrl(path))
+                    .uri(baseUrl + path)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
@@ -205,15 +288,16 @@ public class PythonExecutorClient {
         return new AppException("EXECUTOR_ERROR", msg, status);
     }
 
-    private String executorUrl(String path) {
-        return properties.getExecutor().getUrl() + path;
+    public Map<String, Object> listUsbDevices() {
+        return listUsbDevices(properties.getExecutor().getUrl());
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> listUsbDevices() {
+    public Map<String, Object> listUsbDevices(String baseUrl) {
+        String base = DeviceService.normalizeExecutorUrl(baseUrl);
         try {
             Map<?, ?> resp = restClient.get()
-                    .uri(properties.getExecutor().getUrl() + "/api/v1/device/adb-list")
+                    .uri(base + "/api/v1/device/adb-list")
                     .retrieve()
                     .body(Map.class);
             if (resp == null) {
@@ -223,7 +307,7 @@ public class PythonExecutorClient {
             resp.forEach((k, v) -> out.put(String.valueOf(k), v));
             return out;
         } catch (Exception e) {
-            log.warn("listUsbDevices failed: {}", e.getMessage());
+            log.warn("listUsbDevices failed url={}: {}", base, e.getMessage());
             return Map.of("success", false, "message", "执行器不可用: " + e.getMessage(), "devices", List.of());
         }
     }
@@ -232,9 +316,17 @@ public class PythonExecutorClient {
         warmUiCache(serialNumber, platform, false);
     }
 
+    public void warmUiCache(Device device, boolean blocking) {
+        warmUiCache(device.getSerialNumber(), device.getPlatform().name(), blocking, resolveBaseUrl(device));
+    }
+
     public void warmUiCache(String serialNumber, String platform, boolean blocking) {
+        warmUiCache(serialNumber, platform, blocking, resolveBaseUrlBySerial(serialNumber));
+    }
+
+    private void warmUiCache(String serialNumber, String platform, boolean blocking, String baseUrl) {
         try {
-            postJsonForMap("/api/v1/device/warm-ui-cache", Map.of(
+            postJsonForMap(baseUrl, "/api/v1/device/warm-ui-cache", Map.of(
                     "serial_number", serialNumber,
                     "platform", platform != null ? platform : "android",
                     "blocking", blocking
@@ -244,17 +336,32 @@ public class PythonExecutorClient {
         }
     }
 
-    @SuppressWarnings("unchecked")
     public Map<String, Object> validateLocatorOnScreen(String serialNumber, String platform,
                                                       Map<String, Object> locators,
                                                       List<Map<String, Object>> locatorChain) {
+        return validateLocatorOnScreen(serialNumber, platform, locators, locatorChain,
+                resolveBaseUrlBySerial(serialNumber));
+    }
+
+    public Map<String, Object> validateLocatorOnScreen(Device device,
+                                                      Map<String, Object> locators,
+                                                      List<Map<String, Object>> locatorChain) {
+        return validateLocatorOnScreen(device.getSerialNumber(), device.getPlatform().name(),
+                locators, locatorChain, resolveBaseUrl(device));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> validateLocatorOnScreen(String serialNumber, String platform,
+                                                      Map<String, Object> locators,
+                                                      List<Map<String, Object>> locatorChain,
+                                                      String baseUrl) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("serial_number", serialNumber);
             body.put("platform", platform != null ? platform : "android");
             body.put("locators", locators != null ? locators : Map.of());
             body.put("locator_chain", locatorChain != null ? locatorChain : List.of());
-            Map<String, Object> resp = postJsonForMap("/api/v1/device/validate-locator", body);
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/validate-locator", body);
             if (resp.isEmpty()) {
                 return Map.of("valid", false, "error", "executor_unavailable");
             }
@@ -270,7 +377,6 @@ public class PythonExecutorClient {
         return validateLocatorOnScreen(serialNumber, platform, locators, null);
     }
 
-    @SuppressWarnings("unchecked")
     public Map<String, Object> inspectPoint(String serialNumber, String platform, int x, int y,
                                            Integer displayWidth, Integer displayHeight) {
         return inspectPoint(serialNumber, platform, x, y, displayWidth, displayHeight, false);
@@ -281,12 +387,29 @@ public class PythonExecutorClient {
         return inspectPoint(serialNumber, platform, x, y, displayWidth, displayHeight, blocking, null, null);
     }
 
-    @SuppressWarnings("unchecked")
+    public Map<String, Object> inspectPoint(Device device, int x, int y,
+                                           Integer displayWidth, Integer displayHeight, boolean blocking) {
+        return inspectPoint(
+                device.getSerialNumber(),
+                device.getPlatform().name(),
+                x, y, displayWidth, displayHeight, blocking,
+                device.getAgentHost(), device.getWdaPort(),
+                resolveBaseUrl(device));
+    }
+
     public Map<String, Object> inspectPoint(String serialNumber, String platform, int x, int y,
                                            Integer displayWidth, Integer displayHeight, boolean blocking,
                                            String agentHost, Integer wdaPort) {
+        return inspectPoint(serialNumber, platform, x, y, displayWidth, displayHeight, blocking,
+                agentHost, wdaPort, resolveBaseUrlBySerial(serialNumber));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> inspectPoint(String serialNumber, String platform, int x, int y,
+                                           Integer displayWidth, Integer displayHeight, boolean blocking,
+                                           String agentHost, Integer wdaPort, String baseUrl) {
         try {
-            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            Map<String, Object> body = new LinkedHashMap<>();
             body.put("serial_number", serialNumber);
             body.put("platform", platform);
             body.put("x", x);
@@ -296,7 +419,7 @@ public class PythonExecutorClient {
             if (displayHeight != null && displayHeight > 0) body.put("display_height", displayHeight);
             if (agentHost != null && !agentHost.isBlank()) body.put("agent_host", agentHost);
             if (wdaPort != null && wdaPort > 0) body.put("wda_port", wdaPort);
-            Map<String, Object> resp = postJsonForMap("/api/v1/device/inspect-point", body);
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/inspect-point", body);
             if (resp.isEmpty()) {
                 return Map.of("source", "coordinate", "context", "native", "valid", false,
                         "inspect_error", "executor_unavailable");
@@ -309,13 +432,21 @@ public class PythonExecutorClient {
         }
     }
 
-    @SuppressWarnings("unchecked")
+    public Map<String, Object> switchContext(Device device, String target) {
+        return switchContext(device.getSerialNumber(), target, resolveBaseUrl(device));
+    }
+
     public Map<String, Object> switchContext(String serialNumber, String target) {
+        return switchContext(serialNumber, target, resolveBaseUrlBySerial(serialNumber));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> switchContext(String serialNumber, String target, String baseUrl) {
         try {
-            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            Map<String, Object> body = new LinkedHashMap<>();
             body.put("serial_number", serialNumber);
             body.put("target", target != null ? target : "auto");
-            Map<String, Object> resp = postJsonForMap("/api/v1/device/switch-context", body);
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/switch-context", body);
             return resp.isEmpty() ? Map.of("ok", false) : resp;
         } catch (Exception e) {
             log.warn("switchContext failed serial={}: {}", serialNumber, e.getMessage());
@@ -330,7 +461,8 @@ public class PythonExecutorClient {
         if (config != null) {
             body.putAll(config);
         }
-        Map<String, Object> resp = postJsonForMap("/api/v1/device/wda-deploy", body);
+        Map<String, Object> resp = postJsonForMap(resolveBaseUrlBySerial(serialNumber),
+                "/api/v1/device/wda-deploy", body);
         if (resp.isEmpty()) {
             return Map.of("success", false, "message", "执行器无响应");
         }
@@ -339,7 +471,9 @@ public class PythonExecutorClient {
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> wdaStatus(String agentHost, int wdaPort) {
-        Map<String, Object> resp = postJsonForMap("/api/v1/device/wda-status", Map.of(
+        Map<String, Object> resp = postJsonForMap(
+                DeviceService.normalizeExecutorUrl(properties.getExecutor().getUrl()),
+                "/api/v1/device/wda-status", Map.of(
                 "agent_host", agentHost != null ? agentHost : "127.0.0.1",
                 "wda_port", wdaPort
         ));

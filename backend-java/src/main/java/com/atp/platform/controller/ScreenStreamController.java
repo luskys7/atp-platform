@@ -37,13 +37,25 @@ public class ScreenStreamController {
         ScreenStreamTokenService.StreamSession session = tokenService.createSession(
                 id, device.getSerialNumber(), SecurityUtils.currentUserId());
 
-        String executorBase = properties.getExecutor().getUrl()
+        String executorHttp = executorClient.resolveBaseUrl(device);
+        String executorWs = executorHttp
                 .replace("https://", "wss://").replace("http://", "ws://");
-        String wsPath = executorBase + "/ws/screen/" + device.getSerialNumber() + "?token=" + session.token();
+        String tokenQ = "?token=" + session.token();
+        String absoluteWs = executorWs + "/ws/screen/" + device.getSerialNumber() + tokenQ;
+        String defaultExec = properties.getExecutor().getUrl()
+                .replaceAll("/$", "");
+        boolean localDefault = executorHttp.equalsIgnoreCase(defaultExec)
+                || executorHttp.contains("localhost")
+                || executorHttp.contains("127.0.0.1");
+        // 本地默认执行器走 Vite 代理；远程执行器须浏览器直连绝对 WS
+        String proxyWs = localDefault
+                ? "/ws/executor/ws/screen/" + device.getSerialNumber() + tokenQ
+                : absoluteWs;
 
         return ApiResponse.ok(Map.of(
-                "ws_url", wsPath,
-                "proxy_ws_url", "/ws/executor/ws/screen/" + device.getSerialNumber() + "?token=" + session.token(),
+                "ws_url", absoluteWs,
+                "proxy_ws_url", proxyWs,
+                "executor_url", executorHttp,
                 "token", session.token(),
                 "serial_number", device.getSerialNumber(),
                 "device_id", id,
@@ -64,14 +76,14 @@ public class ScreenStreamController {
         Device device = deviceService.getById(id);
         int x = requireInt(body, "x");
         int y = requireInt(body, "y");
-        executorClient.tap(device.getSerialNumber(), x, y);
+        executorClient.tap(device, x, y);
         return ApiResponse.ok();
     }
 
     @PostMapping("/api/v1/devices/{id}/screen/swipe")
     public ApiResponse<Void> swipe(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         Device device = deviceService.getById(id);
-        executorClient.swipe(device.getSerialNumber(),
+        executorClient.swipe(device,
                 requireInt(body, "x1"), requireInt(body, "y1"),
                 requireInt(body, "x2"), requireInt(body, "y2"),
                 intOrDefault(body, "duration_ms", 300));
@@ -86,7 +98,7 @@ public class ScreenStreamController {
         }
         Integer x = body.get("x") != null ? ((Number) body.get("x")).intValue() : null;
         Integer y = body.get("y") != null ? ((Number) body.get("y")).intValue() : null;
-        executorClient.inputText(device.getSerialNumber(), body.get("text").toString(), x, y);
+        executorClient.inputText(device, body.get("text").toString(), x, y);
         return ApiResponse.ok();
     }
 
@@ -96,7 +108,7 @@ public class ScreenStreamController {
         if (body == null || body.get("key") == null) {
             throw new AppException("INVALID", "缺少按键 key", HttpStatus.BAD_REQUEST);
         }
-        executorClient.pressSystemKey(device.getSerialNumber(), body.get("key").toString());
+        executorClient.pressSystemKey(device, body.get("key").toString());
         return ApiResponse.ok();
     }
 
@@ -115,10 +127,7 @@ public class ScreenStreamController {
         Integer displayHeight = body.get("display_height") != null
                 ? ((Number) body.get("display_height")).intValue() : device.getScreenHeight();
         Map<String, Object> inspect = executorClient.inspectPoint(
-                device.getSerialNumber(),
-                device.getPlatform().name(),
-                x, y, displayWidth, displayHeight, blocking,
-                device.getAgentHost(), device.getWdaPort());
+                device, x, y, displayWidth, displayHeight, blocking);
         return ApiResponse.ok(enrichInspectResult(inspect));
     }
 
@@ -130,7 +139,7 @@ public class ScreenStreamController {
             throw new AppException("INVALID", "WebView 上下文切换当前仅支持 Android", HttpStatus.BAD_REQUEST);
         }
         String target = body != null && body.get("target") != null ? body.get("target").toString() : "auto";
-        return ApiResponse.ok(executorClient.switchContext(device.getSerialNumber(), target));
+        return ApiResponse.ok(executorClient.switchContext(device, target));
     }
 
     @PostMapping("/api/v1/devices/{id}/screen/warm-ui")
@@ -144,7 +153,7 @@ public class ScreenStreamController {
             throw new AppException("INVALID", "设备序列号缺失", HttpStatus.BAD_REQUEST);
         }
         boolean blocking = body != null && Boolean.parseBoolean(String.valueOf(body.getOrDefault("blocking", false)));
-        executorClient.warmUiCache(device.getSerialNumber(), device.getPlatform().name(), blocking);
+        executorClient.warmUiCache(device, blocking);
         return ApiResponse.ok(Map.of("ok", true, "blocking", blocking));
     }
 
@@ -164,8 +173,7 @@ public class ScreenStreamController {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> chain = body.get("locator_chain") instanceof List<?> list
                 ? (List<Map<String, Object>>) list : null;
-        Map<String, Object> result = executorClient.validateLocatorOnScreen(
-                device.getSerialNumber(), device.getPlatform().name(), locators, chain);
+        Map<String, Object> result = executorClient.validateLocatorOnScreen(device, locators, chain);
         return ApiResponse.ok(result);
     }
 

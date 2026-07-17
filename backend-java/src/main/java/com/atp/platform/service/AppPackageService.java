@@ -119,7 +119,7 @@ public class AppPackageService {
                     row.put("message", "当前仅支持 Android 批量安装");
                     failed++;
                 } else {
-                    executorClient.installApp(device.getSerialNumber(), device.getPlatform().name(), pkg.getFilePath());
+                    executorClient.installApp(device, pkg.getFilePath());
                     row.put("success", true);
                     row.put("message", "安装指令已下发");
                     success++;

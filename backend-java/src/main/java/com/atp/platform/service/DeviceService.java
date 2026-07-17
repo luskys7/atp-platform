@@ -52,6 +52,9 @@ public class DeviceService {
         device.setStatus(Device.DeviceStatus.online);
         device.setAgentHost(req.getAgentHost());
         device.setAgentPort(req.getAgentPort());
+        if (req.getExecutorUrl() != null && !req.getExecutorUrl().isBlank()) {
+            device.setExecutorUrl(normalizeExecutorUrl(req.getExecutorUrl()));
+        }
         device.setScreenWidth(req.getScreenWidth());
         device.setScreenHeight(req.getScreenHeight());
         device.setWdaPort(req.getWdaPort());
@@ -70,12 +73,28 @@ public class DeviceService {
     }
 
     public void heartbeat(String serialNumber, Integer batteryLevel) {
+        heartbeat(serialNumber, batteryLevel, null);
+    }
+
+    public void heartbeat(String serialNumber, Integer batteryLevel, String executorUrl) {
         Device device = deviceRepository.findBySerialNumber(serialNumber)
                 .orElseThrow(() -> new AppException(ErrorCodes.E1001, HttpStatus.FORBIDDEN));
         device.setLastHeartbeatAt(LocalDateTime.now());
         device.setBatteryLevel(batteryLevel != null ? batteryLevel : 0);
         device.setStatus(Device.DeviceStatus.online);
+        if (executorUrl != null && !executorUrl.isBlank()) {
+            device.setExecutorUrl(normalizeExecutorUrl(executorUrl));
+        }
         deviceRepository.save(device);
+    }
+
+    public static String normalizeExecutorUrl(String url) {
+        if (url == null) return null;
+        String u = url.trim();
+        while (u.endsWith("/")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        return u;
     }
 
     public Page<Device> list(int page, int pageSize, String platform, String status) {
@@ -327,11 +346,11 @@ public class DeviceService {
 
     public void installApp(Long deviceId, String appPath) {
         Device device = getById(deviceId);
-        executorClient.installApp(device.getSerialNumber(), device.getPlatform().name(), appPath);
+        executorClient.installApp(device, appPath);
     }
 
     public void uninstallApp(Long deviceId, String appPackage) {
         Device device = getById(deviceId);
-        executorClient.uninstallApp(device.getSerialNumber(), device.getPlatform().name(), appPackage);
+        executorClient.uninstallApp(device, appPackage);
     }
 }

@@ -22,6 +22,8 @@ public class AtpProperties {
     private Device device = new Device();
     /** 录屏 v2 功能开关与性能阈值 */
     private Recording recording = new Recording();
+    /** 访客启动器等静态下载目录 */
+    private Downloads downloads = new Downloads();
     /** 全局变量，执行时注入变量链最低优先级层 */
     private java.util.Map<String, String> variables = new java.util.LinkedHashMap<>();
 
@@ -145,5 +147,11 @@ public class AtpProperties {
         private double minLocatorHitRate = 98.0;
         /** 录制 CPU 性能采样：长任务每分钟上限（good 等级） */
         private int maxLongTasksPerMin = 2;
+    }
+
+    @Data
+    public static class Downloads {
+        /** 相对后端工作目录，默认 data/downloads */
+        private String dir = "./data/downloads";
     }
 }

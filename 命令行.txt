@@ -1,23 +1,31 @@
-# 停旧进程
-Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue |
-  Select-Object -ExpandProperty OwningProcess -Unique |
-  ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+# ========== 一键启停（推荐）==========
+# 必须在含 scripts/ 的项目根目录：
+#   c:\Users\yu.xiao03\UI_AutoTest\atp-platform-main\atp-platform-main
 
-# 打包 + 启动
-Set-Location "e:\自动化测试平台-1\backend-java"
-& "e:\自动化测试平台-1\tools\apache-maven-3.9.6\bin\mvn.cmd" -DskipTests package
-java -jar target\atp-platform-1.0.0.jar --spring.profiles.active=local
+Set-ExecutionPolicy -Scope Process Bypass
+cd "c:\Users\yu.xiao03\UI_AutoTest\atp-platform-main\atp-platform-main"
 
+# 启动（会先停旧进程 → 等后端健康 → 再开前后端）
+.\scripts\start-local.ps1
 
+# 停止
+.\scripts\stop-local.ps1
 
-Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue |
-  Select-Object -ExpandProperty OwningProcess -Unique |
-  ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+# 或双击：
+#   scripts\start-local.bat
+#   scripts\stop-local.bat
 
-$env:JAVA_HOME = (Split-Path (Split-Path (Get-Command java).Source))
-Set-Location "e:\自动化测试平台-1\backend-java"
-& "e:\自动化测试平台-1\tools\apache-maven-3.9.6\bin\mvn.cmd" -DskipTests package
-java -jar target\atp-platform-1.0.0.jar --spring.profiles.active=lo
+# 访问：http://localhost:3000   账号 admin / admin123
 
+# ========== 远程执行器（访问者本机）==========
+# .\scripts\start-remote-executor.ps1 -PlatformUrl http://中心IP:8080 -PublicUrl http://本机IP:9002
 
-e:\自动化测试平台-1\scripts\start-local.ps1cal
+# ========== 仅启动后端（备用）==========
+# $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
+# cd backend-java
+# ..\tools\apache-maven-3.9.6\bin\mvn.cmd -DskipTests spring-boot:run "-Dspring-boot.run.profiles=local"
+
+# ========== 仅启动前端（备用）==========
+# $env:Path = "C:\Program Files\nodejs;" + $env:Path
+# cd frontend
+# npm run dev

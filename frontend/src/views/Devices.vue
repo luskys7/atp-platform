@@ -6,6 +6,9 @@
         <p>USB 接入自动入池 · 远程投屏 · 自动化调度</p>
       </div>
       <div class="hero-actions">
+        <el-button :loading="downloadingLauncher" @click="downloadLauncher">
+          <el-icon><Download /></el-icon> 下载启动器
+        </el-button>
         <el-button type="primary" :loading="syncingUsb" @click="syncUsbDevices">
           <el-icon><Refresh /></el-icon> 同步 USB
         </el-button>
@@ -93,6 +96,7 @@
             <el-tag v-for="t in row.tags.split(',').slice(0, 3)" :key="t" size="small" round effect="plain">{{ t.trim() }}</el-tag>
           </div>
           <p class="serial mono">{{ row.serial_number }}</p>
+          <p v-if="row.executor_url" class="executor mono" :title="row.executor_url">执行器 {{ shortExecutor(row.executor_url) }}</p>
         </div>
 
         <div class="card-actions">
@@ -239,6 +243,7 @@ const showTagsDialog = ref(false)
 const tagsDeviceId = ref(null)
 const tagsForm = reactive({ tags: '' })
 const syncingUsb = ref(false)
+const downloadingLauncher = ref(false)
 let snapshotTimer = null
 const snapshotTick = ref(0)
 
@@ -266,6 +271,15 @@ function androidVer(row) {
   return androidVersionLabel(row)
 }
 
+function shortExecutor(url) {
+  if (!url) return ''
+  try {
+    return new URL(url).host
+  } catch {
+    return String(url).replace(/^https?:\/\//, '')
+  }
+}
+
 function batteryClass(level) {
   if (level == null) return ''
   if (level < 20) return 'low'
@@ -283,6 +297,45 @@ async function syncUsbDevices() {
     ElMessage.success(res.data?.message || 'USB 设备已同步')
     loadDevices()
   } finally { syncingUsb.value = false }
+}
+
+async function downloadLauncher() {
+  downloadingLauncher.value = true
+  try {
+    const info = await deviceApi.launcherInfo()
+    if (!info.data?.available) {
+      ElMessage.warning(info.data?.message || '启动器尚未就绪，请联系管理员打包')
+      return
+    }
+    const fileBlob = await deviceApi.downloadLauncher()
+    if (!(fileBlob instanceof Blob)) {
+      ElMessage.error('下载失败：响应格式不正确')
+      return
+    }
+    if (fileBlob.type && fileBlob.type.includes('json')) {
+      const text = await fileBlob.text()
+      try {
+        const j = JSON.parse(text)
+        ElMessage.error(j.message || j.error?.message || '下载失败')
+      } catch {
+        ElMessage.error('下载失败')
+      }
+      return
+    }
+    const url = URL.createObjectURL(fileBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = info.data?.filename || 'TestFlow-Executor.exe'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    ElMessage.success('已开始下载。保存后双击运行，填写中心地址即可接入本机手机。')
+  } catch (e) {
+    ElMessage.error(e?.message || '下载启动器失败')
+  } finally {
+    downloadingLauncher.value = false
+  }
 }
 
 async function loadDevices() {
@@ -587,6 +640,15 @@ onUnmounted(() => {
 
 .serial {
   margin: 8px 0 0;
+  font-size: 10px;
+  color: var(--atp-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executor {
+  margin: 4px 0 0;
   font-size: 10px;
   color: var(--atp-text-muted);
   overflow: hidden;

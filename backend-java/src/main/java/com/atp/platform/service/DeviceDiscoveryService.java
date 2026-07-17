@@ -11,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.*;
 
 @Slf4j
@@ -27,9 +26,11 @@ public class DeviceDiscoveryService {
     private final DeviceRepository deviceRepository;
     private final DeviceWhitelistRepository whitelistRepository;
 
+    /** 从默认执行器（atp.executor.url）拉取本机 USB 设备 */
     @Transactional
     public Map<String, Object> syncUsbDevices() {
-        Map<String, Object> scan = executorClient.listUsbDevices();
+        String base = DeviceService.normalizeExecutorUrl(properties.getExecutor().getUrl());
+        Map<String, Object> scan = executorClient.listUsbDevices(base);
         if (!Boolean.TRUE.equals(scan.get("success"))) {
             return Map.of(
                     "success", false,
@@ -37,9 +38,29 @@ public class DeviceDiscoveryService {
                     "synced", 0
             );
         }
-
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> found = (List<Map<String, Object>>) scan.getOrDefault("devices", List.of());
+        return applyScan(base, found);
+    }
+
+    /**
+     * 远程执行器主动上报本机 USB 设备列表。
+     * @param executorUrl 浏览器与中央后端均可访问的执行器基址，如 http://10.0.0.12:9002
+     */
+    @Transactional
+    public Map<String, Object> ingestFromExecutor(String executorUrl, List<Map<String, Object>> devices) {
+        String base = DeviceService.normalizeExecutorUrl(executorUrl);
+        if (base == null || base.isBlank()) {
+            return Map.of("success", false, "message", "executor_url 必填", "synced", 0);
+        }
+        if (!base.startsWith("http://") && !base.startsWith("https://")) {
+            return Map.of("success", false, "message", "executor_url 须为 http(s) 地址", "synced", 0);
+        }
+        List<Map<String, Object>> found = devices != null ? devices : List.of();
+        return applyScan(base, found);
+    }
+
+    private Map<String, Object> applyScan(String executorUrl, List<Map<String, Object>> found) {
         Set<String> seen = new HashSet<>();
         int synced = 0;
         List<String> serials = new ArrayList<>();
@@ -49,17 +70,21 @@ public class DeviceDiscoveryService {
             if (serial.isBlank()) continue;
             seen.add(serial);
             ensureAutoWhitelist(serial);
-            deviceService.register(toRegisterRequest(row));
+            DeviceRegisterRequest req = toRegisterRequest(row, executorUrl);
+            deviceService.register(req);
             synced++;
             serials.add(serial);
         }
 
-        markUnpluggedOffline(seen);
+        markUnpluggedOffline(seen, executorUrl);
         return Map.of(
                 "success", true,
                 "synced", synced,
                 "serials", serials,
-                "message", synced > 0 ? "已同步 " + synced + " 台 USB 设备" : "未检测到 USB 真机，请确认 adb devices 可见"
+                "executor_url", executorUrl,
+                "message", synced > 0
+                        ? "已同步 " + synced + " 台 USB 设备 → " + executorUrl
+                        : "未检测到 USB 真机（执行器 " + executorUrl + "）"
         );
     }
 
@@ -78,13 +103,18 @@ public class DeviceDiscoveryService {
         log.info("USB auto-whitelist: {}", serial);
     }
 
-    private void markUnpluggedOffline(Set<String> connected) {
+    /** 仅下线「归属本执行器」且已拔出的自动发现设备，避免误伤其他节点上的手机 */
+    private void markUnpluggedOffline(Set<String> connected, String executorUrl) {
         String remark = properties.getDevice().getUsbAutoWhitelistRemark();
         if (remark == null || remark.isBlank()) remark = AUTO_REMARK;
+        String normalized = DeviceService.normalizeExecutorUrl(executorUrl);
         for (DeviceWhitelist wl : whitelistRepository.findAll()) {
             if (!remark.equals(wl.getRemark())) continue;
             if (connected.contains(wl.getSerialNumber())) continue;
             deviceRepository.findBySerialNumber(wl.getSerialNumber()).ifPresent(d -> {
+                if (!sameExecutor(d.getExecutorUrl(), normalized)) {
+                    return;
+                }
                 if (d.getStatus() == Device.DeviceStatus.online || d.getStatus() == Device.DeviceStatus.busy) {
                     d.setStatus(Device.DeviceStatus.offline);
                     deviceRepository.save(d);
@@ -93,7 +123,19 @@ public class DeviceDiscoveryService {
         }
     }
 
-    private DeviceRegisterRequest toRegisterRequest(Map<String, Object> row) {
+    private boolean sameExecutor(String deviceUrl, String scanUrl) {
+        String a = DeviceService.normalizeExecutorUrl(deviceUrl);
+        String b = DeviceService.normalizeExecutorUrl(scanUrl);
+        if (b == null || b.isBlank()) return true;
+        if (a == null || a.isBlank()) {
+            // 兼容旧数据：未写 executor_url 的视为默认执行器
+            String def = DeviceService.normalizeExecutorUrl(properties.getExecutor().getUrl());
+            return Objects.equals(def, b);
+        }
+        return Objects.equals(a, b);
+    }
+
+    private DeviceRegisterRequest toRegisterRequest(Map<String, Object> row, String executorUrl) {
         DeviceRegisterRequest req = new DeviceRegisterRequest();
         req.setSerialNumber(str(row.get("serial_number")));
         req.setName(str(row.get("name")));
@@ -102,6 +144,7 @@ public class DeviceDiscoveryService {
         req.setModel(str(row.get("model")));
         req.setAgentHost(str(row.get("agent_host")));
         req.setAgentPort(intVal(row.get("agent_port"), 9100));
+        req.setExecutorUrl(executorUrl);
         req.setScreenWidth(intVal(row.get("screen_width"), null));
         req.setScreenHeight(intVal(row.get("screen_height"), null));
         req.setAdbPort(intVal(row.get("adb_port"), 5037));

@@ -424,7 +424,7 @@ public class ControlPoolService {
         if (poolPlatform == null || ctxPlatform == null || ctxPlatform.isBlank() || "both".equals(ctxPlatform)) {
             return true;
         }
-        return poolPlatform.name().equalsIgnoreCase(ctxPlatform) || poolPlatform == Device.Platform.both;
+        return poolPlatform.name().equalsIgnoreCase(ctxPlatform);
     }
 
     private String normalizeDim(String val) {
@@ -903,8 +903,9 @@ public class ControlPoolService {
         Map<String, Object> waitRule = null;
         Object wr = fv.get("wait_rule");
         if (wr instanceof Map<?, ?> map && !map.isEmpty()) {
-            waitRule = new LinkedHashMap<>();
-            map.forEach((k, v) -> waitRule.put(String.valueOf(k), v));
+            Map<String, Object> waitRuleMap = new LinkedHashMap<>();
+            map.forEach((k, v) -> waitRuleMap.put(String.valueOf(k), v));
+            waitRule = waitRuleMap;
         }
         return new ResolvedControl(key, elementName, pool.getLocatorType(), pool.getLocatorValue(),
                 source, stepIndex, locators, chain, waitRule);

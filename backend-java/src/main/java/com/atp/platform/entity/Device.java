@@ -42,6 +42,13 @@ public class Device {
     @Column(name = "agent_port")
     private Integer agentPort;
 
+    /**
+     * 该设备所属执行器 HTTP 基址，如 http://10.0.0.12:9002。
+     * 中央后端按此字段路由控机/投屏/任务；为空则回退到 atp.executor.url。
+     */
+    @Column(name = "executor_url", length = 256)
+    private String executorUrl;
+
     @Column(name = "battery_level")
     private Integer batteryLevel = 0;
 

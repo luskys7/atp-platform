@@ -68,6 +68,10 @@ request.interceptors.request.use(config => {
 request.interceptors.response.use(
   response => {
     const res = response.data
+    // 文件下载（blob）直接返回
+    if (res instanceof Blob || response.config?.responseType === 'blob') {
+      return res
+    }
     if (res.code !== 0 && res.code !== undefined) {
       ElMessage.error(res.message || '请求失败')
       if (res.error?.code) {
@@ -148,7 +152,13 @@ export const deviceApi = {
   resetHealth: (id) => request.post(`/devices/${id}/reset-health`),
   syncUsb: () => request.post('/devices/sync-usb'),
   wdaStatus: (id) => request.get(`/devices/${id}/wda/status`),
-  deployWda: (id) => request.post(`/devices/${id}/wda/deploy`)
+  deployWda: (id) => request.post(`/devices/${id}/wda/deploy`),
+  launcherInfo: () => request.get('/downloads/executor-launcher/info'),
+  /** 下载访客本机执行器 exe（blob） */
+  downloadLauncher: () => request.get('/downloads/executor-launcher', {
+    responseType: 'blob',
+    timeout: 600000
+  })
 }
 
 export const taskApi = {

@@ -38,7 +38,11 @@ DEFAULT_RECORDINGS = os.path.abspath(
 RECORDINGS_BASE = os.environ.get("ATP_RECORDINGS_PATH", DEFAULT_RECORDINGS)
 EXECUTOR_DIR = os.path.dirname(os.path.abspath(__file__))
 
-BACKEND_URL = os.environ.get("ATP_BACKEND_URL", "http://localhost:8080")
+BACKEND_URL = (
+    os.environ.get("ATP_BACKEND_URL")
+    or os.environ.get("PLATFORM_URL")
+    or "http://localhost:8080"
+).rstrip("/")
 screen_stream.set_verify_url(f"{BACKEND_URL}/api/v1/screen/verify")
 
 
@@ -746,4 +750,9 @@ def _collect_logcat(proc: subprocess.Popen) -> list[LogEntry]:
 
 if __name__ == "__main__":
     port = int(os.environ.get("EXECUTOR_PORT", "9002"))
+    try:
+        from platform_sync import start_background_sync
+        start_background_sync(port)
+    except Exception as e:
+        logger.warning("platform sync disabled: %s", e)
     uvicorn.run(app, host="0.0.0.0", port=port, ws="websockets")

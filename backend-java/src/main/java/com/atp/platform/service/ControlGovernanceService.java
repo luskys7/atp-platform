@@ -69,19 +69,19 @@ public class ControlGovernanceService {
             } else {
                 failed++;
             }
-            results.add(Map.of(
-                    "pool_id", pool.getId(),
-                    "element_name", pool.getElementName(),
-                    "app_package", pool.getAppPackage() != null ? pool.getAppPackage() : "",
-                    "page_name", pool.getPageName() != null ? pool.getPageName() : "",
-                    "valid", valid,
-                    "matched_by", vr.getOrDefault("matched_by", ""),
-                    "error", vr.getOrDefault("error", ""),
-                    "fail_streak", record.getOrDefault("fail_streak", 0),
-                    "suggest_archive", record.getOrDefault("suggest_archive", false),
-                    "archived", record.getOrDefault("archived", false),
-                    "risk_level", controlPoolService.parseFeatureVector(pool).getOrDefault("risk_level", "")
-            ));
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("pool_id", pool.getId());
+            row.put("element_name", pool.getElementName());
+            row.put("app_package", pool.getAppPackage() != null ? pool.getAppPackage() : "");
+            row.put("page_name", pool.getPageName() != null ? pool.getPageName() : "");
+            row.put("valid", valid);
+            row.put("matched_by", vr.getOrDefault("matched_by", ""));
+            row.put("error", vr.getOrDefault("error", ""));
+            row.put("fail_streak", record.getOrDefault("fail_streak", 0));
+            row.put("suggest_archive", record.getOrDefault("suggest_archive", false));
+            row.put("archived", record.getOrDefault("archived", false));
+            row.put("risk_level", controlPoolService.parseFeatureVector(pool).getOrDefault("risk_level", ""));
+            results.add(row);
         }
 
         List<Map<String, Object>> unstableTop = unstableStats(30, 10);

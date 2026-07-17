@@ -26,6 +26,8 @@ atp:
     local-path: ./data/recordings
     reports-path: ./data/reports
     apps-path: ./data/apps
+  downloads:
+    dir: ./data/downloads
   executor:
     url: http://localhost:9002
   backup:

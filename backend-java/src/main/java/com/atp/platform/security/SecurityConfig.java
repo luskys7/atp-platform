@@ -43,6 +43,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/auth/login").permitAll()
                 .requestMatchers("/api/v1/auth/sso/config", "/api/v1/auth/sso/login").permitAll()
                 .requestMatchers("/api/v1/agent/**").permitAll()
+                .requestMatchers("/api/v1/executor/sync-devices").permitAll()
                 .requestMatchers("/api/v1/ci/jenkins/webhook").permitAll()
                 .requestMatchers("/api/v1/ci/tasks/*/status").permitAll()
                 .requestMatchers("/api/v1/screen/verify").permitAll()

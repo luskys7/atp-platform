@@ -37,7 +37,8 @@ public class DeviceController {
     public ApiResponse<Void> heartbeat(@RequestBody Map<String, Object> body) {
         String serial = (String) body.get("serial_number");
         Integer battery = body.get("battery_level") != null ? ((Number) body.get("battery_level")).intValue() : 0;
-        deviceService.heartbeat(serial, battery);
+        String executorUrl = body.get("executor_url") != null ? body.get("executor_url").toString() : null;
+        deviceService.heartbeat(serial, battery, executorUrl);
         return ApiResponse.ok();
     }
 

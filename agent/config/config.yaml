@@ -1,6 +1,8 @@
 platform_url: "http://localhost:8080"
-serial_number: "ACTH022219007784"
+serial_number: ""
 platform: "android"
 agent_host: ""
 agent_port: 9100
+# 本机执行器地址（中央后端与浏览器需能访问），也可用环境变量 EXECUTOR_PUBLIC_URL
+executor_url: "http://127.0.0.1:9002"
 heartbeat_sec: 2

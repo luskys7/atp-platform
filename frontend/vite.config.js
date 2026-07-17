@@ -17,12 +17,15 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
-        timeout: 600000
+        timeout: 30000,
+        proxyTimeout: 30000
       },
       '/ws/executor': {
         target: 'http://localhost:9002',
         ws: true,
         changeOrigin: true,
+        timeout: 30000,
+        proxyTimeout: 30000,
         rewrite: (path) => path.replace(/^\/ws\/executor/, '')
       }
     }

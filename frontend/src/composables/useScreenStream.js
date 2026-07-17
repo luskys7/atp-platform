@@ -232,11 +232,13 @@ export function useScreenStream(deviceIdInput) {
       session.nativeH.value = data.screen_height || 1920
       session.streamW.value = session.nativeW.value
       session.streamH.value = session.nativeH.value
-      let wsPath = data.proxy_ws_url
+      let wsPath = data.proxy_ws_url || data.ws_url
       if (options.forceJpeg) {
-        wsPath += `${wsPath.includes('?') ? '&' : '?'}mode=jpeg`
+        const sep = wsPath.includes('?') ? '&' : '?'
+        wsPath += `${sep}mode=jpeg`
       }
-      const ws = new WebSocket(wsUrl(wsPath))
+      const fullUrl = /^wss?:\/\//i.test(wsPath) ? wsPath : wsUrl(wsPath)
+      const ws = new WebSocket(fullUrl)
       ws.binaryType = 'arraybuffer'
       session.ws = ws
       bindWsHandlers(ws)

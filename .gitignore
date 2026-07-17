@@ -37,3 +37,9 @@ Thumbs.db
 
 # Nested accidental repo
 /atp-platform/
+
+# PyInstaller
+executor/build/
+executor/dist/
+**/TestFlow-Executor.exe
+

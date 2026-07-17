@@ -24,6 +24,7 @@ def load_config() -> dict:
         "platform": "android",
         "agent_host": "",
         "agent_port": 9100,
+        "executor_url": "",
         "heartbeat_sec": 2,
     }
     if config_path.exists():
@@ -31,6 +32,10 @@ def load_config() -> dict:
             defaults.update(yaml.safe_load(f) or {})
     defaults["platform_url"] = os.environ.get("PLATFORM_URL", defaults["platform_url"])
     defaults["platform"] = os.environ.get("PLATFORM", defaults["platform"])
+    defaults["executor_url"] = os.environ.get(
+        "EXECUTOR_PUBLIC_URL",
+        os.environ.get("EXECUTOR_URL", defaults.get("executor_url") or ""),
+    )
     return defaults
 
 
@@ -110,6 +115,8 @@ def register(cfg: dict) -> bool:
         "adb_port": 5037,
         "battery_level": 100,
     }
+    if cfg.get("executor_url"):
+        payload["executor_url"] = cfg["executor_url"].rstrip("/")
     url = f"{cfg['platform_url']}/api/v1/agent/devices/register"
     resp = requests.post(url, json=payload, timeout=10)
     if resp.status_code >= 400:
@@ -122,6 +129,8 @@ def register(cfg: dict) -> bool:
 def heartbeat(cfg: dict):
     url = f"{cfg['platform_url']}/api/v1/agent/devices/heartbeat"
     payload = {"serial_number": cfg["serial_number"], "battery_level": 100}
+    if cfg.get("executor_url"):
+        payload["executor_url"] = cfg["executor_url"].rstrip("/")
     try:
         resp = requests.post(url, json=payload, timeout=5)
         if resp.status_code >= 400:
