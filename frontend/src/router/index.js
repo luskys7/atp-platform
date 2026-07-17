@@ -26,6 +26,24 @@ const routes = [
         meta: { title: '首页概览' }
       },
       {
+        path: 'public-assets',
+        name: 'PublicAssets',
+        component: () => import('@/views/PublicAssets.vue'),
+        meta: { title: '公共组件' }
+      },
+      {
+        path: 'project-hub',
+        name: 'ProjectHub',
+        component: () => import('@/views/ProjectHub.vue'),
+        meta: { title: '项目管理' }
+      },
+      {
+        path: 'settings-hub',
+        name: 'SettingsHub',
+        component: () => import('@/views/SettingsHub.vue'),
+        meta: { title: '系统设置' }
+      },
+      {
         path: 'devices',
         name: 'Devices',
         component: () => import('@/views/Devices.vue'),
@@ -95,7 +113,7 @@ const routes = [
         path: 'tasks',
         name: 'Tasks',
         component: () => import('@/views/Tasks.vue'),
-        meta: { title: '测试任务' }
+        meta: { title: '任务执行' }
       },
       {
         path: 'tasks/:id',

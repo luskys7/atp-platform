@@ -1,89 +1,125 @@
 <template>
   <div class="devices-page">
+    <!-- 模块 1：Hero -->
     <section class="hero">
       <div class="hero-text">
         <h1>设备管理</h1>
         <p>USB 接入自动入池 · 远程投屏 · 自动化调度</p>
+        <el-alert
+          v-if="recordIntent"
+          class="record-intent-alert"
+          type="warning"
+          show-icon
+          :closable="true"
+          title="一键录制：请选择在线设备进入投屏后开始录制"
+          @close="clearRecordIntent"
+        />
       </div>
       <div class="hero-actions">
         <el-button :loading="downloadingLauncher" @click="downloadLauncher">
           <el-icon><Download /></el-icon> 下载启动器
         </el-button>
-        <el-button type="primary" :loading="syncingUsb" @click="syncUsbDevices">
+        <el-button type="primary" class="btn-sync" :loading="syncingUsb" @click="syncUsbDevices">
           <el-icon><Refresh /></el-icon> 同步 USB
         </el-button>
-        <el-button v-if="userStore.isAdmin" @click="showWhitelistDialog = true">
+        <el-button v-if="userStore.isAdmin" class="btn-whitelist" @click="showWhitelistDialog = true">
           <el-icon><Plus /></el-icon> 白名单
         </el-button>
       </div>
     </section>
 
+    <!-- 模块 2：指标 4 宫格 -->
     <section class="stats">
-      <div v-for="s in statItems" :key="s.key" class="stat-card" :class="s.key">
+      <div
+        v-for="s in statItems"
+        :key="s.key"
+        class="stat-card"
+        :class="[s.key, { active: filters.status === s.filterValue, 'warn-online': s.key === 'online' && s.value === 0, 'warn-busy': s.key === 'busy' && s.value >= 3 }]"
+        @click="applyStatFilter(s)"
+      >
+        <div v-if="s.key === 'online' && s.value === 0" class="stat-alert-bar" title="当前无可用执行设备" />
         <div class="stat-icon"><el-icon :size="22"><component :is="s.icon" /></el-icon></div>
         <div class="stat-body">
           <div class="stat-value">{{ s.value }}</div>
           <div class="stat-label">{{ s.label }}</div>
+          <div v-if="s.key === 'online' && s.value === 0" class="stat-hint">当前无可用执行设备</div>
         </div>
       </div>
     </section>
 
+    <!-- 模块 4：筛选工具栏 -->
     <section class="toolbar-card">
       <div class="filters">
-        <el-select v-model="filters.platform" placeholder="平台" clearable style="width:110px" @change="loadDevices">
+        <el-select v-model="filters.platform" placeholder="平台" clearable style="width:120px" @change="onFilterChange">
           <el-option label="Android" value="android" />
           <el-option label="iOS" value="ios" />
         </el-select>
-        <el-select v-model="filters.status" placeholder="状态" clearable style="width:110px" @change="loadDevices">
-          <el-option label="在线" value="online" />
-          <el-option label="离线" value="offline" />
-          <el-option label="忙碌" value="busy" />
-          <el-option label="维护" value="maintenance" />
+        <el-select v-model="filters.status" placeholder="状态" clearable style="width:140px" @change="onFilterChange">
+          <el-option label="空闲在线" value="online" />
+          <el-option label="执行中" value="busy" />
+          <el-option label="投屏中" value="streaming" />
+          <el-option label="离线故障" value="offline" />
         </el-select>
-        <el-input v-model="filters.keyword" placeholder="搜索设备" clearable prefix-icon="Search" style="width:200px" @change="loadDevices" />
+        <el-select v-model="filters.group" placeholder="设备分组" clearable style="width:150px" @change="onFilterChange">
+          <el-option v-for="g in DEVICE_GROUPS" :key="g" :label="g" :value="g" />
+        </el-select>
+        <el-select v-model="filters.os_version" placeholder="系统版本" clearable style="width:140px" @change="onFilterChange">
+          <el-option v-for="v in osVersionOptions" :key="v" :label="v" :value="v" />
+        </el-select>
+        <el-input
+          v-model="filters.keyword"
+          placeholder="型号 / 序列号 / 设备 ID"
+          clearable
+          prefix-icon="Search"
+          style="width:220px"
+          @change="onFilterChange"
+          @clear="onFilterChange"
+        />
       </div>
       <div class="toolbar-right">
-        <el-radio-group v-model="viewMode" size="small">
-          <el-radio-button value="card">卡片</el-radio-button>
-          <el-radio-button value="table">列表</el-radio-button>
-        </el-radio-group>
-        <el-button circle @click="loadDevices"><el-icon><Refresh /></el-icon></el-button>
+        <el-button circle :loading="loading" @click="loadDevices">
+          <el-icon><Refresh /></el-icon>
+        </el-button>
       </div>
     </section>
 
-    <section v-if="viewMode === 'card'" class="device-grid" v-loading="loading">
+    <!-- 模块 5：设备卡片 -->
+    <section class="device-grid" v-loading="loading">
       <article
-        v-for="row in devices"
+        v-for="row in filteredDevices"
         :key="row.id"
+        :id="`device-card-${row.id}`"
         class="device-card-v"
-        :class="[`st-${row.status}`, { streaming: isStreaming(row.id) }]"
+        :class="[
+          cardStatusClass(row),
+          {
+            streaming: isStreaming(row.id),
+            highlight: highlightId === row.id,
+            'is-loading': cardLoadingId === row.id
+          }
+        ]"
+        v-loading="cardLoadingId === row.id"
       >
-        <div class="card-preview">
-          <div class="phone-frame" :class="row.platform">
-            <div class="phone-inner" :style="devicePreviewStyle(row)">
-              <template v-if="isStreaming(row.id) && getSessionSnapshot(row.id)">
-                <span class="live-tag">LIVE</span>
-              </template>
-              <template v-else-if="isStreaming(row.id)">
-                <span class="live-tag">连接中</span>
-              </template>
-              <template v-else>
-                <span class="phone-res">{{ row.screen_width || '?' }}×{{ row.screen_height || '?' }}</span>
-              </template>
-            </div>
-          </div>
-          <el-tag :type="deviceStatusMap[row.status]?.type" size="small" round effect="light" class="status-tag">
-            {{ deviceStatusMap[row.status]?.label || row.status }}
+        <div class="card-top-bar" />
+        <div class="card-head">
+          <el-tag size="small" round effect="dark" class="status-pill" :class="cardStatusClass(row)">
+            {{ statusLabel(row) }}
           </el-tag>
+          <h3 class="device-name" :title="row.model || row.name">{{ row.model || row.name || row.serial_number }}</h3>
         </div>
 
-        <div class="card-body">
-          <h3 class="device-name">{{ row.name || row.serial_number }}</h3>
-          <p class="device-model">{{ row.model || row.platform || '-' }}</p>
-          <div class="meta-row">
-            <span>{{ androidVer(row) }}</span>
-            <span class="dot">·</span>
-            <span>{{ row.screen_width && row.screen_height ? `${row.screen_width}×${row.screen_height}` : '-' }}</span>
+        <div class="card-core">
+          <div class="core-row">
+            <span class="core-label">占用人</span>
+            <span class="core-value">{{ occupyLabel(row) }}</span>
+          </div>
+          <div v-if="isOccupied(row)" class="core-row">
+            <span class="core-label">占用倒计时</span>
+            <span class="core-value" :class="{ overtime: isOccupyOvertime(row) }">{{ occupyCountdown(row) }}</span>
+          </div>
+          <div class="core-row">
+            <span class="core-label">系统版本</span>
+            <span class="core-value">{{ androidVer(row) || '-' }}</span>
           </div>
           <div class="battery-row">
             <el-icon><Lightning /></el-icon>
@@ -95,84 +131,70 @@
           <div v-if="row.tags" class="tags">
             <el-tag v-for="t in row.tags.split(',').slice(0, 3)" :key="t" size="small" round effect="plain">{{ t.trim() }}</el-tag>
           </div>
-          <p class="serial mono">{{ row.serial_number }}</p>
           <p v-if="row.executor_url" class="executor mono" :title="row.executor_url">执行器 {{ shortExecutor(row.executor_url) }}</p>
+        </div>
+
+        <div class="card-meta">
+          <span>{{ row.screen_width && row.screen_height ? `${row.screen_width}×${row.screen_height}` : '分辨率未知' }}</span>
+          <span class="mono">{{ row.serial_number || '-' }}</span>
         </div>
 
         <div class="card-actions">
           <el-button
             type="primary"
             class="screen-btn"
-            :disabled="row.platform !== 'android' || row.status === 'offline'"
+            :disabled="!canScreen(row)"
             @click="openScreen(row)"
           >
             <el-icon><Monitor /></el-icon>
             {{ isStreaming(row.id) ? '回到投屏' : '开始投屏' }}
           </el-button>
-          <el-button
-            size="small"
-            plain
-            :disabled="row.platform !== 'android' || row.status === 'offline'"
-            @click="openPicker(row)"
-          >
-            控件拾取
-          </el-button>
-          <el-dropdown v-if="userStore.isAdmin" trigger="click" @command="cmd => adminAction(cmd, row)">
-            <el-button size="small" class="manage-btn">管理</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="tags">标签</el-dropdown-item>
-                <el-dropdown-item command="calibration">校准</el-dropdown-item>
-                <el-dropdown-item v-if="row.status === 'error'" command="reset">恢复</el-dropdown-item>
-                <el-dropdown-item command="maintenance">维护</el-dropdown-item>
-                <el-dropdown-item v-if="row.platform === 'ios'" command="wda">WDA</el-dropdown-item>
-                <el-dropdown-item command="delete" divided>下线</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <div class="action-row">
+            <el-button size="small" :disabled="cardLoadingId === row.id" @click="rebootDevice(row)">重启设备</el-button>
+            <el-button
+              size="small"
+              type="warning"
+              plain
+              :disabled="!isOccupied(row) && row.status !== 'busy'"
+              @click="releaseOccupy(row)"
+            >释放占用</el-button>
+          </div>
+          <div class="action-row secondary">
+            <el-button
+              size="small"
+              plain
+              :disabled="!canScreen(row)"
+              @click="openPicker(row)"
+            >控件拾取</el-button>
+            <el-button size="small" class="manage-btn" @click="openManage(row)">管理</el-button>
+          </div>
         </div>
-        <div v-if="isStreaming(row.id)" class="streaming-badge"><i />投屏中</div>
       </article>
-      <el-empty v-if="!loading && !devices.length" description="暂无设备，请连接 USB 后同步" class="grid-empty" />
+
+      <!-- 空状态：筛选无结果 -->
+      <div v-if="!loading && allDevices.length && !filteredDevices.length" class="empty-panel">
+        <p>未找到符合筛选条件的设备</p>
+        <el-button type="primary" plain @click="resetFilters">重置筛选条件</el-button>
+      </div>
+
+      <el-empty
+        v-else-if="!loading && !allDevices.length"
+        description="暂无设备，请连接 USB 后同步"
+        class="grid-empty"
+      />
     </section>
 
-    <section v-else class="table-card" v-loading="loading">
-      <el-table :data="devices" stripe>
-        <el-table-column prop="name" label="名称" min-width="130" />
-        <el-table-column prop="serial_number" label="序列号" min-width="150" />
-        <el-table-column prop="platform" label="平台" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.platform === 'android' ? 'success' : 'primary'">{{ row.platform }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="model" label="型号" min-width="120" />
-        <el-table-column label="系统" width="100">
-          <template #default="{ row }">{{ androidVer(row) }}</template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="deviceStatusMap[row.status]?.type">{{ deviceStatusMap[row.status]?.label }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="battery_level" label="电量" width="80">
-          <template #default="{ row }">{{ row.battery_level }}%</template>
-        </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" plain :disabled="row.platform !== 'android' || row.status === 'offline'" @click="openScreen(row)">投屏</el-button>
-            <el-button size="small" plain :disabled="row.platform !== 'android' || row.status === 'offline'" @click="openPicker(row)">控件拾取</el-button>
-            <el-button v-if="userStore.isAdmin" size="small" plain @click="openTags(row)">标签</el-button>
-            <el-button v-if="userStore.isAdmin" size="small" type="danger" plain @click="handleDelete(row)">下线</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </section>
-
-    <div class="pager">
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" layout="total, prev, pager, next" @change="loadDevices" />
+    <div v-if="filteredDevices.length" class="pager">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="filteredTotal"
+        layout="total, prev, pager, next"
+        @current-change="page = $event"
+      />
     </div>
 
-    <!-- dialogs unchanged -->
+    <!-- 白名单 -->
     <el-dialog v-model="showWhitelistDialog" title="添加设备白名单" width="480px" destroy-on-close>
       <el-form :model="whitelistForm" label-width="100px">
         <el-form-item label="序列号" required><el-input v-model="whitelistForm.serial_number" /></el-form-item>
@@ -189,6 +211,35 @@
       </template>
     </el-dialog>
 
+    <!-- 管理弹窗：低频操作收拢 -->
+    <el-dialog v-model="showManageDialog" title="设备管理" width="520px" destroy-on-close>
+      <el-form v-if="manageRow" label-width="100px">
+        <el-form-item label="设备名称">
+          <el-input :model-value="manageRow.name || manageRow.model" disabled />
+        </el-form-item>
+        <el-form-item label="归属分组">
+          <el-select v-model="manageForm.group" clearable placeholder="选择分组" style="width:100%">
+            <el-option v-for="g in DEVICE_GROUPS" :key="g" :label="g" :value="g" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="manageForm.tags" placeholder="逗号分隔，不含分组" />
+        </el-form-item>
+        <el-divider content-position="left">低频运维</el-divider>
+        <div class="manage-ops">
+          <el-button @click="openCalibration(manageRow)">手势校准</el-button>
+          <el-button v-if="manageRow.status === 'error'" @click="resetHealth(manageRow)">恢复健康</el-button>
+          <el-button @click="setMaintenance(manageRow)">设为维护</el-button>
+          <el-button v-if="manageRow.platform === 'ios'" @click="deployWda(manageRow)">部署 WDA</el-button>
+          <el-button type="danger" plain @click="handleDelete(manageRow)">移除 / 下线</el-button>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="showManageDialog = false">取消</el-button>
+        <el-button type="primary" :loading="savingManage" @click="saveManage">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showCalibrationDialog" title="手势坐标校准" width="440px">
       <el-form :model="calibrationForm" label-width="90px">
         <el-form-item label="X 偏移"><el-input-number v-model="calibrationForm.offset_x" :step="1" /></el-form-item>
@@ -201,39 +252,46 @@
         <el-button type="primary" @click="saveCalibration">保存</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog v-model="showTagsDialog" title="设备标签" width="420px">
-      <el-form label-width="80px">
-        <el-form-item label="标签"><el-input v-model="tagsForm.tags" placeholder="逗号分隔" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showTagsDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveTags">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { deviceApi } from '@/api'
 import { useUserStore } from '@/stores/user'
-import { deviceStatusMap } from '@/utils/status'
-import { activeScreenSessions, syncActiveScreenSessions, getSessionSnapshot } from '@/composables/useScreenStream'
+import { activeScreenSessions, syncActiveScreenSessions } from '@/composables/useScreenStream'
 import { androidVersionLabel } from '@/composables/screenFrameStyle'
-import { normalizeDevice } from '@/utils/device'
+import { normalizeDevice, mergeDeviceGroupTag } from '@/utils/device'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const DEVICE_GROUPS = ['录制专用组', '回归测试组', '线上功能组']
+const OCCUPY_WARN_MS = 30 * 60 * 1000
 
 const userStore = useUserStore()
 const router = useRouter()
+const route = useRoute()
+const recordIntent = ref(route.query.intent === 'record')
+
 const loading = ref(false)
-const devices = ref([])
+const syncingUsb = ref(false)
+const allDevices = ref([])
 const page = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
-const viewMode = ref('card')
-const filters = reactive({ platform: '', status: '', keyword: '' })
+const highlightId = ref(null)
+const cardLoadingId = ref(null)
+const nowTick = ref(Date.now())
+let snapshotTimer = null
+let clockTimer = null
+
+const filters = reactive({
+  platform: '',
+  status: '',
+  group: '',
+  os_version: '',
+  keyword: ''
+})
+
 const showWhitelistDialog = ref(false)
 const whitelistForm = reactive({ serial_number: '', platform: 'android', remark: '' })
 const showCalibrationDialog = ref(false)
@@ -242,33 +300,137 @@ const calibrationForm = reactive({ offset_x: 0, offset_y: 0, scale_x: 1, scale_y
 const showTagsDialog = ref(false)
 const tagsDeviceId = ref(null)
 const tagsForm = reactive({ tags: '' })
-const syncingUsb = ref(false)
 const downloadingLauncher = ref(false)
-let snapshotTimer = null
 const snapshotTick = ref(0)
+const showManageDialog = ref(false)
+const manageRow = ref(null)
+const manageForm = reactive({ group: '', tags: '' })
+const savingManage = ref(false)
 
-function devicePreviewStyle(row) {
-  snapshotTick.value // reactive dependency
-  if (!isStreaming(row.id)) return {}
-  const url = getSessionSnapshot(row.id)
-  if (!url) return {}
-  return { backgroundImage: `url(${url})`, backgroundSize: 'cover', backgroundPosition: 'center top' }
+function clearRecordIntent() {
+  recordIntent.value = false
+  if (route.query.intent === 'record') {
+    const q = { ...route.query }
+    delete q.intent
+    router.replace({ path: '/devices', query: q })
+  }
+}
+
+function applyQueryFilters() {
+  const st = route.query.status
+  if (typeof st === 'string' && st) {
+    // 首页「在线设备」→ 空闲在线
+    filters.status = st === 'online' ? 'online' : st
+  }
+  if (route.query.intent === 'record') recordIntent.value = true
 }
 
 const streamingCount = computed(() => activeScreenSessions.value.length)
 
-const statItems = computed(() => {
-  const list = devices.value
-  return [
-    { key: 'online', label: '在线设备', value: list.filter(d => d.status === 'online').length, icon: 'CircleCheck' },
-    { key: 'busy', label: '执行中', value: list.filter(d => d.status === 'busy').length, icon: 'Loading' },
-    { key: 'streaming', label: '投屏中', value: streamingCount.value, icon: 'Monitor' },
-    { key: 'total', label: '设备总数', value: total.value, icon: 'Iphone' }
-  ]
+function isStreaming(deviceId) {
+  return activeScreenSessions.value.some(s => String(s.deviceId) === String(deviceId))
+}
+
+function visualStatus(row) {
+  if (isStreaming(row.id)) return 'streaming'
+  if (row.status === 'busy') return 'busy'
+  if (row.status === 'online') return 'online'
+  if (row.status === 'offline' || row.status === 'error') return 'offline'
+  return row.status || 'offline'
+}
+
+function cardStatusClass(row) {
+  const s = visualStatus(row)
+  if (s === 'online') return 'st-online'
+  if (s === 'busy' || s === 'streaming') return 'st-busy'
+  return 'st-offline'
+}
+
+function statusLabel(row) {
+  const s = visualStatus(row)
+  if (s === 'online') return '空闲'
+  if (s === 'busy') return '执行中'
+  if (s === 'streaming') return '投屏中'
+  return '离线故障'
+}
+
+const onlineIdleCount = computed(() =>
+  allDevices.value.filter(d => d.status === 'online' && !isStreaming(d.id)).length
+)
+const busyCount = computed(() => allDevices.value.filter(d => d.status === 'busy').length)
+
+const statItems = computed(() => [
+  { key: 'online', label: '在线设备', value: onlineIdleCount.value, icon: 'CircleCheck', filterValue: 'online' },
+  { key: 'busy', label: '执行中', value: busyCount.value, icon: 'Loading', filterValue: 'busy' },
+  { key: 'streaming', label: '投屏中', value: streamingCount.value, icon: 'Monitor', filterValue: 'streaming' },
+  { key: 'total', label: '设备总数', value: allDevices.value.length, icon: 'Iphone', filterValue: '' }
+])
+
+const osVersionOptions = computed(() => {
+  const set = new Set()
+  for (const d of allDevices.value) {
+    const label = androidVer(d)
+    if (label && label !== '-') set.add(label)
+  }
+  return [...set].sort()
 })
 
+function matchFilters(row) {
+  if (filters.platform && row.platform !== filters.platform) return false
+  if (filters.group && row.device_group !== filters.group) return false
+  if (filters.os_version && androidVer(row) !== filters.os_version) return false
+  if (filters.keyword) {
+    const k = filters.keyword.toLowerCase()
+    const hay = `${row.name} ${row.model} ${row.serial_number} ${row.id}`.toLowerCase()
+    if (!hay.includes(k)) return false
+  }
+  if (filters.status) {
+    const vs = visualStatus(row)
+    if (filters.status === 'online' && vs !== 'online') return false
+    if (filters.status === 'busy' && vs !== 'busy') return false
+    if (filters.status === 'streaming' && vs !== 'streaming') return false
+    if (filters.status === 'offline' && vs !== 'offline') return false
+  }
+  return true
+}
+
+const matchedDevices = computed(() => allDevices.value.filter(matchFilters))
+const filteredTotal = computed(() => matchedDevices.value.length)
+const filteredDevices = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return matchedDevices.value.slice(start, start + pageSize.value)
+})
+
+function applyStatFilter(s) {
+  filters.status = s.filterValue || ''
+  page.value = 1
+  syncQuery()
+}
+
+function onFilterChange() {
+  page.value = 1
+  syncQuery()
+}
+
+function resetFilters() {
+  filters.platform = ''
+  filters.status = ''
+  filters.group = ''
+  filters.os_version = ''
+  filters.keyword = ''
+  page.value = 1
+  syncQuery()
+}
+
+function syncQuery() {
+  const q = {}
+  if (filters.status) q.status = filters.status
+  if (route.query.intent) q.intent = route.query.intent
+  router.replace({ path: '/devices', query: q })
+}
+
 function androidVer(row) {
-  return androidVersionLabel(row)
+  return androidVersionLabel(row) || (row.os_version ? `Android${row.os_version}` : '-')
 }
 
 function shortExecutor(url) {
@@ -286,8 +448,68 @@ function batteryClass(level) {
   if (level < 50) return 'mid'
   return 'high'
 }
-function isStreaming(deviceId) {
-  return activeScreenSessions.value.some(s => String(s.deviceId) === String(deviceId))
+
+function canScreen(row) {
+  return row.platform === 'android' && row.status !== 'offline' && row.status !== 'error'
+}
+
+function isOccupied(row) {
+  return !!(row.locked_by_task_id || row.status === 'busy' || row.occupied_by)
+}
+
+function occupyLabel(row) {
+  if (row.occupied_by) return row.occupied_by
+  if (row.locked_by_task_id) return `任务 #${row.locked_by_task_id}`
+  if (row.status === 'busy') return '任务占用中'
+  if (isStreaming(row.id)) return '投屏会话'
+  return '空闲'
+}
+
+function occupyStartMs(row) {
+  if (row.occupied_at) {
+    const t = new Date(row.occupied_at).getTime()
+    if (!Number.isNaN(t)) return t
+  }
+  if (row.lock_expires_at) {
+    // 无开始时间时用 expires - 默认超时窗口估算
+    const exp = new Date(row.lock_expires_at).getTime()
+    if (!Number.isNaN(exp)) return exp - 60 * 60 * 1000
+  }
+  return null
+}
+
+function isOccupyOvertime(row) {
+  if (!isOccupied(row)) return false
+  const start = occupyStartMs(row)
+  if (start == null) return false
+  return nowTick.value - start >= OCCUPY_WARN_MS
+}
+
+function occupyCountdown(row) {
+  nowTick.value // reactive
+  const start = occupyStartMs(row)
+  if (start == null) {
+    if (row.lock_expires_at) {
+      const left = new Date(row.lock_expires_at).getTime() - nowTick.value
+      if (left <= 0) return '已超时'
+      return formatDuration(left) + ' 后释放'
+    }
+    return '占用中'
+  }
+  const elapsed = nowTick.value - start
+  if (elapsed >= OCCUPY_WARN_MS) return `已超时 ${formatDuration(elapsed - OCCUPY_WARN_MS)}`
+  return `已占用 ${formatDuration(elapsed)}`
+}
+
+function formatDuration(ms) {
+  const sec = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m >= 60) {
+    const h = Math.floor(m / 60)
+    return `${h}h ${m % 60}m`
+  }
+  return `${m}m ${String(s).padStart(2, '0')}s`
 }
 
 async function syncUsbDevices() {
@@ -295,8 +517,12 @@ async function syncUsbDevices() {
   try {
     const res = await deviceApi.syncUsb()
     ElMessage.success(res.data?.message || 'USB 设备已同步')
-    loadDevices()
-  } finally { syncingUsb.value = false }
+    await loadDevices()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '同步失败')
+  } finally {
+    syncingUsb.value = false
+  }
 }
 
 async function downloadLauncher() {
@@ -341,18 +567,13 @@ async function downloadLauncher() {
 async function loadDevices() {
   loading.value = true
   try {
-    const params = { page: page.value, page_size: pageSize.value }
-    if (filters.platform) params.platform = filters.platform
-    if (filters.status) params.status = filters.status
-    const res = await deviceApi.list(params)
-    let list = res.data.list || []
-    if (filters.keyword) {
-      const k = filters.keyword.toLowerCase()
-      list = list.filter(d => (d.name || '').toLowerCase().includes(k) || (d.serial_number || '').toLowerCase().includes(k))
-    }
-    devices.value = list.map(normalizeDevice)
-    total.value = res.data.total
-  } finally { loading.value = false }
+    const res = await deviceApi.list({ page: 1, page_size: 200 })
+    allDevices.value = (res.data.list || []).map(normalizeDevice)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '加载设备失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 async function addWhitelist() {
@@ -363,22 +584,71 @@ async function addWhitelist() {
   loadDevices()
 }
 
-function openScreen(row) { router.push(`/devices/${row.id}/screen`) }
-function openPicker(row) { router.push(`/element-picker/${row.id}`) }
-
-function adminAction(cmd, row) {
-  if (cmd === 'tags') openTags(row)
-  else if (cmd === 'calibration') openCalibration(row)
-  else if (cmd === 'reset') resetHealth(row)
-  else if (cmd === 'maintenance') setMaintenance(row)
-  else if (cmd === 'wda') deployWda(row)
-  else if (cmd === 'delete') handleDelete(row)
+function openScreen(row) {
+  ElMessage.success('正在打开投屏…')
+  router.push(`/devices/${row.id}/screen`)
 }
 
-async function setMaintenance(row) {
-  await deviceApi.updateStatus(row.id, { status: 'maintenance' })
-  ElMessage.success('已设为维护')
-  loadDevices()
+function openPicker(row) {
+  router.push(`/element-picker/${row.id}`)
+}
+
+async function rebootDevice(row) {
+  cardLoadingId.value = row.id
+  try {
+    if (typeof deviceApi.resetHealth === 'function') {
+      await deviceApi.resetHealth(row.id)
+    } else {
+      await deviceApi.updateStatus(row.id, { status: 'online' })
+    }
+    ElMessage.success('重启指令已下发')
+    await loadDevices()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '重启失败')
+  } finally {
+    cardLoadingId.value = null
+  }
+}
+
+async function releaseOccupy(row) {
+  cardLoadingId.value = row.id
+  try {
+    await deviceApi.updateStatus(row.id, { status: 'online' })
+    ElMessage.success('已释放占用')
+    await loadDevices()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '释放失败')
+  } finally {
+    cardLoadingId.value = null
+  }
+}
+
+function openManage(row) {
+  manageRow.value = row
+  manageForm.group = row.device_group || ''
+  // 去掉 group: 前缀后的展示标签
+  manageForm.tags = String(row.tags || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => s && !/^group:/i.test(s) && !DEVICE_GROUPS.includes(s))
+    .join(',')
+  showManageDialog.value = true
+}
+
+async function saveManage() {
+  if (!manageRow.value) return
+  savingManage.value = true
+  try {
+    const tags = mergeDeviceGroupTag(manageForm.tags, manageForm.group)
+    await deviceApi.updateTags(manageRow.value.id, { tags })
+    ElMessage.success('已保存')
+    showManageDialog.value = false
+    await loadDevices()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '保存失败')
+  } finally {
+    savingManage.value = false
+  }
 }
 
 function openCalibration(row) {
@@ -396,18 +666,17 @@ async function saveCalibration() {
   loadDevices()
 }
 
-function openTags(row) { tagsDeviceId.value = row.id; tagsForm.tags = row.tags || ''; showTagsDialog.value = true }
-
-async function saveTags() {
-  await deviceApi.updateTags(tagsDeviceId.value, { tags: tagsForm.tags })
-  ElMessage.success('标签已保存')
-  showTagsDialog.value = false
+async function setMaintenance(row) {
+  await deviceApi.updateStatus(row.id, { status: 'maintenance' })
+  ElMessage.success('已设为维护')
+  showManageDialog.value = false
   loadDevices()
 }
 
 async function resetHealth(row) {
   await deviceApi.resetHealth(row.id)
   ElMessage.success('已恢复')
+  showManageDialog.value = false
   loadDevices()
 }
 
@@ -415,27 +684,39 @@ async function deployWda(row) {
   try {
     const res = await deviceApi.deployWda(row.id)
     ElMessage.success(res.data?.message || 'WDA 部署完成')
-  } catch (e) { ElMessage.error(e?.response?.data?.message || 'WDA 失败') }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || 'WDA 失败')
+  }
 }
 
 async function handleDelete(row) {
   await ElMessageBox.confirm('确定下线该设备？', '确认', { type: 'warning' })
   await deviceApi.delete(row.id)
   ElMessage.success('已下线')
+  showManageDialog.value = false
   loadDevices()
 }
 
+watch(filteredTotal, (n) => {
+  const maxPage = Math.max(1, Math.ceil(n / pageSize.value) || 1)
+  if (page.value > maxPage) page.value = maxPage
+})
+
+watch(() => route.query, () => {
+  applyQueryFilters()
+}, { deep: true })
+
 onMounted(() => {
+  applyQueryFilters()
   loadDevices()
   syncActiveScreenSessions()
-  snapshotTimer = setInterval(() => {
-    if (streamingCount.value > 0) snapshotTick.value++
-    syncActiveScreenSessions()
-  }, 2000)
+  snapshotTimer = setInterval(() => syncActiveScreenSessions(), 2000)
+  clockTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
 
 onUnmounted(() => {
   if (snapshotTimer) clearInterval(snapshotTimer)
+  if (clockTimer) clearInterval(clockTimer)
 })
 </script>
 
@@ -473,22 +754,36 @@ onUnmounted(() => {
   p { margin: 0; color: rgba(255, 255, 255, 0.72); font-size: 14px; }
 }
 
+.record-intent-alert {
+  margin-top: 14px;
+  max-width: 560px;
+}
+
 .hero-actions {
   display: flex;
   gap: 10px;
 
-  .el-button--primary {
-    background: #fff;
-    color: var(--atp-brand-600);
-    border: none;
+  .btn-sync {
     font-weight: 600;
-    &:hover { background: var(--atp-brand-50); }
-  }
-  .el-button:not(.el-button--primary) {
-    background: rgba(255, 255, 255, 0.12);
+    background: #2563eb;
+    border-color: #2563eb;
     color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    &:hover { background: rgba(255, 255, 255, 0.2); }
+    &:hover, &:focus {
+      background: #1d4ed8;
+      border-color: #1d4ed8;
+      color: #fff;
+    }
+  }
+
+  .btn-whitelist {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    &:hover, &:focus {
+      background: rgba(255, 255, 255, 0.26);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.4);
+    }
   }
 }
 
@@ -496,28 +791,49 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .stat-card {
+  position: relative;
+  overflow: hidden;
   background: var(--atp-bg-elevated);
   border-radius: 16px;
   padding: 18px 20px;
-  border: 1px solid var(--atp-brand-100);
+  border: none;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
   display: flex;
   align-items: center;
   gap: 14px;
+  cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--atp-shadow);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  }
+
+  &.active {
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+  }
+
+  &.warn-busy {
+    background: #fffbeb;
   }
 
   &.online .stat-icon { background: var(--atp-success-bg); color: var(--atp-success); }
   &.busy .stat-icon { background: var(--atp-warning-bg); color: #c8875e; }
   &.streaming .stat-icon { background: rgba(142, 181, 217, 0.18); color: var(--atp-info); }
-  &.total .stat-icon { background: var(--atp-primary-bg); color: var(--atp-primary); }
+  &.total .stat-icon { background: #f1f5f9; color: #64748b; }
+}
+
+.stat-alert-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #f59e0b;
 }
 
 .stat-icon {
@@ -530,8 +846,14 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.stat-value { font-size: 26px; font-weight: 700; line-height: 1.2; color: var(--atp-text); }
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--atp-text);
+}
 .stat-label { font-size: 13px; color: var(--atp-text-secondary); margin-top: 2px; }
+.stat-hint { font-size: 11px; color: #d97706; margin-top: 4px; }
 
 .toolbar-card {
   display: flex;
@@ -539,16 +861,16 @@ onUnmounted(() => {
   align-items: center;
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(8px);
-  border: 1px solid var(--atp-brand-100);
+  border: none;
   border-radius: 16px;
   padding: 16px 20px;
   margin-bottom: 24px;
   flex-wrap: wrap;
   gap: 12px;
-  box-shadow: var(--atp-shadow);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.filters { display: flex; gap: 10px; flex-wrap: wrap; }
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .toolbar-right { display: flex; align-items: center; gap: 10px; }
 
 .device-grid {
@@ -573,46 +895,92 @@ onUnmounted(() => {
   padding: 48px 0;
 }
 
+.empty-panel {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 24px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+  color: var(--atp-text-secondary);
+
+  p { margin: 0 0 16px; font-size: 14px; }
+}
+
 .device-card-v {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--atp-bg-elevated);
-  border: 1px solid var(--atp-brand-100);
+  background: #fff;
+  border: none;
   border-radius: 16px;
   padding: 16px;
-  transition: all 0.22s ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  transition: transform 0.2s, box-shadow 0.2s;
+  overflow: hidden;
 
   &:hover {
-    border-color: var(--atp-brand-300);
-    box-shadow: var(--atp-shadow-lg);
     transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
   }
 
-  &.streaming {
-    border-color: var(--atp-success);
-    background: linear-gradient(180deg, rgba(108, 212, 178, 0.12) 0%, var(--atp-bg-elevated) 120px);
+  &.highlight {
+    animation: cardFlash 0.7s ease 3;
   }
-
-  &.st-offline { opacity: 0.78; }
 }
 
-.card-preview {
+.card-top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #94a3b8;
+}
+
+.st-online .card-top-bar { background: #10b981; }
+.st-busy .card-top-bar { background: #f59e0b; }
+.st-offline .card-top-bar { background: #f97316; }
+
+.card-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 12px;
-}
-
-.status-tag { flex-shrink: 0; }
-
-.card-body {
-  flex: 1;
   min-width: 0;
 }
 
+.status-pill {
+  flex-shrink: 0;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 600;
+
+  :deep(.el-tag__content) {
+    color: #fff !important;
+  }
+
+  &.st-online {
+    background: #059669 !important;
+    --el-tag-bg-color: #059669;
+    --el-tag-border-color: #059669;
+    --el-tag-text-color: #fff;
+  }
+  &.st-busy {
+    background: #d97706 !important;
+    --el-tag-bg-color: #d97706;
+    --el-tag-border-color: #d97706;
+    --el-tag-text-color: #fff;
+  }
+  &.st-offline {
+    background: #ea580c !important;
+    --el-tag-bg-color: #ea580c;
+    --el-tag-border-color: #ea580c;
+    --el-tag-text-color: #fff;
+  }
+}
+
 .device-name {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 15px;
   font-weight: 700;
   color: var(--atp-text);
@@ -621,21 +989,11 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.device-model {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--atp-text-secondary);
-}
-
-.meta-row {
+.card-core {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--atp-text-secondary);
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 10px;
-
-  .dot { color: var(--atp-brand-200); }
 }
 
 .serial {
@@ -656,171 +1014,34 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.card-actions {
+.core-row {
   display: flex;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--atp-brand-50);
-
-  .screen-btn {
-    flex: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-
-    :deep(.el-icon) {
-      margin-right: 2px;
-      font-size: 16px;
-    }
-  }
-
-  .manage-btn {
-    flex-shrink: 0;
-    min-width: 64px;
-  }
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
 }
 
-.streaming-badge {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--atp-success);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 2px 8px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(108, 212, 178, 0.25);
-
-  i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--atp-success);
-    animation: pulse 1.2s ease infinite;
-  }
+.core-label { color: var(--atp-text-secondary); }
+.core-value {
+  color: var(--atp-text);
+  font-weight: 500;
+  text-align: right;
+  &.overtime { color: #dc2626; font-weight: 700; }
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.phone-frame {
-  width: 72px;
-  height: 128px;
-  border-radius: 14px;
-  padding: 5px;
-  background: linear-gradient(145deg, #3d3858, var(--atp-sidebar));
-  box-shadow: 0 6px 16px rgba(45, 42, 62, 0.2);
-
-  &.android { background: linear-gradient(145deg, #4a5568, var(--atp-sidebar)); }
-  &.ios { background: linear-gradient(145deg, #1E3A8A, var(--atp-brand-600)); }
-}
-
-.phone-inner {
-  height: 100%;
-  border-radius: 10px;
-  background: linear-gradient(180deg, var(--atp-brand-100), var(--atp-brand-200));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--atp-text-secondary);
-  overflow: hidden;
-}
-
-.phone-res {
-  font-size: 9px;
-  font-weight: 600;
-  font-family: ui-monospace, Consolas, monospace;
-  text-align: center;
-  line-height: 1.3;
-  padding: 4px;
-}
-
-.live-tag {
-  font-size: 10px;
-  font-weight: 800;
-  color: #fff;
-  background: rgba(108, 212, 178, 0.85);
-  padding: 2px 8px;
-  border-radius: 10px;
-  letter-spacing: 0.08em;
-  z-index: 1;
-}
-
-.streaming-dot {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--atp-success);
-
-  i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--atp-success);
-    animation: blink 1.2s infinite;
-  }
-}
-
-.card-center {
-  min-width: 0;
-}
-
-.name-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-
-  h3 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--atp-text);
-  }
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px 24px;
-  margin-bottom: 12px;
-}
-
-.info-item {
+.card-meta {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 12px;
 
-  .label {
-    font-size: 11px;
-    color: var(--atp-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .value {
-    font-size: 13px;
-    color: var(--atp-text);
-    font-weight: 500;
+  .mono {
+    font-family: ui-monospace, Consolas, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-
-    &.mono {
-      font-family: ui-monospace, Consolas, monospace;
-      font-size: 12px;
-      color: var(--atp-text-secondary);
-    }
   }
 }
 
@@ -836,7 +1057,7 @@ onUnmounted(() => {
 .battery-track {
   flex: 1;
   height: 6px;
-  background: var(--atp-brand-50);
+  background: #f1f5f9;
   border-radius: 3px;
   overflow: hidden;
 
@@ -846,8 +1067,8 @@ onUnmounted(() => {
     border-radius: 3px;
     transition: width 0.3s;
     &.high { background: linear-gradient(90deg, var(--atp-success), #8edfc4); }
-    &.mid { background: linear-gradient(90deg, var(--atp-gold), #f7d488); }
-    &.low { background: linear-gradient(90deg, var(--atp-danger), #ffa8a8); }
+    &.mid { background: linear-gradient(90deg, #f59e0b, #f7d488); }
+    &.low { background: linear-gradient(90deg, #f97316, #fdba74); }
   }
 }
 
@@ -855,55 +1076,39 @@ onUnmounted(() => {
   min-width: 36px;
   font-weight: 600;
   &.high { color: var(--atp-success); }
-  &.mid { color: var(--atp-gold); }
-  &.low { color: var(--atp-danger); }
+  &.mid { color: #d97706; }
+  &.low { color: #ea580c; }
 }
 
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.card-right {
+.card-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  align-items: stretch;
-  min-width: 130px;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
 }
 
 .screen-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  width: 100%;
   font-weight: 600;
-  padding: 12px 20px;
+}
 
-  .btn-icon {
-    font-size: 18px;
-    margin-right: 2px;
+.action-row {
+  display: flex;
+  gap: 8px;
+
+  .el-button { flex: 1; }
+
+  &.secondary .el-button {
+    --el-button-text-color: #64748b;
   }
 }
 
-.manage-btn {
-  width: 100%;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-.table-card {
-  background: var(--atp-bg-elevated);
-  border: 1px solid var(--atp-brand-100);
-  border-radius: 16px;
-  padding: 16px;
-  overflow: hidden;
-  box-shadow: var(--atp-shadow);
+.manage-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .pager {
@@ -912,17 +1117,14 @@ onUnmounted(() => {
   margin-top: 24px;
 }
 
+@keyframes cardFlash {
+  0%, 100% { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
+  50% { box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.45); }
+}
+
 @media (max-width: 900px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .devices-page { padding: 20px 16px 32px; }
   .hero { padding: 20px; }
-  .device-card-h {
-    grid-template-columns: 90px 1fr;
-    .card-right {
-      grid-column: 1 / -1;
-      flex-direction: row;
-    }
-    .screen-btn { flex: 1; }
-  }
 }
 </style>

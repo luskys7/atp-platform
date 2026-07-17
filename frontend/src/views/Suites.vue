@@ -1,37 +1,148 @@
 <template>
-  <div class="page-container">
-    <PageHeader title="测试套件" subtitle="编排用例、执行策略与一键回归">
+  <div class="page-container suites-page">
+    <PageHeader title="测试套件" subtitle="批量编排自动化用例、配置执行策略，一键发起版本回归测试">
       <template #actions>
-        <el-button type="primary" @click="openDialog()"><el-icon><Plus /></el-icon> 新建套件</el-button>
+        <div class="header-actions">
+          <el-tooltip content="请先勾选目标套件后再执行批量操作" :disabled="hasSelection" placement="bottom">
+            <span class="batch-wrap">
+              <el-button :disabled="!hasSelection" :loading="batchLoading" @click="batchRun">批量执行</el-button>
+              <el-button :disabled="!hasSelection" :loading="batchLoading" @click="batchCopy">批量复制</el-button>
+              <el-button :disabled="!hasSelection" type="danger" plain :loading="batchLoading" @click="batchDelete">批量删除</el-button>
+            </span>
+          </el-tooltip>
+          <el-button type="primary" class="btn-create" @click="openDialog()">
+            <el-icon><Plus /></el-icon> 新建套件
+          </el-button>
+        </div>
       </template>
     </PageHeader>
 
-    <AppCard :hover="false">
-      <el-table :data="suites" v-loading="loading" stripe>
-        <el-table-column prop="name" label="套件名称" min-width="200" />
-        <el-table-column prop="tags" label="标签" width="140" show-overflow-tooltip />
-        <el-table-column prop="exec_mode" label="执行模式" width="100">
-          <template #default="{ row }">{{ row.exec_mode === 'parallel' ? '并行' : '串行' }}</template>
-        </el-table-column>
-        <el-table-column prop="fail_policy" label="失败策略" width="100">
-          <template #default="{ row }">{{ row.fail_policy === 'stop' ? '终止' : '继续' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+    <!-- 模块 2：统计卡片 -->
+    <div class="stats-row">
+      <div class="stat-card tone-total" @click="resetFilters">
+        <div class="stat-icon"><el-icon :size="22"><FolderOpened /></el-icon></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ suites.length }}</div>
+          <div class="stat-label">全部套件</div>
+        </div>
+      </div>
+      <div class="stat-card tone-regression" @click="filters.tag = '回归'; page = 1">
+        <div class="stat-icon"><el-icon :size="22"><Collection /></el-icon></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ regressionCount }}</div>
+          <div class="stat-label">常用回归套件</div>
+        </div>
+      </div>
+      <div class="stat-card tone-today">
+        <div class="stat-icon"><el-icon :size="22"><Calendar /></el-icon></div>
+        <div class="stat-body">
+          <div class="stat-value">{{ todayRunCount }}</div>
+          <div class="stat-label">今日执行套件</div>
+        </div>
+      </div>
+      <div class="stat-card tone-running" :class="{ highlight: runningCount > 0 }">
+        <div class="stat-icon"><el-icon :size="22"><VideoPlay /></el-icon></div>
+        <div class="stat-body">
+          <div class="stat-value" :class="{ running: runningCount > 0 }">{{ runningCount }}</div>
+          <div class="stat-label">运行中套件</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模块 3：筛选 -->
+    <AppCard :hover="false" class="list-card">
+      <div class="filter-bar">
+        <el-input
+          v-model="filters.keyword"
+          placeholder="搜索套件名称"
+          clearable
+          prefix-icon="Search"
+          style="width:240px"
+          @change="page = 1"
+          @clear="page = 1"
+        />
+        <el-select v-model="filters.tag" placeholder="标签" clearable filterable style="width:150px" @change="page = 1">
+          <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
+        </el-select>
+        <el-select v-model="filters.exec_mode" placeholder="执行模式" clearable style="width:130px" @change="page = 1">
+          <el-option label="串行" value="serial" />
+          <el-option label="并行" value="parallel" />
+        </el-select>
+        <div class="filter-right">
+          <el-button type="primary" plain :loading="loading" @click="refreshAll">
+            <el-icon><Refresh /></el-icon> 刷新列表
+          </el-button>
+          <el-button @click="resetFilters">重置筛选条件</el-button>
+        </div>
+      </div>
+
+      <!-- 模块 4：表格 -->
+      <el-table
+        :data="pagedSuites"
+        v-loading="loading"
+        stripe
+        empty-text=""
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="48" />
+        <el-table-column label="套件名称" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-button size="small" type="primary" plain @click="openDialog(row)">编辑</el-button>
-            <el-button size="small" type="success" plain @click="runSuite(row)">执行</el-button>
-            <el-button v-if="userStore.isAdmin" size="small" type="danger" plain @click="deleteSuite(row)">删除</el-button>
+            <strong class="suite-name">{{ displaySuiteName(row.name) }}</strong>
+          </template>
+        </el-table-column>
+        <el-table-column prop="tags" label="标签" width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.tags || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="执行模式" width="110">
+          <template #default="{ row }">
+            <span class="mode-text" :class="row.exec_mode === 'parallel' ? 'is-parallel' : 'is-serial'">
+              {{ row.exec_mode === 'parallel' ? '并行' : '串行' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="失败处理策略" width="150">
+          <template #default="{ row }">
+            <span class="policy-text" :class="row.fail_policy === 'stop' ? 'is-stop' : 'is-continue'">
+              {{ row.fail_policy === 'stop' ? '失败立即停止' : '失败继续执行' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="300" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <el-button size="small" type="primary" @click="openDialog(row)">编辑</el-button>
+              <el-button size="small" type="success" @click="runSuite(row)">执行</el-button>
+              <el-button size="small" class="btn-copy" @click="copySuite(row)">复制</el-button>
+              <el-button size="small" type="danger" plain @click="deleteSuite(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-if="!loading && !filteredSuites.length" class="table-empty">
+        <p>暂无测试套件</p>
+        <el-button type="primary" @click="openDialog()">新建套件</el-button>
+        <p class="empty-hint">新建套件可批量编排多条测试用例，一键发起回归</p>
+      </div>
+
+      <div class="pager-bar">
+        <div class="pager-stats">当前筛选结果共 <strong>{{ filteredSuites.length }}</strong> 套测试套件</div>
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :total="filteredSuites.length"
+          layout="total, prev, pager, next"
+        />
+      </div>
     </AppCard>
 
-    <AppCard v-if="suiteRuns.length" title="执行批次" :hover="false" style="margin-top:20px">
+    <!-- 执行批次（保留能力） -->
+    <AppCard v-if="suiteRuns.length" title="执行批次" :hover="false" style="margin-top:16px">
       <el-table :data="suiteRuns" size="small" stripe>
         <el-table-column prop="id" label="批次ID" width="80" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag size="small" :type="runStatusType(row.status)">{{ row.status }}</el-tag>
+            <el-tag size="small" :type="runStatusType(row.status)">{{ runStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="success_count" label="成功" width="70" align="center" />
@@ -51,119 +162,119 @@
       </el-table>
     </AppCard>
 
-    <el-dialog v-model="showDialog" :title="form.id ? '编辑套件' : '新建套件'" width="820px" destroy-on-close>
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="form.tags" placeholder="冒烟,回归" /></el-form-item>
-        <el-form-item label="执行模式">
-          <el-radio-group v-model="form.exec_mode">
-            <el-radio value="serial">串行</el-radio>
-            <el-radio value="parallel">并行</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="失败策略">
-          <el-radio-group v-model="form.fail_policy">
-            <el-radio value="continue_on_fail">失败继续</el-radio>
-            <el-radio value="stop">失败终止</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="失败策略">
-          <el-radio-group v-model="form.fail_policy">
-            <el-radio value="continue_on_fail">失败继续</el-radio>
-            <el-radio value="stop">失败终止</el-radio>
-          </el-radio-group>
-        </el-form-item>
+    <!-- 模块 5：底部快捷栏 -->
+    <section class="shortcut-bar">
+      <div class="shortcut-card" @click="$router.push('/cases')">
+        <el-icon :size="22"><DocumentCopy /></el-icon>
+        <div>
+          <h4>前往测试用例</h4>
+          <p>跳转用例页面，批量勾选用例快速新建套件</p>
+        </div>
+      </div>
+      <div class="shortcut-card" @click="$router.push('/reports')">
+        <el-icon :size="22"><Document /></el-icon>
+        <div>
+          <h4>查看执行报告</h4>
+          <p>查看所有套件历史回归结果</p>
+        </div>
+      </div>
+      <div class="shortcut-card" @click="$router.push({ path: '/platform-config', query: { tab: 'schedule' } })">
+        <el-icon :size="22"><Timer /></el-icon>
+        <div>
+          <h4>定时回归配置</h4>
+          <p>设置套件定时自动执行（每日 / 每周版本回归）</p>
+        </div>
+      </div>
+      <div class="shortcut-card" @click="showTemplateDialog = true">
+        <el-icon :size="22"><CopyDocument /></el-icon>
+        <div>
+          <h4>套件模板库</h4>
+          <p>保存常用回归模板，一键复制快速创建套件</p>
+        </div>
+      </div>
+    </section>
 
-        <el-collapse v-model="hookHelpOpen" class="hook-help">
-          <el-collapse-item title="套件钩子使用说明" name="help">
-            <div class="hook-help-body">
-              <p><strong>前置钩子</strong>：套件开始执行前运行，适用于环境初始化、登录、授权等。</p>
-              <p><strong>后置钩子</strong>：全部用例执行完毕后运行，适用于退出登录、杀进程、清理缓存等。</p>
-              <p>格式与可视化用例步骤相同，填写 JSON 对象，包含 <code>steps</code> 数组。留空表示不配置。</p>
-              <p class="hook-types">支持步骤类型：<code>wait</code> 等待 · <code>click</code> 点击控件 · <code>tap_xy</code> 坐标点击 · <code>input</code> 输入 · <code>launch</code> 启动应用（自动异常检测） · <code>swipe</code> 滑动 · <code>assert_text</code> / <code>assert_exists</code> 断言 · <code>check_anomaly</code> 页面异常检测 · <code>assert_process</code> 进程存活 · <code>invoke_common</code> 调用公共步骤</p>
-              <div class="hook-examples">
-                <span>快速插入示例：</span>
-                <el-button size="small" @click="fillHookExample('before', 'wait')">前置-等待</el-button>
-                <el-button size="small" @click="fillHookExample('before', 'launch')">前置-启动应用</el-button>
-                <el-button size="small" @click="fillHookExample('before', 'common')">前置-公共步骤</el-button>
-                <el-button size="small" @click="fillHookExample('after', 'wait')">后置-等待</el-button>
-                <el-button size="small" @click="fillHookExample('after', 'swipe')">后置-回到桌面</el-button>
-              </div>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-
-        <el-form-item label="前置钩子">
-          <el-input
-            v-model="form.hook_before"
-            type="textarea"
-            :rows="4"
-            placeholder='{"steps":[{"type":"wait","seconds":2},{"type":"launch","app_package":"com.example.app"}]}'
-          />
-        </el-form-item>
-        <el-form-item label="后置钩子">
-          <el-input
-            v-model="form.hook_after"
-            type="textarea"
-            :rows="4"
-            placeholder='{"steps":[{"type":"wait","seconds":1},{"type":"swipe","x1":500,"y1":800,"x2":500,"y2":400}]}'
-          />
-        </el-form-item>
-        <el-form-item label="关联用例">
-          <div style="width:100%">
-            <el-select v-model="pickerCaseId" filterable placeholder="添加用例" style="width:100%;margin-bottom:8px" @change="addCase">
-              <el-option v-for="c in availableCases" :key="c.id" :label="`${c.name} (${c.case_status})`" :value="c.id" />
-            </el-select>
-            <el-table :data="suiteItems" size="small" stripe>
-              <el-table-column label="顺序" width="60" align="center">
-                <template #default="{ $index }">
-                  <el-button size="small" plain :disabled="$index === 0" @click="moveItem($index, -1)">↑</el-button>
-                  <el-button size="small" plain :disabled="$index === suiteItems.length - 1" @click="moveItem($index, 1)">↓</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column prop="case_name" label="用例" min-width="180" />
-              <el-table-column prop="case_status" label="状态" width="90" />
-              <el-table-column label="启用" width="80" align="center">
-                <template #default="{ row }">
-                  <el-switch v-model="row.enabled" size="small" />
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="70">
-                <template #default="{ $index }">
-                  <el-button size="small" type="danger" plain @click="suiteItems.splice($index, 1)">移除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveSuite">保存</el-button>
-      </template>
-    </el-dialog>
+    <SuiteEditorDialog
+      v-model="showDialog"
+      :suite-id="editingSuiteId"
+      :all-cases="allCases"
+      @saved="onSuiteSaved"
+      @save-template="onUserTemplateSaved"
+    />
 
     <el-dialog v-model="showRunDialog" title="批次详情" width="720px">
       <el-table v-if="runDetail.items" :data="runDetail.items" size="small">
         <el-table-column prop="case_name" label="用例" />
-        <el-table-column prop="status" label="状态" width="90" />
+        <el-table-column prop="status" label="状态" width="90">
+          <template #default="{ row }">{{ runStatusLabel(row.status) }}</template>
+        </el-table-column>
         <el-table-column prop="failed_step_index" label="失败步骤" width="90" />
         <el-table-column prop="task_id" label="任务ID" width="80" />
         <el-table-column prop="error_message" label="错误" show-overflow-tooltip />
       </el-table>
     </el-dialog>
+
+    <el-dialog v-model="showTemplateDialog" title="套件模板库" width="560px">
+      <div v-for="tpl in allTemplates" :key="tpl.key" class="tpl-item">
+        <div>
+          <strong>{{ tpl.name }}</strong>
+          <p>{{ tpl.desc }}</p>
+        </div>
+        <el-button type="primary" size="small" :loading="tplLoading === tpl.key" @click="createFromTemplate(tpl)">
+          一键复制创建
+        </el-button>
+      </div>
+      <el-empty v-if="!allTemplates.length" description="暂无模板" :image-size="64" />
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { suiteApi, caseApi, checkpointApi } from '@/api'
-import { useUserStore } from '@/stores/user'
 import { formatTime as fmtTime } from '@/utils/status'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import SuiteEditorDialog from '@/components/SuiteEditorDialog.vue'
 
-const userStore = useUserStore()
+const TODAY_RUN_KEY = 'atp_suite_runs_today'
+const USER_TPL_KEY = 'atp_suite_user_templates'
+const SUITE_TEMPLATES = [
+  {
+    key: 'full_regression',
+    name: '版本全量回归套件',
+    desc: '覆盖核心模块的完整回归编排模板',
+    tags: '回归,全量',
+    exec_mode: 'serial',
+    fail_policy: 'continue_on_fail'
+  },
+  {
+    key: 'login_smoke',
+    name: '登录模块冒烟套件',
+    desc: '登录相关用例的快速冒烟模板',
+    tags: '冒烟,登录',
+    exec_mode: 'serial',
+    fail_policy: 'stop'
+  },
+  {
+    key: 'pay_special',
+    name: '支付流程专项测试套件',
+    desc: '支付链路专项验证模板',
+    tags: '专项,支付',
+    exec_mode: 'parallel',
+    fail_policy: 'continue_on_fail'
+  },
+  {
+    key: 'profile_iter',
+    name: '个人中心迭代回归套件',
+    desc: '个人中心迭代场景回归模板',
+    tags: '回归,个人中心',
+    exec_mode: 'serial',
+    fail_policy: 'continue_on_fail'
+  }
+]
+
 const loading = ref(false)
+const batchLoading = ref(false)
 const suites = ref([])
 const allCases = ref([])
 const suiteRuns = ref([])
@@ -171,50 +282,125 @@ const currentSuiteId = ref(null)
 const showRunDialog = ref(false)
 const runDetail = ref({ items: [] })
 const showDialog = ref(false)
-const suiteItems = ref([])
-const pickerCaseId = ref(null)
-const form = reactive({
-  id: null, name: '', tags: '', exec_mode: 'serial', fail_policy: 'continue_on_fail',
-  hook_before: '', hook_after: ''
-})
-const hookHelpOpen = ref(['help'])
+const editingSuiteId = ref(null)
+const selectedRows = ref([])
+const page = ref(1)
+const pageSize = ref(20)
+const filters = reactive({ keyword: '', tag: '', exec_mode: '' })
+const showTemplateDialog = ref(false)
+const tplLoading = ref('')
+const userTemplates = ref(loadUserTemplates())
+const todayRunIds = ref(loadTodayRunIds())
+const runningSuiteIds = ref(new Set())
 
-const hookExamples = {
-  before: {
-    wait: {
-      steps: [{ type: 'wait', seconds: 3, enabled: true }]
-    },
-    launch: {
-      steps: [
-        { type: 'wait', seconds: 1, enabled: true },
-        { type: 'launch', app_package: 'com.example.app', enabled: true }
-      ]
-    },
-    common: {
-      steps: [{ type: 'invoke_common', common_step: '登录流程', enabled: true }]
-    }
-  },
-  after: {
-    wait: {
-      steps: [{ type: 'wait', seconds: 2, enabled: true }]
-    },
-    swipe: {
-      steps: [
-        { type: 'swipe', x1: 500, y1: 800, x2: 500, y2: 400, enabled: true },
-        { type: 'wait', seconds: 1, enabled: true }
-      ]
-    }
+const hasSelection = computed(() => selectedRows.value.length > 0)
+
+const allTemplates = computed(() => [...userTemplates.value, ...SUITE_TEMPLATES])
+
+const tagOptions = computed(() => {
+  const set = new Set()
+  for (const s of suites.value) {
+    String(s.tags || '').split(/[,，]/).map(x => x.trim()).filter(Boolean).forEach(t => set.add(t))
+  }
+  return [...set].sort()
+})
+
+const filteredSuites = computed(() => {
+  let list = [...suites.value]
+  if (filters.keyword) {
+    const k = filters.keyword.trim().toLowerCase()
+    list = list.filter(s => String(s.name || '').toLowerCase().includes(k))
+  }
+  if (filters.tag) {
+    list = list.filter(s => String(s.tags || '').split(/[,，]/).map(x => x.trim()).includes(filters.tag))
+  }
+  if (filters.exec_mode) list = list.filter(s => s.exec_mode === filters.exec_mode)
+  return list
+})
+
+const pagedSuites = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredSuites.value.slice(start, start + pageSize.value)
+})
+
+const regressionCount = computed(() =>
+  suites.value.filter(s => String(s.tags || '').includes('回归')).length
+)
+
+const todayRunCount = computed(() => {
+  const ids = new Set(todayRunIds.value)
+  return suites.value.filter(s => ids.has(String(s.id))).length
+})
+
+const runningCount = computed(() => runningSuiteIds.value.size)
+
+function loadUserTemplates() {
+  try {
+    const list = JSON.parse(localStorage.getItem(USER_TPL_KEY) || '[]')
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
   }
 }
 
-const availableCases = computed(() =>
-  allCases.value.filter(c => !suiteItems.value.some(i => i.case_id === c.id))
-)
+function loadTodayRunIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TODAY_RUN_KEY) || '{}')
+    const today = new Date().toISOString().slice(0, 10)
+    if (raw.date !== today) return []
+    return Array.isArray(raw.ids) ? raw.ids.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+function rememberTodayRun(suiteId) {
+  const today = new Date().toISOString().slice(0, 10)
+  const ids = new Set(todayRunIds.value)
+  ids.add(String(suiteId))
+  todayRunIds.value = [...ids]
+  localStorage.setItem(TODAY_RUN_KEY, JSON.stringify({ date: today, ids: todayRunIds.value }))
+}
+
+function displaySuiteName(name) {
+  return name || '未命名套件'
+}
+
+function runStatusLabel(s) {
+  return {
+    completed: '已完成',
+    success: '成功',
+    failed: '失败',
+    running: '运行中',
+    paused: '已暂停',
+    pending: '等待中'
+  }[s] || s || '-'
+}
+
+function runStatusType(s) {
+  return { completed: 'success', success: 'success', failed: 'danger', running: 'warning', paused: 'info' }[s] || 'info'
+}
+
+function onSelectionChange(rows) {
+  selectedRows.value = rows
+}
+
+function resetFilters() {
+  filters.keyword = ''
+  filters.tag = ''
+  filters.exec_mode = ''
+  page.value = 1
+}
+
+async function refreshAll() {
+  await loadSuites()
+  await loadRunStats()
+}
 
 async function loadSuites() {
   loading.value = true
   try {
-    suites.value = (await suiteApi.list()).data
+    suites.value = (await suiteApi.list()).data || []
   } finally {
     loading.value = false
   }
@@ -222,105 +408,156 @@ async function loadSuites() {
 
 async function loadAllCases() {
   const res = await caseApi.list({ page: 1, page_size: 200 })
-  allCases.value = res.data.list
+  allCases.value = res.data?.list || []
+}
+
+async function loadRunStats() {
+  const running = new Set()
+  const today = new Date().toISOString().slice(0, 10)
+  const todayIds = new Set(todayRunIds.value)
+  const list = suites.value.slice(0, 30)
+  await Promise.allSettled(list.map(async (s) => {
+    try {
+      const runs = (await checkpointApi.listSuiteRuns(s.id)).data || []
+      if (runs.some(r => r.status === 'running')) running.add(s.id)
+      for (const r of runs) {
+        const day = String(r.started_at || r.created_at || '').slice(0, 10)
+        if (day === today) todayIds.add(String(s.id))
+      }
+    } catch { /* ignore */ }
+  }))
+  runningSuiteIds.value = running
+  todayRunIds.value = [...todayIds]
+  localStorage.setItem(TODAY_RUN_KEY, JSON.stringify({ date: today, ids: todayRunIds.value }))
 }
 
 function openDialog(row) {
-  if (row) {
-    form.id = row.id
-    form.name = row.name
-    form.tags = row.tags || ''
-    form.exec_mode = row.exec_mode
-    form.fail_policy = row.fail_policy
-    form.hook_before = row.hook_before || ''
-    form.hook_after = row.hook_after || ''
-    suiteApi.get(row.id).then(res => {
-      suiteItems.value = res.data.items.map(i => ({
-        case_id: i.case_id,
-        case_name: i.case_name,
-        case_status: i.case_status,
-        enabled: i.enabled !== false
-      }))
-    })
-  } else {
-    form.id = null
-    form.name = ''
-    form.tags = ''
-    form.exec_mode = 'serial'
-    form.fail_policy = 'continue_on_fail'
-    form.hook_before = ''
-    form.hook_after = ''
-    suiteItems.value = []
-  }
-  pickerCaseId.value = null
+  editingSuiteId.value = row?.id || null
   showDialog.value = true
 }
 
-function addCase(caseId) {
-  if (!caseId) return
-  const c = allCases.value.find(x => x.id === caseId)
-  if (c) {
-    suiteItems.value.push({ case_id: c.id, case_name: c.name, case_status: c.case_status, enabled: true })
-  }
-  pickerCaseId.value = null
+async function onSuiteSaved() {
+  await loadSuites()
 }
 
-function moveItem(index, delta) {
-  const target = index + delta
-  if (target < 0 || target >= suiteItems.value.length) return
-  const arr = [...suiteItems.value]
-  const [item] = arr.splice(index, 1)
-  arr.splice(target, 0, item)
-  suiteItems.value = arr
+function onUserTemplateSaved() {
+  userTemplates.value = loadUserTemplates()
 }
 
-function fillHookExample(phase, exampleKey) {
-  const example = hookExamples[phase]?.[exampleKey]
-  if (!example) return
-  const json = JSON.stringify(example, null, 2)
-  if (phase === 'before') form.hook_before = json
-  else form.hook_after = json
-}
-
-async function saveSuite() {
-  const payload = {
-    name: form.name,
-    tags: form.tags,
-    exec_mode: form.exec_mode,
-    fail_policy: form.fail_policy,
-    hook_before: form.hook_before || null,
-    hook_after: form.hook_after || null,
-    items: suiteItems.value.map((item, idx) => ({
-      case_id: item.case_id,
-      sort_order: idx,
-      enabled: item.enabled !== false
-    }))
+async function createFromTemplate(tpl) {
+  tplLoading.value = tpl.key
+  try {
+    await suiteApi.create({
+      name: tpl.name,
+      tags: tpl.tags,
+      exec_mode: tpl.exec_mode,
+      fail_policy: tpl.fail_policy,
+      hook_before: tpl.hook_before || null,
+      hook_after: tpl.hook_after || null,
+      items: (tpl.items || []).map((item, idx) => ({
+        case_id: item.case_id,
+        sort_order: idx,
+        enabled: item.enabled !== false
+      }))
+    })
+    ElMessage.success('模板套件已创建，请编辑并确认关联用例')
+    showTemplateDialog.value = false
+    await loadSuites()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '创建失败')
+  } finally {
+    tplLoading.value = ''
   }
-  if (form.id) {
-    await suiteApi.update(form.id, payload)
-  } else {
-    await suiteApi.create(payload)
-  }
-  ElMessage.success('套件已保存')
-  showDialog.value = false
-  loadSuites()
 }
 
 async function runSuite(row) {
   const res = await suiteApi.run(row.id)
   const skipped = res.data.skipped || 0
   ElMessage.success(`套件已启动，批次 #${res.data.suite_run_id}，执行 ${res.data.total} 个用例${skipped ? `，跳过 ${skipped} 个` : ''}`)
+  rememberTodayRun(row.id)
+  runningSuiteIds.value = new Set([...runningSuiteIds.value, row.id])
   currentSuiteId.value = row.id
   loadSuiteRuns()
 }
 
-function runStatusType(s) {
-  return { completed: 'success', failed: 'danger', running: 'warning', paused: 'info' }[s] || 'info'
+async function copySuite(row, { silent = false } = {}) {
+  try {
+    const detail = (await suiteApi.get(row.id)).data
+    const payload = {
+      name: `${displaySuiteName(detail.name || row.name)}_副本`,
+      tags: detail.tags || row.tags || '',
+      exec_mode: detail.exec_mode || row.exec_mode || 'serial',
+      fail_policy: detail.fail_policy || row.fail_policy || 'continue_on_fail',
+      hook_before: detail.hook_before || null,
+      hook_after: detail.hook_after || null,
+      items: (detail.items || []).map((item, idx) => ({
+        case_id: item.case_id,
+        sort_order: idx,
+        enabled: item.enabled !== false
+      }))
+    }
+    await suiteApi.create(payload)
+    if (!silent) ElMessage.success('套件已复制')
+    return true
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '复制失败')
+    return false
+  }
+}
+
+async function batchRun() {
+  if (!hasSelection.value) return
+  batchLoading.value = true
+  try {
+    let ok = 0
+    for (const row of selectedRows.value) {
+      try {
+        await suiteApi.run(row.id)
+        rememberTodayRun(row.id)
+        runningSuiteIds.value = new Set([...runningSuiteIds.value, row.id])
+        ok++
+      } catch { /* continue */ }
+    }
+    ElMessage.success(`已启动 ${ok} 个套件执行`)
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+async function batchCopy() {
+  if (!hasSelection.value) return
+  batchLoading.value = true
+  try {
+    let ok = 0
+    for (const row of selectedRows.value) {
+      if (await copySuite(row, { silent: true })) ok++
+    }
+    ElMessage.success(`已复制 ${ok} 个套件`)
+    await loadSuites()
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+async function batchDelete() {
+  if (!hasSelection.value) return
+  await ElMessageBox.confirm(`确定将选中的 ${selectedRows.value.length} 个套件移入回收站？`, '批量删除', { type: 'warning' })
+  batchLoading.value = true
+  try {
+    for (const row of selectedRows.value) {
+      await suiteApi.delete(row.id)
+    }
+    ElMessage.success('已移入回收站')
+    selectedRows.value = []
+    await loadSuites()
+  } finally {
+    batchLoading.value = false
+  }
 }
 
 async function loadSuiteRuns() {
   if (!currentSuiteId.value) return
-  suiteRuns.value = (await checkpointApi.listSuiteRuns(currentSuiteId.value)).data
+  suiteRuns.value = (await checkpointApi.listSuiteRuns(currentSuiteId.value)).data || []
 }
 
 async function viewRun(row) {
@@ -333,12 +570,14 @@ async function pauseRun(row) {
   await checkpointApi.pauseRun(row.id)
   ElMessage.success('套件批次已暂停')
   loadSuiteRuns()
+  loadRunStats()
 }
 
 async function resumeRun(row) {
   const res = await checkpointApi.resumeRun(row.id)
   ElMessage.success(`已续跑 ${res.data.resumed_count} 个用例/步骤`)
   loadSuiteRuns()
+  loadRunStats()
 }
 
 async function restoreConfig(row) {
@@ -349,55 +588,228 @@ async function restoreConfig(row) {
 }
 
 async function deleteSuite(row) {
-  await ElMessageBox.confirm('套件将移入回收站', '确认', { type: 'warning' })
+  await ElMessageBox.confirm('套件将移入回收站，支持后续恢复。', '确认删除', { type: 'warning' })
   await suiteApi.delete(row.id)
-  ElMessage.success('已删除')
+  ElMessage.success('已移入回收站')
   loadSuites()
 }
 
-onMounted(() => { loadSuites(); loadAllCases() })
+watch(() => filteredSuites.value.length, (n) => {
+  const maxPage = Math.max(1, Math.ceil(n / pageSize.value) || 1)
+  if (page.value > maxPage) page.value = maxPage
+})
+
+onMounted(async () => {
+  await loadSuites()
+  loadAllCases()
+  loadRunStats()
+})
 </script>
 
 <style scoped>
-.hook-help {
-  margin: 0 0 16px 100px;
-  border: none;
+.header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
-.hook-help :deep(.el-collapse-item__header) {
+.batch-wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.batch-wrap :deep(.el-button:not(.el-button--danger)) {
+  --el-button-bg-color: #f1f5f9;
+  --el-button-border-color: #e2e8f0;
+  --el-button-text-color: #475569;
+  --el-button-hover-bg-color: #e2e8f0;
+  --el-button-hover-border-color: #cbd5e1;
+}
+.btn-create { font-weight: 700; }
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+}
+.stat-card.tone-total {
+  background: var(--atp-info-bg, #eff6ff);
+}
+.stat-card.tone-total .stat-icon {
+  background: rgba(59, 130, 246, 0.18);
+  color: var(--atp-info, #3b82f6);
+}
+.stat-card.tone-regression {
+  background: var(--atp-warning-bg, #fffbeb);
+}
+.stat-card.tone-regression .stat-icon {
+  background: rgba(217, 119, 6, 0.15);
+  color: var(--atp-warning, #d97706);
+}
+.stat-card.tone-today {
+  background: var(--atp-primary-bg, rgba(2, 132, 199, 0.1));
+}
+.stat-card.tone-today .stat-icon {
+  background: rgba(2, 132, 199, 0.16);
+  color: var(--atp-primary, #0284c7);
+}
+.stat-card.tone-running {
+  background: var(--atp-success-bg, #ecfdf5);
+}
+.stat-card.tone-running .stat-icon {
+  background: rgba(16, 185, 129, 0.16);
+  color: var(--atp-success, #10b981);
+}
+.stat-card.highlight {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);
+}
+.stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--atp-text);
+  line-height: 1.15;
+}
+.stat-value.running { color: var(--atp-success, #059669); }
+.stat-label {
+  margin-top: 2px;
   font-size: 13px;
-  color: var(--el-color-primary);
-  border: none;
-  height: 36px;
+  color: var(--atp-text-secondary);
 }
-.hook-help :deep(.el-collapse-item__wrap) {
-  border: none;
-}
-.hook-help-body {
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--atp-text-secondary, #606266);
-}
-.hook-help-body p {
-  margin: 0 0 8px;
-}
-.hook-help-body code {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--el-fill-color-light, #f5f7fa);
-  font-size: 12px;
-}
-.hook-types {
-  font-size: 12px;
-}
-.hook-examples {
+
+.filter-bar {
   display: flex;
   flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  margin-bottom: 16px;
 }
-.hook-examples > span {
+.filter-right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.suite-name { font-size: 14px; color: var(--atp-text); }
+.mode-text { font-size: 13px; font-weight: 600; }
+.mode-text.is-serial { color: #94a3b8; }
+.mode-text.is-parallel { color: #059669; }
+.policy-text { font-size: 13px; font-weight: 600; }
+.policy-text.is-continue { color: #ca8a04; }
+.policy-text.is-stop { color: #ea580c; }
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.btn-copy {
+  --el-button-bg-color: #f1f5f9;
+  --el-button-border-color: #e2e8f0;
+  --el-button-text-color: #64748b;
+}
+
+.table-empty {
+  text-align: center;
+  padding: 48px 16px 24px;
+  color: var(--atp-text-secondary);
+}
+.table-empty p { margin: 0 0 12px; }
+.empty-hint {
+  margin-top: 10px !important;
   font-size: 12px;
-  color: var(--atp-text-secondary, #909399);
+  color: #94a3b8;
+}
+
+.pager-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.pager-stats {
+  font-size: 13px;
+  color: var(--atp-text-secondary);
+}
+
+.shortcut-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 20px;
+}
+.shortcut-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+}
+.shortcut-card:hover {
+  transform: translateY(-2px);
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+.shortcut-card h4 { margin: 0 0 4px; font-size: 14px; }
+.shortcut-card p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--atp-text-secondary);
+  line-height: 1.45;
+}
+.shortcut-card .el-icon { color: var(--atp-primary); margin-top: 2px; }
+
+.tpl-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--atp-border-neutral);
+}
+.tpl-item:last-child { border-bottom: none; }
+.tpl-item p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--atp-text-secondary);
+}
+
+@media (max-width: 1100px) {
+  .stats-row,
+  .shortcut-bar { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .stats-row,
+  .shortcut-bar { grid-template-columns: 1fr; }
+  .filter-right { margin-left: 0; width: 100%; }
 }
 </style>

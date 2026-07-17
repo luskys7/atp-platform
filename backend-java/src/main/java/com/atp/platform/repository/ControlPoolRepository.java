@@ -33,6 +33,7 @@ public interface ControlPoolRepository extends JpaRepository<ControlPool, Long> 
             (:envTag IS NULL OR :envTag = '' OR p.envTag = :envTag OR p.envTag = '' OR p.envTag IS NULL) AND
             (:teamId IS NULL OR p.teamId = :teamId OR p.teamId IS NULL) AND
             (:status IS NULL OR :status = '' OR p.status = :status)
+            ORDER BY p.id DESC
             """)
     Page<ControlPool> search(
             @Param("appPackage") String appPackage,

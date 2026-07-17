@@ -40,7 +40,7 @@ export const RECOMMEND_REASON_LABELS = {
   ocr: 'OCR 文本兜底'
 }
 
-export const ELEMENT_NAME_PATTERN = /^[a-z][a-z0-9_]{2,47}$/
+export const ELEMENT_NAME_PATTERN = /^([\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,47}|[a-z][a-z0-9_]{2,47})$/
 
 export const CONTROL_TAGS = [
   { value: 'static', label: '静态控件' },
@@ -140,8 +140,27 @@ export function riskTagLabel(tag) {
 
 export function validateElementName(name) {
   const n = String(name || '').trim()
-  if (!ELEMENT_NAME_PATTERN.test(n)) {
-    return '元素名须为小写 snake_case（3-48 字符，字母开头）'
+  if (!n) return '请填写控件名称'
+  if (/^[a-z][a-z0-9_]{2,47}$/.test(n)) return ''
+  if (!/[\u4e00-\u9fff]/.test(n) && /^[a-zA-Z0-9_\-.]+$/.test(n)) {
+    return '请使用中文标识控件用途'
+  }
+  if (/[\u4e00-\u9fff]/.test(n) && !/^[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,47}$/.test(n)) {
+    return '控件名称格式不正确'
+  }
+  if (ELEMENT_NAME_PATTERN.test(n)) return ''
+  return '控件名称格式不正确'
+}
+
+export function validateControlDisplayName(name) {
+  const n = String(name || '').trim()
+  if (!n) return '请填写控件名称'
+  if (n.length > 48) return '控件名称不能超过 48 字'
+  if (!/[\u4e00-\u9fff]/.test(n) || /^[a-zA-Z0-9_\-.]+$/.test(n)) {
+    return '请使用中文标识控件用途'
+  }
+  if (!/^[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,47}$/.test(n)) {
+    return '控件名称格式不正确（建议以中文开头）'
   }
   return ''
 }

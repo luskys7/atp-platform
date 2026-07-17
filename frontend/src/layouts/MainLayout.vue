@@ -13,17 +13,29 @@
 
       <el-scrollbar class="menu-scroll">
         <nav class="nav-group" v-for="group in menuGroups" :key="group.label">
-          <div v-if="!isCollapse" class="nav-group-label">{{ group.label }}</div>
-          <router-link
-            v-for="item in group.items"
-            :key="item.path"
-            :to="item.path"
-            class="nav-item"
-            :class="{ active: isActive(item.path) }"
+          <button
+            v-if="!isCollapse"
+            type="button"
+            class="nav-group-label"
+            :class="{ open: isGroupOpen(group.label), 'has-active': groupHasActive(group) }"
+            @click="toggleGroup(group.label)"
           >
-            <el-icon><component :is="item.icon" /></el-icon>
-            <span v-if="!isCollapse" class="nav-label">{{ item.title }}</span>
-          </router-link>
+            <span>{{ group.label }}</span>
+            <el-icon class="nav-group-arrow"><ArrowDown /></el-icon>
+          </button>
+          <div v-show="isCollapse || isGroupOpen(group.label)" class="nav-group-items">
+            <router-link
+              v-for="item in group.items"
+              :key="item.path + (item.query ? JSON.stringify(item.query) : '')"
+              :to="item.query ? { path: item.path, query: item.query } : item.path"
+              class="nav-item"
+              :class="{ active: isActive(item) }"
+              :title="isCollapse ? item.title : undefined"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span v-if="!isCollapse" class="nav-label">{{ item.title }}</span>
+            </router-link>
+          </div>
         </nav>
       </el-scrollbar>
 
@@ -84,7 +96,7 @@
             <keep-alive include="DeviceScreen">
               <component
                 :is="Component"
-                :key="r.name === 'DeviceScreen' ? `screen-${r.params.id}` : r.fullPath"
+                :key="viewInstanceKey(r)"
               />
             </keep-alive>
           </transition>
@@ -118,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { roleLabels } from '@/utils/status'
@@ -184,61 +196,132 @@ const avatarLetter = computed(() => {
 })
 
 const menuGroups = computed(() => {
-  const groups = [
+  return [
     {
-      label: '工作台',
+      label: '首页概览',
       items: [
-        { path: '/dashboard', title: '首页概览', icon: 'Odometer' },
+        { path: '/dashboard', title: '总览', icon: 'Odometer' }
+      ]
+    },
+    {
+      label: '设备管理',
+      items: [
+        { path: '/devices', title: '设备列表', icon: 'Iphone' },
+        { path: '/element-picker', title: '控件拾取', icon: 'Aim' }
+      ]
+    },
+    {
+      label: '测试用例',
+      items: [
+        { path: '/cases', title: '用例列表', icon: 'DocumentCopy' },
+        { path: '/suites', title: '测试套件', icon: 'Collection' }
+      ]
+    },
+    {
+      label: '公共组件',
+      items: [
+        { path: '/public-assets', title: '组件中心', icon: 'Box' },
+        { path: '/controls', title: '元素定位库', icon: 'Grid' },
+        { path: '/platform-config', title: '公共步骤', icon: 'Connection', query: { tab: 'steps' } },
+        { path: '/platform-config', title: '全局参数', icon: 'SetUp', query: { tab: 'global-params' }, adminOnly: true }
+      ].filter(i => !i.adminOnly || userStore.isAdmin)
+    },
+    {
+      label: '测试任务',
+      items: [
+        { path: '/tasks', title: '任务执行', icon: 'VideoPlay' },
+        { path: '/platform-config', title: '定时任务', icon: 'Timer', query: { tab: 'schedule' } }
+      ]
+    },
+    {
+      label: '项目管理',
+      items: [
+        { path: '/project-hub', title: '项目中心', icon: 'FolderOpened' },
+        { path: '/app-packages', title: '应用包版本', icon: 'Box' },
+        { path: '/platform-config', title: '环境配置', icon: 'Monitor', query: { tab: 'env' } }
+      ]
+    },
+    {
+      label: '测试报告',
+      items: [
+        { path: '/reports', title: '运行报告', icon: 'Document' },
+        { path: '/recordings', title: '录屏回放', icon: 'VideoCamera' },
+        { path: '/recording-quality', title: '录制质量', icon: 'DataAnalysis' },
         { path: '/wallboard', title: '执行大屏', icon: 'DataBoard' }
       ]
     },
     {
-      label: '用例资产',
+      label: '系统设置',
       items: [
-        { path: '/cases', title: '测试用例', icon: 'DocumentCopy' },
-        { path: '/suites', title: '测试套件', icon: 'Collection' },
-        { path: '/platform-config', title: '平台配置', icon: 'Setting' },
-        { path: '/app-packages', title: 'APP 包仓库', icon: 'Box' }
-      ]
-    },
-    {
-      label: '测试中心',
-      items: [
-        { path: '/devices', title: '设备管理', icon: 'Iphone' },
-        { path: '/element-picker', title: '控件拾取', icon: 'Aim' },
-        { path: '/tasks', title: '测试任务', icon: 'List' },
-        { path: '/recordings', title: '录屏回放', icon: 'VideoCamera' },
-        { path: '/recording-quality', title: '录制质量', icon: 'DataAnalysis' },
-        { path: '/reports', title: '测试报告', icon: 'Document' }
+        { path: '/settings-hub', title: '设置中心', icon: 'Setting' },
+        ...(userStore.isAdmin ? [{ path: '/ci', title: 'CI/CD', icon: 'Connection' }] : []),
+        { path: '/profile', title: '个人中心', icon: 'User' }
       ]
     }
   ]
-  if (userStore.isAdmin) {
-    groups.push({
-      label: '系统管理',
-      items: [
-        { path: '/controls', title: '控件池', icon: 'Grid' },
-        { path: '/ci', title: 'CI/CD', icon: 'Connection' }
-      ]
-    })
-  }
-  groups.push({
-    label: '账户',
-    items: [{ path: '/profile', title: '个人中心', icon: 'User' }]
-  })
-  return groups
 })
 
-function isActive(path) {
-  if (path === '/cases') return route.path.startsWith('/cases')
+/** 分组展开状态：默认只展开当前路由所在分组 */
+const openGroups = reactive({})
+let groupsInitialized = false
+
+function groupHasActive(group) {
+  return group.items.some(item => isActive(item))
+}
+
+function isGroupOpen(label) {
+  return !!openGroups[label]
+}
+
+function toggleGroup(label) {
+  openGroups[label] = !openGroups[label]
+}
+
+function syncOpenGroupForRoute() {
+  const groups = menuGroups.value
+  if (!groupsInitialized) {
+    for (const g of groups) openGroups[g.label] = false
+    groupsInitialized = true
+  }
+  const active = groups.find(g => groupHasActive(g))
+  if (active) openGroups[active.label] = true
+}
+
+watch(() => route.fullPath, syncOpenGroupForRoute, { immediate: true })
+watch(menuGroups, () => {
+  // admin 菜单变化时补齐新分组 key，默认收起
+  for (const g of menuGroups.value) {
+    if (openGroups[g.label] == null) openGroups[g.label] = groupHasActive(g)
+  }
+})
+
+function viewInstanceKey(r) {
+  // 仅路径 / 名称变化时重建页面；query（如 ?tab=）变化不整页重挂载
+  if (r.name === 'DeviceScreen') return `screen-${r.params.id}`
+  return r.name || r.path
+}
+
+function isActive(item) {
+  const path = typeof item === 'string' ? item : item.path
+  const query = typeof item === 'string' ? null : item.query
+  if (query?.tab) {
+    return route.path === path && route.query.tab === query.tab
+  }
+  if (path === '/cases') {
+    return route.path === '/cases' || route.path.startsWith('/cases/editor') || route.path.includes('/debug')
+  }
   if (path === '/suites') return route.path.startsWith('/suites')
-  if (path === '/platform-config') return route.path === '/platform-config'
-  if (path === '/app-packages') return route.path === '/app-packages'
-  if (path === '/tasks') return route.path.startsWith('/tasks') || route.path.startsWith('/cases/editor')
+  if (path === '/public-assets') return route.path === '/public-assets'
+  if (path === '/project-hub') return route.path === '/project-hub'
+  if (path === '/settings-hub') return route.path === '/settings-hub'
+  if (path === '/tasks') return route.path.startsWith('/tasks')
   if (path === '/devices') return route.path.startsWith('/devices')
   if (path === '/element-picker') return route.path.startsWith('/element-picker')
   if (path === '/reports') return route.path.startsWith('/reports')
+  if (path === '/controls') return route.path.startsWith('/controls')
   if (path === '/recording-quality') return route.path === '/recording-quality'
+  if (path === '/wallboard') return route.path === '/wallboard'
+  if (path === '/platform-config') return route.path === '/platform-config' && !route.query.tab
   return route.path === path || route.path.startsWith(path + '/')
 }
 
@@ -424,16 +507,50 @@ onUnmounted(() => {
 }
 
 .nav-group {
-  margin-bottom: 20px;
+  margin-bottom: 8px;
 }
 
 .nav-group-label {
-  font-size: 11px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.35);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0 12px 8px;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.04em;
+  padding: 8px 12px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+
+  &:hover {
+    color: rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  &.has-active {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  &.open .nav-group-arrow {
+    transform: rotate(0deg);
+  }
+}
+
+.nav-group-arrow {
+  font-size: 12px;
+  opacity: 0.7;
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease;
+}
+
+.nav-group-items {
+  padding-bottom: 4px;
 }
 
 .nav-item {
@@ -476,6 +593,13 @@ onUnmounted(() => {
       border-radius: 0 3px 3px 0;
     }
   }
+}
+
+.nav-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .sidebar-footer {
