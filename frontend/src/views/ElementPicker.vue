@@ -2,51 +2,106 @@
   <div class="page-container picker-page">
     <!-- 设备选择（无 deviceId 时） -->
     <template v-if="!deviceId">
-      <PageHeader title="控件拾取" subtitle="选择在线 Android 设备，在投屏画面上点击即可获取控件定位信息（无需录制）">
+      <PageHeader title="控件获取" subtitle="选择在线安卓设备，在投屏画面点击控件即可获取定位信息，无需新建录制用例">
         <template #actions>
-          <el-button @click="loadDevices" :loading="devicesLoading">刷新设备</el-button>
+          <el-button :loading="devicesLoading" @click="loadDevices">刷新设备</el-button>
+          <el-button type="warning" plain :loading="rebootingOffline" @click="rebootAllOffline">重启离线设备</el-button>
+          <el-button type="primary" plain @click="$router.push('/controls')">进入控件库</el-button>
         </template>
       </PageHeader>
+
+      <div class="status-banner" :class="hubBanner.tone">
+        <el-icon><component :is="hubBanner.icon" /></el-icon>
+        <span class="status-banner__text">{{ hubBanner.text }}</span>
+        <div v-if="hubBanner.tone === 'danger'" class="status-banner__actions">
+          <el-button size="small" type="warning" :loading="rebootingOffline" @click="rebootAllOffline">一键重启全部设备</el-button>
+          <el-button size="small" type="primary" :loading="syncingUsb" @click="syncUsbFromHub">同步 USB 接入新设备</el-button>
+        </div>
+      </div>
+
       <AppCard title="可用设备" :hover="false">
-        <el-table v-loading="devicesLoading" :data="androidDevices" stripe>
-          <el-table-column prop="name" label="名称" min-width="120">
-            <template #default="{ row }">{{ row.name || row.serial_number }}</template>
+        <el-table v-loading="devicesLoading" :data="androidDevices" stripe empty-text="">
+          <el-table-column label="设备名称" min-width="140">
+            <template #default="{ row }">
+              <span class="dev-name">{{ row.name || row.model || row.serial_number || '-' }}</span>
+            </template>
           </el-table-column>
-          <el-table-column prop="serial_number" label="序列号" min-width="140" />
-          <el-table-column label="分辨率" width="120">
+          <el-table-column label="设备序列号" min-width="160">
+            <template #default="{ row }">
+              <span class="dev-serial">{{ row.serial_number || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="屏幕分辨率" width="130">
             <template #default="{ row }">
               {{ row.screen_width && row.screen_height ? `${row.screen_width}×${row.screen_height}` : '-' }}
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="100">
+          <el-table-column label="设备状态" width="110">
             <template #default="{ row }">
-              <el-tag :type="row.status === 'online' ? 'success' : 'info'" size="small">
-                {{ row.status === 'online' ? '在线' : row.status }}
+              <el-tag
+                size="small"
+                round
+                effect="plain"
+                class="status-tag"
+                :class="isDeviceOnline(row) ? 'is-online' : 'is-offline'"
+              >
+                {{ isDeviceOnline(row) ? '在线' : '离线' }}
               </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
-              <el-button
-                type="primary"
-                size="small"
-                :disabled="(row.platform !== 'android' && row.platform !== 'ios') || row.status === 'offline'"
-                @click="openPicker(row.id)"
+              <el-tooltip
+                :disabled="canStartPick(row)"
+                content="设备处于离线状态，无法开启控件拾取，请重启设备后重试"
+                placement="top"
               >
-                开始拾取
-              </el-button>
+                <span>
+                  <el-button
+                    type="primary"
+                    size="small"
+                    :disabled="!canStartPick(row)"
+                    @click="openPicker(row.id)"
+                  >
+                    开始拾取
+                  </el-button>
+                </span>
+              </el-tooltip>
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="!devicesLoading && !androidDevices.length" description="暂无在线 Android 设备" />
+
+        <div v-if="!devicesLoading && !androidDevices.length" class="hub-empty">
+          <p>暂无已接入的测试设备</p>
+          <div class="hub-empty__actions">
+            <el-button type="primary" :loading="syncingUsb" @click="syncUsbFromHub">同步 USB 设备</el-button>
+            <el-button v-if="userStore.isAdmin" @click="showWhitelistDialog = true">添加设备白名单</el-button>
+          </div>
+        </div>
       </AppCard>
+
+      <el-dialog v-model="showWhitelistDialog" title="添加设备白名单" width="480px" destroy-on-close>
+        <el-form :model="whitelistForm" label-width="100px">
+          <el-form-item label="序列号" required><el-input v-model="whitelistForm.serial_number" /></el-form-item>
+          <el-form-item label="平台" required>
+            <el-select v-model="whitelistForm.platform" style="width:100%">
+              <el-option label="Android" value="android" /><el-option label="iOS" value="ios" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="备注"><el-input v-model="whitelistForm.remark" /></el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="showWhitelistDialog = false">取消</el-button>
+          <el-button type="primary" @click="addWhitelistFromHub">确认</el-button>
+        </template>
+      </el-dialog>
     </template>
 
     <!-- 控件拾取工作台 -->
     <template v-else>
       <PageHeader
-        :title="`控件拾取 · ${device?.name || device?.serial_number || `#${deviceId}`}`"
-        subtitle="操控设备与识别控件分开操作；识别前请先刷新 UI 树"
+        :title="`控件获取 · ${device?.model || device?.name || device?.serial_number || `#${deviceId}`}`"
+        subtitle="在投屏画面点击控件即可获取定位信息；识别前建议先刷新 UI 树"
       >
         <template #actions>
           <el-tag v-if="connected" type="success" size="small">已连接</el-tag>
@@ -55,6 +110,7 @@
             {{ fps }} FPS
           </el-tag>
           <el-button style="margin-left:12px" @click="goHub">切换设备</el-button>
+          <el-button @click="$router.push('/controls')">进入控件库</el-button>
           <el-button v-if="pickReturnTo" type="primary" @click="goReturn">返回审阅</el-button>
         </template>
       </PageHeader>
@@ -65,7 +121,17 @@
 
       <div class="picker-workbench">
         <aside class="screen-panel">
-          <AppCard title="设备画面" :hover="false" class="screen-card">
+          <AppCard :hover="false" class="screen-card">
+            <template #header>
+              <div class="screen-card-head">
+                <span>设备投屏拾取画面 - {{ device?.model || device?.name || device?.serial_number || '未知设备' }}</span>
+                <div class="screen-card-actions">
+                  <el-button size="small" type="danger" plain @click="endPickSession">结束拾取</el-button>
+                  <el-button size="small" :disabled="!hasFrame" @click="captureScreenshot">截取当前页面截图</el-button>
+                  <el-button size="small" :disabled="!currentPick" @click="clearCurrentPick">清空上一次拾取的控件信息</el-button>
+                </div>
+              </div>
+            </template>
             <div class="screen-wrap" ref="screenWrapRef">
               <div class="screen-device">
                 <div class="screen-frame" :style="screenFrameStyle">
@@ -119,7 +185,7 @@
             </p>
           </AppCard>
 
-          <AppCard title="当前控件" :hover="false" class="panel-block pick-result-card">
+          <AppCard title="控件定位结果" :hover="false" class="panel-block pick-result-card">
             <div v-if="inspecting" class="inspecting-tip">
               <el-icon class="spin"><Loading /></el-icon>
               识别中，请稍候…
@@ -142,6 +208,20 @@
                       稳定性 {{ stabilityScore }} · {{ stabilityScoreLabel(stabilityScore) }}
                     </el-tag>
                   </div>
+                </div>
+
+                <div class="basic-info-block">
+                  <div class="basic-info-title">基础信息</div>
+                  <el-descriptions :column="2" size="small" border class="pick-desc">
+                    <el-descriptions-item label="控件名称">{{ currentPick.display_name || currentPick.element_name || '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="控件类型">{{ widgetTypeLabel(currentPick.widget_type || currentPick.class) }}</el-descriptions-item>
+                    <el-descriptions-item label="点击坐标">{{ currentPick.x }}, {{ currentPick.y }}</el-descriptions-item>
+                    <el-descriptions-item label="界面坐标" v-if="currentPick.inspect_x != null">
+                      {{ currentPick.inspect_x }}, {{ currentPick.inspect_y }}
+                    </el-descriptions-item>
+                    <el-descriptions-item label="类名" v-if="currentPick.class">{{ shortClass(currentPick.class) }}</el-descriptions-item>
+                    <el-descriptions-item label="控件边界" :span="2" v-if="currentPick.bounds">{{ currentPick.bounds }}</el-descriptions-item>
+                  </el-descriptions>
                 </div>
 
                 <el-alert
@@ -171,6 +251,22 @@
                   class="pick-alert"
                 />
 
+                <div class="locator-schemes">
+                  <div class="basic-info-title">多套定位方案</div>
+                  <div
+                    v-for="scheme in locatorSchemes"
+                    :key="scheme.key"
+                    class="locator-scheme-card"
+                    :class="{ recommend: scheme.recommended }"
+                  >
+                    <div class="scheme-head">
+                      <span>{{ scheme.label }}<em v-if="scheme.recommended">（推荐优先使用）</em></span>
+                      <el-button size="small" type="primary" plain :disabled="!scheme.value" @click="copyText(scheme.value)">一键复制</el-button>
+                    </div>
+                    <code class="scheme-value">{{ scheme.value || '暂无该定位方案' }}</code>
+                  </div>
+                </div>
+
                 <div v-if="recommendedLocatorItem" class="primary-loc-card recommended">
                   <div class="plc-head">
                     <span class="plc-badge rec">推荐定位</span>
@@ -194,16 +290,6 @@
                     <el-button text type="primary" size="small" :icon="CopyDocument" @click="copyText(primaryLocatorItem.value)" />
                   </div>
                 </div>
-
-                <el-descriptions :column="2" size="small" border class="pick-desc">
-                  <el-descriptions-item label="点击坐标">{{ currentPick.x }}, {{ currentPick.y }}</el-descriptions-item>
-                  <el-descriptions-item label="UI 坐标" v-if="currentPick.inspect_x != null">
-                    {{ currentPick.inspect_x }}, {{ currentPick.inspect_y }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="类型">{{ currentPick.widget_type || 'unknown' }}</el-descriptions-item>
-                  <el-descriptions-item label="Class" v-if="currentPick.class">{{ shortClass(currentPick.class) }}</el-descriptions-item>
-                  <el-descriptions-item label="Bounds" :span="2" v-if="currentPick.bounds">{{ currentPick.bounds }}</el-descriptions-item>
-                </el-descriptions>
 
                 <div class="relative-section">
                   <div class="section-head">
@@ -309,11 +395,12 @@
               </div>
 
               <div class="pick-actions-bar">
+                <el-button size="small" type="primary" @click="openSavePool">保存至公共控件库</el-button>
+                <el-button size="small" @click="copyAllLocators">复制全部定位信息</el-button>
+                <el-button size="small" @click="clearCurrentPick">清空当前拾取数据</el-button>
                 <el-button size="small" :loading="validating" :disabled="!connected || !locatorChain.length" @click="validateCurrentLocator">
                   验证定位
                 </el-button>
-                <el-button size="small" @click="copyJson">复制 JSON</el-button>
-                <el-button size="small" type="primary" @click="openSavePool">保存到控件池</el-button>
                 <el-button
                   v-if="pickRecordId != null && pickStepIndex != null"
                   size="small"
@@ -354,8 +441,8 @@
             </el-form>
           </AppCard>
 
-          <AppCard title="拾取历史" :hover="false" class="panel-block">
-            <el-scrollbar max-height="220px">
+          <AppCard title="本次拾取历史控件列表" :hover="false" class="panel-block">
+            <el-scrollbar max-height="260px">
               <div
                 v-for="(item, idx) in pickHistory"
                 :key="item.id"
@@ -365,23 +452,28 @@
               >
                 <span class="hist-no">{{ pickHistory.length - idx }}</span>
                 <div class="hist-body">
-                  <span>{{ item.display_name || item.element_name || `(${item.x},${item.y})` }}</span>
+                  <span class="hist-name">{{ item.display_name || item.element_name || `控件 (${item.x},${item.y})` }}</span>
+                  <span class="hist-meta">所属设备：{{ item.device_label || device?.model || device?.name || '-' }}</span>
+                  <span class="hist-meta">拾取时间：{{ formatPickTime(item.picked_at) }}</span>
                   <span v-if="formatStepLocator(item)" class="hist-loc">{{ formatStepLocator(item) }}</span>
                 </div>
               </div>
             </el-scrollbar>
-            <el-button v-if="pickHistory.length" size="small" link type="danger" @click="pickHistory = []">清空历史</el-button>
+            <div class="history-footer">
+              <el-button v-if="pickHistory.length" size="small" link type="danger" @click="clearPickHistory">清空历史</el-button>
+              <el-button type="primary" link @click="$router.push('/controls')">查看全部公共控件库</el-button>
+            </div>
           </AppCard>
         </section>
       </div>
 
-      <el-dialog v-model="showSavePool" title="保存到控件池" width="480px" destroy-on-close>
+      <el-dialog v-model="showSavePool" title="保存至公共控件库" width="480px" destroy-on-close>
         <el-form label-width="96px" size="small">
-          <el-form-item label="页面标识">
-            <el-input v-model="savePoolForm.page_name" placeholder="登录页 / Home" />
+          <el-form-item label="控件名称" required>
+            <el-input v-model="savePoolForm.element_name" placeholder="如：登录按钮" />
           </el-form-item>
-          <el-form-item label="元素名" required>
-            <el-input v-model="savePoolForm.element_name" placeholder="login_btn" />
+          <el-form-item label="业务分类">
+            <el-input v-model="savePoolForm.page_name" placeholder="如：登录页 / 首页" />
           </el-form-item>
           <el-form-item label="版本标签">
             <el-input v-model="savePoolForm.version_tag" placeholder="v1.0.0 / test" />
@@ -433,6 +525,7 @@ import {
   CONTROL_TAGS, WAIT_CONDITIONS, validateElementName, recommendReasonLabel
 } from '@/utils/locatorAssist'
 import { normalizeDevice } from '@/utils/device'
+import { useUserStore } from '@/stores/user'
 import ScreenNavBar from '@/components/ScreenNavBar.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Monitor, Loading, CopyDocument, ArrowUp, ArrowDown, CircleCheck, WarningFilled } from '@element-plus/icons-vue'
@@ -441,6 +534,7 @@ defineOptions({ name: 'ElementPicker' })
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 const deviceId = computed(() => route.params.id ? String(route.params.id) : '')
 const device = ref(null)
 const canvasRef = ref(null)
@@ -451,8 +545,12 @@ const frameH = ref(1920)
 
 const devicesLoading = ref(false)
 const androidDevices = ref([])
+const rebootingOffline = ref(false)
+const syncingUsb = ref(false)
+const showWhitelistDialog = ref(false)
+const whitelistForm = reactive({ serial_number: '', platform: 'android', remark: '' })
 
-const interactionMode = ref('operate')
+const interactionMode = ref('pick')
 const inspecting = ref(false)
 const warming = ref(false)
 const uiTreeReady = ref(false)
@@ -461,7 +559,24 @@ const applying = ref(false)
 const validating = ref(false)
 const savingPool = ref(false)
 const currentPick = ref(null)
-const pickHistory = ref([])
+const PICK_HISTORY_KEY = 'atp_element_pick_history'
+
+function loadPersistedPickHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PICK_HISTORY_KEY) || '[]')
+    return Array.isArray(raw) ? raw.slice(0, 30) : []
+  } catch {
+    return []
+  }
+}
+
+function persistPickHistory(list) {
+  try {
+    localStorage.setItem(PICK_HISTORY_KEY, JSON.stringify((list || []).slice(0, 30)))
+  } catch { /* ignore */ }
+}
+
+const pickHistory = ref(loadPersistedPickHistory())
 const lastPickMarker = ref(null)
 const locatorChain = ref([])
 const validateResult = ref(null)
@@ -583,6 +698,80 @@ const recommendReasonText = computed(() => {
   if (!rec) return ''
   return rec.recommend_reason || recommendReasonLabel(rec.type)
 })
+
+const locatorSchemes = computed(() => {
+  const pick = currentPick.value
+  const locs = pick?.locators || {}
+  const chain = locatorChain.value || []
+  const findVal = (...keys) => {
+    for (const k of keys) {
+      if (locs[k]) return String(locs[k])
+      const hit = chain.find(i => i.type === k || (k === 'id' && i.type === 'resource_id'))
+      if (hit?.value) return String(hit.value)
+    }
+    if (pick?.locator_type && keys.includes(pick.locator_type) && pick.locator_value) return String(pick.locator_value)
+    return ''
+  }
+  const idVal = findVal('id', 'resource_id')
+  const textVal = findVal('text')
+  const descVal = findVal('content_desc')
+  const xpathVal = findVal('xpath', 'xpath_desc', 'absolute_xpath', 'relative_xpath')
+  const recType = recommendedLocatorItem.value?.type
+  return [
+    { key: 'id', label: '资源 ID 定位', value: idVal, recommended: recType === 'id' || recType === 'resource_id' || (!recType && !!idVal) },
+    { key: 'text', label: '文本内容定位', value: textVal, recommended: recType === 'text' },
+    { key: 'content_desc', label: '内容描述定位', value: descVal, recommended: recType === 'content_desc' },
+    { key: 'xpath', label: '路径通用定位', value: xpathVal, recommended: ['xpath', 'xpath_desc', 'absolute_xpath', 'relative_xpath'].includes(recType) }
+  ]
+})
+
+const onlineDeviceCount = computed(() => androidDevices.value.filter(d => isDeviceOnline(d)).length)
+const offlineDeviceCount = computed(() => androidDevices.value.filter(d => !isDeviceOnline(d)).length)
+const hubBanner = computed(() => {
+  const total = androidDevices.value.length
+  const online = onlineDeviceCount.value
+  const offline = offlineDeviceCount.value
+  if (!total || online === 0) {
+    return { tone: 'danger', icon: 'WarningFilled', text: '当前无可用在线设备，离线设备无法启动控件拾取' }
+  }
+  if (offline === 0) {
+    return { tone: 'success', icon: 'CircleCheck', text: `当前共 ${total} 台设备，其中 ${online} 台在线，可正常拾取控件` }
+  }
+  return { tone: 'warning', icon: 'WarningFilled', text: `${online} 台设备在线可用，${offline} 台设备离线（离线设备拾取功能已禁用）` }
+})
+
+function isDeviceOnline(row) {
+  return row?.status === 'online' || row?.status === 'busy'
+}
+
+function canStartPick(row) {
+  return (row.platform === 'android' || row.platform === 'ios') && isDeviceOnline(row)
+}
+
+function widgetTypeLabel(raw) {
+  const s = String(raw || '').toLowerCase()
+  if (!s || s === 'unknown') return '未知类型'
+  if (s.includes('button') || s.includes('btn')) return '按钮'
+  if (s.includes('edit') || s.includes('input') || s.includes('textfield')) return '文本框'
+  if (s.includes('image') || s.includes('img') || s.includes('imageview')) return '图片'
+  if (s.includes('text') || s.includes('label') || s.includes('textview')) return '文本'
+  if (s.includes('check')) return '复选框'
+  if (s.includes('switch')) return '开关'
+  if (s.includes('list') || s.includes('recycler')) return '列表'
+  if (s.includes('web')) return '网页视图'
+  return raw || '未知类型'
+}
+
+function formatPickTime(ts) {
+  if (!ts) return '-'
+  try {
+    const d = new Date(ts)
+    if (Number.isNaN(d.getTime())) return String(ts)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+  } catch {
+    return String(ts)
+  }
+}
 
 const validateResultText = computed(() => {
   const r = validateResult.value
@@ -741,6 +930,36 @@ function resolveAppPackage() {
     || 'com.atp.unscoped'
 }
 
+function maybeFillControlForm(pick) {
+  if (route.query.return_fill !== '1' && sessionStorage.getItem('atp_fill_control_form') !== '1') return
+  const primary = (pick.locator_type && pick.locator_value)
+    ? { type: pick.locator_type, value: pick.locator_value }
+    : (pick.locators && Object.keys(pick.locators).length
+        ? { type: Object.keys(pick.locators)[0], value: pick.locators[Object.keys(pick.locators)[0]] }
+        : null)
+  const payload = {
+    app_package: device.value?.app_package || pick.app_package || '',
+    page_name: pick.page_name || '',
+    element_name: pick.element_name || pick.text || pick.content_desc || '',
+    platform: (device.value?.platform || 'android').toLowerCase().includes('ios') ? 'ios' : 'android',
+    locator_type: primary?.type || 'id',
+    locator_value: primary?.value || '',
+    version_tag: '',
+    env_tag: '',
+    control_tag: 'static',
+    is_core: false
+  }
+  if (payload.element_name && !/[\u4e00-\u9fff]/.test(payload.element_name)) {
+    const zh = pick.text || pick.content_desc || pick.display_name
+    if (zh && /[\u4e00-\u9fff]/.test(zh)) payload.element_name = zh
+  }
+  sessionStorage.setItem('atp_control_pool_form_fill', JSON.stringify(payload))
+  localStorage.setItem('atp_control_pool_form_fill', JSON.stringify(payload))
+  sessionStorage.removeItem('atp_fill_control_form')
+  ElMessage.success('定位信息已回填，正在返回控件池表单')
+  router.push({ path: '/controls', query: { open_form: '1' } })
+}
+
 function goHub() {
   router.push('/element-picker')
 }
@@ -757,12 +976,108 @@ async function loadDevices() {
   devicesLoading.value = true
   try {
     const res = await deviceApi.list({ page: 1, page_size: 100 })
-    androidDevices.value = (res.data?.list || []).filter(d => d.platform === 'android' || d.platform === 'ios')
+    androidDevices.value = (res.data?.list || [])
+      .filter(d => d.platform === 'android' || d.platform === 'ios')
+      .map(normalizeDevice)
   } catch (e) {
     ElMessage.error(apiErrorMessage(e, '加载设备列表失败'))
   } finally {
     devicesLoading.value = false
   }
+}
+
+async function syncUsbFromHub() {
+  syncingUsb.value = true
+  try {
+    const res = await deviceApi.syncUsb()
+    ElMessage.success(res.data?.message || 'USB 设备已同步')
+    await loadDevices()
+  } catch (e) {
+    ElMessage.error(apiErrorMessage(e, '同步失败'))
+  } finally {
+    syncingUsb.value = false
+  }
+}
+
+async function rebootAllOffline() {
+  const offline = androidDevices.value.filter(d => !isDeviceOnline(d))
+  if (!offline.length) {
+    ElMessage.info('当前没有离线设备')
+    return
+  }
+  rebootingOffline.value = true
+  try {
+    let ok = 0
+    for (const d of offline) {
+      try {
+        if (typeof deviceApi.resetHealth === 'function') await deviceApi.resetHealth(d.id)
+        else await deviceApi.updateStatus(d.id, { status: 'online' })
+        ok++
+      } catch { /* continue */ }
+    }
+    ElMessage.success(`已向 ${ok}/${offline.length} 台离线设备下发重启指令`)
+    await loadDevices()
+  } finally {
+    rebootingOffline.value = false
+  }
+}
+
+async function addWhitelistFromHub() {
+  if (!whitelistForm.serial_number?.trim()) {
+    ElMessage.warning('请填写序列号')
+    return
+  }
+  await deviceApi.addWhitelist(whitelistForm)
+  ElMessage.success('白名单添加成功')
+  showWhitelistDialog.value = false
+  Object.assign(whitelistForm, { serial_number: '', platform: 'android', remark: '' })
+  await loadDevices()
+}
+
+function endPickSession() {
+  try { stopStream() } catch { /* ignore */ }
+  currentPick.value = null
+  lastPickMarker.value = null
+  goHub()
+}
+
+function captureScreenshot() {
+  const canvas = canvasRef.value
+  if (!canvas) {
+    ElMessage.warning('暂无投屏画面可截取')
+    return
+  }
+  try {
+    const url = canvas.toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `picker-${deviceId.value || 'screen'}-${Date.now()}.png`
+    a.click()
+    ElMessage.success('截图已下载')
+  } catch (e) {
+    ElMessage.error('截图失败')
+  }
+}
+
+function clearCurrentPick() {
+  currentPick.value = null
+  lastPickMarker.value = null
+  locatorChain.value = []
+  validateResult.value = null
+  validateAttempts.value = []
+  ElMessage.success('已清空当前拾取数据')
+}
+
+function copyAllLocators() {
+  if (!currentPick.value) return
+  const lines = locatorSchemes.value
+    .filter(s => s.value)
+    .map(s => `${s.label}: ${s.value}`)
+  if (!lines.length) {
+    copyJson()
+    return
+  }
+  copyText(lines.join('\n'))
 }
 
 function apiErrorMessage(e, fallback = '请求失败') {
@@ -903,13 +1218,17 @@ function applyPickResult(data) {
     locators,
     locator_chain: locatorChain.value.map((item, idx) => ({ ...item, priority: idx + 1 })),
     locator_type: primary.locator_type || data.locator_type,
-    locator_value: primary.locator_value || data.locator_value
+    locator_value: primary.locator_value || data.locator_value,
+    picked_at: Date.now(),
+    device_label: device.value?.model || device.value?.name || device.value?.serial_number || `#${deviceId.value}`
   }
   fillManualForm(merged)
   currentPick.value = merged
   syncRelativeFormFromPick(merged)
   pickHistory.value.unshift(merged)
   if (pickHistory.value.length > 30) pickHistory.value.pop()
+  persistPickHistory(pickHistory.value)
+  maybeFillControlForm(merged)
   validateResult.value = null
   validateAttempts.value = []
   showValidateDetail.value = false
@@ -1147,7 +1466,13 @@ function applyManualToCurrent() {
   const idx = pickHistory.value.findIndex(h => h.id === updated.id)
   if (idx >= 0) pickHistory.value[idx] = updated
   else pickHistory.value.unshift(updated)
+  persistPickHistory(pickHistory.value)
   ElMessage.success('已更新当前控件')
+}
+
+function clearPickHistory() {
+  pickHistory.value = []
+  persistPickHistory([])
 }
 
 function selectHistory(item) {
@@ -1288,6 +1613,139 @@ onUnmounted(() => {
 .picker-page {
   max-width: none;
 }
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.status-banner.success {
+  background: #ecfdf5;
+  color: #047857;
+}
+.status-banner.warning {
+  background: #fffbeb;
+  color: #92400e;
+}
+.status-banner.danger {
+  background: #fff7ed;
+  color: #9a3412;
+}
+.status-banner__text { flex: 1; min-width: 200px; }
+.status-banner__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.dev-name {
+  font-weight: 700;
+  color: var(--atp-text, #0f172a);
+}
+.dev-serial {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.status-tag {
+  font-weight: 700 !important;
+  border-width: 1px !important;
+}
+.status-tag.is-online {
+  background: #ecfdf5 !important;
+  border-color: #6ee7b7 !important;
+  color: #047857 !important;
+}
+.status-tag.is-online :deep(.el-tag__content) {
+  color: #047857 !important;
+}
+.status-tag.is-offline {
+  background: #fff7ed !important;
+  border-color: #fdba74 !important;
+  color: #9a3412 !important;
+}
+.status-tag.is-offline :deep(.el-tag__content) {
+  color: #9a3412 !important;
+}
+
+.hub-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--atp-text-secondary);
+}
+.hub-empty p { margin: 0 0 16px; }
+.hub-empty__actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+
+.screen-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+  font-weight: 600;
+}
+.screen-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.basic-info-block { margin-bottom: 12px; }
+.basic-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--atp-text);
+}
+.locator-schemes { margin: 12px 0; }
+.locator-scheme-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--el-fill-color-blank);
+}
+.locator-scheme-card.recommend {
+  border-color: color-mix(in srgb, var(--el-color-success) 40%, #fff);
+  background: color-mix(in srgb, var(--el-color-success) 8%, #fff);
+}
+.scheme-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.scheme-head em {
+  font-style: normal;
+  color: var(--el-color-success);
+  font-weight: 500;
+  margin-left: 4px;
+}
+.scheme-value {
+  display: block;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--atp-text-secondary);
+}
+
+.hist-name { font-weight: 600; color: var(--atp-text); }
+.hist-meta {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.history-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  gap: 8px;
+}
+
 .picker-workbench {
   display: grid;
   grid-template-columns: minmax(280px, 420px) minmax(360px, 1fr);

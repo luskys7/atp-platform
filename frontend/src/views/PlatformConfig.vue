@@ -1,8 +1,64 @@
 <template>
   <div class="page-container config-page">
-    <PageHeader title="平台配置" subtitle="环境、数据集、公共步骤、定时调度与回收站" />
+    <PageHeader title="平台配置" subtitle="统一管理环境、测试数据集、复用步骤、定时调度、数据备份与回收站资源" />
 
-    <el-tabs v-model="activeTab" class="core-tabs">
+    <!-- 模块 2：分组标签导航（紧凑双行） -->
+    <nav class="config-nav" aria-label="配置分组导航">
+      <div class="nav-groups">
+        <el-tooltip
+          v-for="group in visibleNavGroups"
+          :key="group.id"
+          :content="group.tip"
+          placement="top"
+          :show-after="300"
+        >
+          <button
+            type="button"
+            class="nav-group-chip"
+            :class="{ active: activeGroupId === group.id }"
+            @click="toggleGroup(group.id)"
+          >
+            <el-icon class="nav-fold-icon">
+              <component :is="activeGroupId === group.id && !groupTabsCollapsed ? ArrowDown : ArrowRight" />
+            </el-icon>
+            <span class="nav-group-label">{{ group.title }}</span>
+            <span class="nav-count">{{ group.tabs.length }}</span>
+          </button>
+        </el-tooltip>
+      </div>
+      <div v-show="!groupTabsCollapsed && activeGroupTabs.length" class="nav-tabs">
+        <el-tooltip
+          v-for="tab in activeGroupTabs"
+          :key="tab.name"
+          :content="tab.hint"
+          placement="bottom"
+          :show-after="200"
+        >
+          <button
+            type="button"
+            class="nav-tab"
+            :class="{ active: activeTab === tab.name }"
+            @click="selectTab(tab.name)"
+          >{{ tab.label }}</button>
+        </el-tooltip>
+      </div>
+    </nav>
+
+    <!-- 模块 3：模块专属统计 -->
+    <div class="stats-row">
+      <div
+        v-for="card in moduleStats"
+        :key="card.key"
+        class="stat-card"
+        :class="card.tone"
+        @click="card.onClick && card.onClick()"
+      >
+        <div class="stat-value" :class="card.valueClass">{{ card.value }}</div>
+        <div class="stat-label">{{ card.label }}</div>
+      </div>
+    </div>
+
+    <el-tabs v-model="activeTab" class="core-tabs core-tabs--headless" @tab-change="onTabChange">
       <el-tab-pane label="环境配置" name="env">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openEnv()">添加环境</el-button></div>
@@ -37,24 +93,105 @@
       </el-tab-pane>
 
       <el-tab-pane label="公共步骤" name="steps">
-        <AppCard :hover="false">
-          <div style="margin-bottom:12px;display:flex;gap:8px">
-            <el-button v-if="userStore.isAdmin" type="primary" size="small" @click="openStep()">添加步骤</el-button>
-            <el-button v-if="userStore.isAdmin" size="small" :disabled="!selectedStepIds.length" @click="openStepTransfer">移交选中</el-button>
+        <AppCard :hover="false" class="steps-card">
+          <div class="toolbar-row">
+            <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">添加步骤</el-button>
+            <el-tooltip content="请先勾选条目后执行批量操作" :disabled="hasStepSelection" placement="top">
+              <span class="batch-wrap">
+                <el-button class="btn-muted" :disabled="!hasStepSelection || !userStore.isAdmin" @click="openStepTransfer">移交选中</el-button>
+                <el-button class="btn-muted" :disabled="!hasStepSelection || !userStore.isAdmin" @click="batchCopySteps">批量复制</el-button>
+                <el-button class="btn-muted" :disabled="!hasStepSelection || !userStore.isAdmin" @click="batchSetStepStatus('active')">批量启用</el-button>
+                <el-button class="btn-muted" :disabled="!hasStepSelection || !userStore.isAdmin" @click="batchSetStepStatus('deprecated')">批量停用</el-button>
+                <el-button class="btn-muted" type="danger" plain :disabled="!hasStepSelection || !userStore.isAdmin" @click="batchDeleteSteps">批量删除</el-button>
+              </span>
+            </el-tooltip>
           </div>
-          <el-table :data="commonSteps" stripe size="small" @selection-change="rows => selectedStepIds = rows.map(r => r.id)">
-            <el-table-column v-if="userStore.isAdmin" type="selection" width="45" />
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="description" label="描述" show-overflow-tooltip />
-            <el-table-column prop="status" label="状态" width="90" />
-            <el-table-column label="操作" width="200">
+
+          <div class="filter-bar steps-filter">
+            <el-input
+              v-model="stepFilters.keyword"
+              placeholder="搜索公共步骤名称、描述"
+              clearable
+              style="width:260px"
+              @clear="stepPage = 1"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select v-model="stepFilters.status" placeholder="使用状态" clearable style="width:140px" @change="stepPage = 1">
+              <el-option label="全部" value="" />
+              <el-option label="已启用" value="active" />
+              <el-option label="已停用" value="deprecated" />
+            </el-select>
+            <div class="filter-right">
+              <el-button type="primary" plain :loading="stepsLoading" @click="refreshSteps">
+                <el-icon><Refresh /></el-icon> 刷新列表
+              </el-button>
+              <el-button @click="resetStepFilters">重置筛选条件</el-button>
+            </div>
+          </div>
+
+          <el-table
+            :data="pagedSteps"
+            v-loading="stepsLoading"
+            stripe
+            size="small"
+            empty-text=""
+            @selection-change="onStepSelectionChange"
+          >
+            <el-table-column v-if="userStore.isAdmin" type="selection" width="48" />
+            <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="description" label="功能描述" min-width="200" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.description || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="使用状态" width="110">
               <template #default="{ row }">
-                <el-button v-if="userStore.isAdmin" size="small" type="primary" plain @click="openStep(row)">编辑</el-button>
-                <el-button size="small" plain @click="showStepComments(row)">批注</el-button>
-                <el-button v-if="userStore.isAdmin" size="small" type="danger" plain @click="deleteStep(row)">删除</el-button>
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="row.status === 'active' ? 'success' : 'info'"
+                  :title="row.status === 'active' ? '可在测试用例 / 套件中正常引用' : '引用时会提示不可使用'"
+                >
+                  {{ row.status === 'active' ? '已启用' : '已停用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="320" fixed="right">
+              <template #default="{ row }">
+                <div class="row-actions">
+                  <el-button v-if="userStore.isAdmin" size="small" type="primary" @click="openStep(row)">编辑</el-button>
+                  <el-button v-if="userStore.isAdmin" size="small" class="btn-muted-sm" @click="copyStep(row)">复制</el-button>
+                  <el-button
+                    v-if="userStore.isAdmin"
+                    size="small"
+                    type="warning"
+                    @click="toggleStepStatus(row)"
+                  >{{ row.status === 'active' ? '停用' : '启用' }}</el-button>
+                  <el-button v-if="userStore.isAdmin" size="small" type="danger" @click="deleteStep(row)">删除</el-button>
+                  <el-button size="small" plain @click="showStepComments(row)">批注</el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>
+
+          <div v-if="!stepsLoading && !filteredSteps.length" class="table-empty">
+            <p class="empty-title">暂无公共复用步骤</p>
+            <div class="empty-actions">
+              <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">添加步骤</el-button>
+              <el-button v-if="userStore.isAdmin" @click="importStepTemplates">导入步骤模板</el-button>
+            </div>
+            <p class="empty-hint">公共步骤可在测试用例、套件钩子内一键复用，减少重复编写操作流程。</p>
+          </div>
+
+          <div class="pager-bar">
+            <div class="pager-stats">当前筛选结果共 <strong>{{ filteredSteps.length }}</strong> 条公共步骤</div>
+            <el-pagination
+              v-model:current-page="stepPage"
+              v-model:page-size="stepPageSize"
+              :total="filteredSteps.length"
+              :page-sizes="[10, 15, 20, 50]"
+              layout="sizes, prev, pager, next"
+            />
+          </div>
         </AppCard>
       </el-tab-pane>
 
@@ -393,6 +530,34 @@
       </el-tab-pane>
     </el-tabs>
 
+    <!-- 模块 7：底部辅助指引（公共步骤） -->
+    <section v-if="activeTab === 'steps'" class="guide-bar">
+      <div class="guide-left">
+        <h4>公共步骤使用指引</h4>
+        <ul>
+          <li>
+            <strong>快速教程：</strong>
+            <el-button type="primary" link @click="showStepTutorial">点击查看图文教程</el-button>
+            ，学习如何在测试用例中引用公共步骤
+          </li>
+          <li>
+            <strong>模板导入：</strong>
+            <el-button type="primary" link :disabled="!userStore.isAdmin" @click="importStepTemplates">导入通用登录、清理缓存等行业标准步骤模板</el-button>
+            ，一键批量创建
+          </li>
+        </ul>
+      </div>
+      <div class="guide-right">
+        <h4>跨页面快捷跳转</h4>
+        <div class="guide-actions">
+          <el-button @click="$router.push('/cases')">前往测试用例</el-button>
+          <el-button @click="$router.push('/suites')">前往测试套件</el-button>
+          <el-button type="primary" plain @click="$router.push('/public-assets')">公共组件首页</el-button>
+        </div>
+        <p class="guide-hint">编辑用例时可拖拽引用公共步骤；套件可配置前置 / 后置钩子调用复用步骤。</p>
+      </div>
+    </section>
+
     <el-dialog v-model="showEnvDialog" title="环境配置" width="520px">
       <el-form :model="envForm" label-width="90px">
         <el-form-item label="名称"><el-input v-model="envForm.name" /></el-form-item>
@@ -646,11 +811,48 @@
         <el-button type="primary" @click="confirmStepTransfer">确认移交</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showTutorialDialog" title="公共步骤引用教程" width="640px" class="tutorial-dialog">
+      <ol class="tutorial-list">
+        <li>
+          <div class="tutorial-title">创建并保存可复用流程</div>
+          <p>进入本页「公共步骤」标签，点击「添加步骤」，填写名称、功能描述与步骤 JSON。</p>
+          <p>建议优先封装高频流程，例如：通用登录、清理缓存、应用初始化、切换账号等。</p>
+          <p>保存后状态为「已启用」，即可被用例与套件引用；不需要时可随时停用，停用后引用处会提示不可使用。</p>
+        </li>
+        <li>
+          <div class="tutorial-title">在测试用例中添加调用节点</div>
+          <p>前往「测试用例」→ 打开可视化用例编辑器。</p>
+          <p>在步骤列表中新增节点，选择类型为「调用公共步骤」（invoke_common）。</p>
+          <p>也可在公共组件首页快捷跳转到用例编辑，边写边引用。</p>
+        </li>
+        <li>
+          <div class="tutorial-title">按名称选择并一键复用</div>
+          <p>在调用节点中按名称选择已启用的公共步骤（引用按名称匹配，请勿随意改名）。</p>
+          <p>执行用例时，系统会按顺序展开公共步骤内的全部操作，无需在每条用例中重复编写。</p>
+          <p>若公共步骤被停用或删除，执行 / 引用时会给出不可用提示，请先恢复启用或更换步骤。</p>
+        </li>
+        <li>
+          <div class="tutorial-title">在测试套件钩子中复用</div>
+          <p>前往「测试套件」→ 编辑套件 → 配置前置钩子（setup）或后置钩子（teardown）。</p>
+          <p>在钩子脚本 / 可视化步骤中同样可调用公共步骤，适合套件级登录、环境准备、数据清理等场景。</p>
+          <p>一套公共步骤可同时服务多条用例与多个套件，减少重复维护成本。</p>
+        </li>
+      </ol>
+      <p class="tutorial-tip">提示：可先用底部「导入步骤模板」快速生成登录 / 清理等标准模板，再按业务微调。</p>
+      <template #footer>
+        <el-button @click="$router.push('/cases')">前往测试用例</el-button>
+        <el-button @click="$router.push('/suites')">前往测试套件</el-button>
+        <el-button type="primary" @click="showTutorialDialog = false">知道了</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ArrowDown, ArrowRight, Refresh, Search } from '@element-plus/icons-vue'
 import { envApi, datasetApi, commonStepApi, scheduleApi, recycleApi, suiteApi, authApi, accountApi, commentApi, baselineApi, auditApi, credentialApi, backupApi, monitorApi, teamApi, globalParamApi, assertPolicyApi, dataFactoryApi, recordingApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { invalidateRecordingFeatures } from '@/composables/useRecordingFeatures'
@@ -658,7 +860,127 @@ import { formatTime as fmtTime } from '@/utils/status'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const userStore = useUserStore()
+const route = useRoute()
+const router = useRouter()
+const TAB_ALLOW = new Set([
+  'env', 'dataset', 'steps', 'recording', 'schedule', 'teams', 'baseline',
+  'global-params', 'assert-policy', 'data-factory', 'credentials', 'backup',
+  'monitor', 'audit', 'accounts', 'recycle'
+])
 const activeTab = ref('env')
+
+const NAV_GROUPS = [
+  {
+    id: 'reuse',
+    title: '环境与复用组件',
+    tip: '日常高频配置：环境、数据集、公共步骤、全局参数与断言策略，支撑用例编写与执行复用',
+    tabs: [
+      { name: 'env', label: '环境配置', hint: '管理测试 / 预发 / 生产等执行环境与 Base URL', adminOnly: false },
+      { name: 'dataset', label: '数据集', hint: '维护参数化测试数据，支持多行数据驱动', adminOnly: false },
+      { name: 'steps', label: '公共步骤', hint: '封装登录、清理等可复用操作流程，供用例与套件引用', adminOnly: false },
+      { name: 'global-params', label: '全局参数', hint: '平台 / 环境级变量统一注入执行上下文', adminOnly: true },
+      { name: 'assert-policy', label: '断言策略', hint: '配置断言白名单与校验规则策略', adminOnly: true }
+    ]
+  },
+  {
+    id: 'runtime',
+    title: '录制与调度执行',
+    tip: '录屏质量阈值、定时回归、动态造数与测试账号池，保障自动化稳定跑批',
+    tabs: [
+      { name: 'recording', label: '录屏配置', hint: '调整录制开关与识别率 / 定位命中阈值', adminOnly: false },
+      { name: 'schedule', label: '定时调度', hint: '按 Cron 自动执行测试套件回归', adminOnly: false },
+      { name: 'data-factory', label: '动态造数', hint: '接口造数模板，执行前自动准备业务数据', adminOnly: true },
+      { name: 'accounts', label: '账号池', hint: '统一管理测试账号，供登录步骤引用', adminOnly: false }
+    ]
+  },
+  {
+    id: 'version',
+    title: '版本与团队管理',
+    tip: '团队空间隔离与版本基线比对，支撑多团队协作与版本回归',
+    tabs: [
+      { name: 'teams', label: '团队空间', hint: '创建团队并分配用户，资源按团队隔离', adminOnly: true },
+      { name: 'baseline', label: '版本基线', hint: '记录 APP / 套件 / 环境基线，支持版本比对', adminOnly: false }
+    ]
+  },
+  {
+    id: 'ops',
+    title: '安全、备份与运维',
+    tip: '低频运维配置：凭据加密、灾备备份、健康监控、安全审计与回收站恢复',
+    tabs: [
+      { name: 'credentials', label: '加密凭据', hint: '敏感密钥 AES 加密存储与按需解密', adminOnly: true },
+      { name: 'backup', label: '灾备备份', hint: '一键备份与还原用例 / 步骤 / 环境等核心数据', adminOnly: true },
+      { name: 'monitor', label: '健康监控', hint: '查看数据库、执行器、存储与设备池健康状态', adminOnly: true },
+      { name: 'audit', label: '安全审计', hint: '追踪关键操作日志，满足安全合规审计', adminOnly: true },
+      { name: 'recycle', label: '回收站', hint: '恢复误删的用例、套件、公共步骤等资源', adminOnly: false }
+    ]
+  }
+]
+
+const activeGroupId = ref('reuse')
+const groupTabsCollapsed = ref(false)
+
+const visibleNavGroups = computed(() => NAV_GROUPS.map(g => ({
+  ...g,
+  tabs: g.tabs.filter(t => !t.adminOnly || userStore.isAdmin)
+})).filter(g => g.tabs.length > 0))
+
+const activeGroupTabs = computed(() => {
+  const g = visibleNavGroups.value.find(x => x.id === activeGroupId.value)
+  return g?.tabs || []
+})
+
+function findGroupIdByTab(tabName) {
+  const g = NAV_GROUPS.find(x => x.tabs.some(t => t.name === tabName))
+  return g?.id || 'reuse'
+}
+
+function toggleGroup(id) {
+  if (activeGroupId.value === id) {
+    groupTabsCollapsed.value = !groupTabsCollapsed.value
+    return
+  }
+  activeGroupId.value = id
+  groupTabsCollapsed.value = false
+  const tabs = visibleNavGroups.value.find(g => g.id === id)?.tabs || []
+  if (tabs.length && !tabs.some(t => t.name === activeTab.value)) {
+    selectTab(tabs[0].name)
+  }
+}
+
+function selectTab(name) {
+  activeTab.value = name
+  activeGroupId.value = findGroupIdByTab(name)
+  groupTabsCollapsed.value = false
+  syncTabToRoute(name)
+}
+
+function onTabChange(name) {
+  activeGroupId.value = findGroupIdByTab(name)
+  groupTabsCollapsed.value = false
+  syncTabToRoute(name)
+}
+
+function syncTabToRoute(name) {
+  if (String(route.query.tab || '') === name) return
+  router.replace({ query: { ...route.query, tab: name } })
+}
+
+function applyTabFromRoute() {
+  const tab = String(route.query.tab || '')
+  if (tab && TAB_ALLOW.has(tab)) {
+    if (['teams', 'global-params', 'assert-policy', 'data-factory', 'credentials', 'backup', 'monitor', 'audit'].includes(tab)
+      && !userStore.isAdmin) {
+      activeTab.value = 'env'
+      activeGroupId.value = 'reuse'
+      return
+    }
+    activeTab.value = tab
+    activeGroupId.value = findGroupIdByTab(tab)
+    groupTabsCollapsed.value = false
+  }
+}
+
+watch(() => route.query.tab, () => applyTabFromRoute())
 const envs = ref([])
 const datasets = ref([])
 const commonSteps = ref([])
@@ -681,8 +1003,14 @@ const accounts = ref([])
 const recycleItems = ref([])
 const selectedRecycleIds = ref([])
 const selectedStepIds = ref([])
+const selectedStepRows = ref([])
+const stepsLoading = ref(false)
+const stepPage = ref(1)
+const stepPageSize = ref(15)
+const stepFilters = reactive({ keyword: '', status: '' })
 const userOptions = ref([])
 const showTransferDialog = ref(false)
+const showTutorialDialog = ref(false)
 const transferOwnerId = ref(null)
 const resourceTypeLabel = { test_case: '用例', test_suite: '套件', common_step: '公共步骤', data_set: '数据集' }
 const suiteOptions = ref([])
@@ -745,9 +1073,211 @@ const dataFactoryForm = reactive({
   extract_json: '{}', cleanup_method: 'DELETE', cleanup_url_template: '', cleanup_body_template: '', enabled: true
 })
 
+const hasStepSelection = computed(() => selectedStepIds.value.length > 0)
+
+function isTemplateStep(row) {
+  const text = `${row.name || ''}${row.description || ''}`
+  return /模板|template/i.test(text)
+}
+
+const filteredSteps = computed(() => {
+  const kw = (stepFilters.keyword || '').trim().toLowerCase()
+  return (commonSteps.value || []).filter(row => {
+    if (stepFilters.status && row.status !== stepFilters.status) return false
+    if (!kw) return true
+    return String(row.name || '').toLowerCase().includes(kw)
+      || String(row.description || '').toLowerCase().includes(kw)
+  })
+})
+
+const pagedSteps = computed(() => {
+  const start = (stepPage.value - 1) * stepPageSize.value
+  return filteredSteps.value.slice(start, start + stepPageSize.value)
+})
+
+watch(filteredSteps, (list) => {
+  const maxPage = Math.max(1, Math.ceil(list.length / stepPageSize.value) || 1)
+  if (stepPage.value > maxPage) stepPage.value = maxPage
+})
+
+const stepStats = computed(() => {
+  const list = commonSteps.value || []
+  return {
+    all: list.length,
+    active: list.filter(s => s.status === 'active').length,
+    deprecated: list.filter(s => s.status === 'deprecated').length,
+    template: list.filter(isTemplateStep).length
+  }
+})
+
+const moduleStats = computed(() => {
+  const tab = activeTab.value
+  if (tab === 'steps') {
+    return [
+      { key: 'all', label: '全部公共步骤', value: `${stepStats.value.all} 套`, tone: 'tone-all', onClick: () => { stepFilters.status = ''; stepPage.value = 1 } },
+      { key: 'active', label: '已启用可用步骤', value: `${stepStats.value.active} 套`, tone: 'tone-ok', valueClass: 'is-ok', onClick: () => { stepFilters.status = 'active'; stepPage.value = 1 } },
+      { key: 'off', label: '已停用步骤', value: `${stepStats.value.deprecated} 套`, tone: 'tone-muted', valueClass: 'is-muted', onClick: () => { stepFilters.status = 'deprecated'; stepPage.value = 1 } },
+      { key: 'tpl', label: '模板公共步骤', value: `${stepStats.value.template} 套`, tone: 'tone-tpl', onClick: () => { stepFilters.keyword = '模板'; stepPage.value = 1 } }
+    ]
+  }
+  if (tab === 'env') {
+    const list = envs.value || []
+    return [
+      { key: 'e1', label: '全部环境', value: list.length, tone: 'tone-all' },
+      { key: 'e2', label: '测试环境', value: list.filter(e => e.env_type === 'test').length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'e3', label: '预发 / 灰度', value: list.filter(e => ['staging', 'gray'].includes(e.env_type)).length, tone: 'tone-tpl' },
+      { key: 'e4', label: '生产环境', value: list.filter(e => e.env_type === 'prod').length, tone: 'tone-muted', valueClass: 'is-muted' }
+    ]
+  }
+  if (tab === 'dataset') {
+    return [
+      { key: 'd1', label: '全部数据集', value: datasets.value.length, tone: 'tone-all' },
+      { key: 'd2', label: '可编辑数据集', value: datasets.value.length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'd3', label: '环境配置数', value: envs.value.length, tone: 'tone-tpl' },
+      { key: 'd4', label: '公共步骤数', value: commonSteps.value.length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'schedule') {
+    const list = schedules.value || []
+    return [
+      { key: 's1', label: '全部定时任务', value: list.length, tone: 'tone-all' },
+      { key: 's2', label: '已启用任务', value: list.filter(s => s.enabled).length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 's3', label: '已停用任务', value: list.filter(s => !s.enabled).length, tone: 'tone-muted', valueClass: 'is-muted' },
+      { key: 's4', label: '关联套件数', value: new Set(list.map(s => s.suite_id).filter(Boolean)).size, tone: 'tone-tpl' }
+    ]
+  }
+  if (tab === 'accounts') {
+    const list = accounts.value || []
+    return [
+      { key: 'a1', label: '全部账号', value: list.length, tone: 'tone-all' },
+      { key: 'a2', label: '可用账号', value: list.filter(a => a.status !== 'archived').length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'a3', label: '已归档', value: list.filter(a => a.status === 'archived').length, tone: 'tone-muted', valueClass: 'is-muted' },
+      { key: 'a4', label: '回收站条目', value: recycleItems.value.length, tone: 'tone-tpl' }
+    ]
+  }
+  if (tab === 'recycle') {
+    const list = recycleItems.value || []
+    return [
+      { key: 'r1', label: '回收站总数', value: list.length, tone: 'tone-all' },
+      { key: 'r2', label: '公共步骤', value: list.filter(i => i.resource_type === 'common_step').length, tone: 'tone-ok' },
+      { key: 'r3', label: '用例 / 套件', value: list.filter(i => ['test_case', 'test_suite'].includes(i.resource_type)).length, tone: 'tone-tpl' },
+      { key: 'r4', label: '数据集', value: list.filter(i => i.resource_type === 'data_set').length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'global-params') {
+    const list = globalParams.value || []
+    return [
+      { key: 'g1', label: '全部参数', value: list.length, tone: 'tone-all' },
+      { key: 'g2', label: '已启用', value: list.filter(p => p.enabled).length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'g3', label: '敏感参数', value: list.filter(p => p.sensitive).length, tone: 'tone-muted' },
+      { key: 'g4', label: '平台级', value: list.filter(p => p.scope === 'platform').length, tone: 'tone-tpl' }
+    ]
+  }
+  if (tab === 'baseline') {
+    return [
+      { key: 'b1', label: '版本基线', value: baselines.value.length, tone: 'tone-all' },
+      { key: 'b2', label: '环境数', value: envs.value.length, tone: 'tone-ok' },
+      { key: 'b3', label: '定时任务', value: schedules.value.length, tone: 'tone-tpl' },
+      { key: 'b4', label: '团队数', value: teams.value.length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'teams') {
+    return [
+      { key: 't1', label: '团队空间', value: teams.value.length, tone: 'tone-all' },
+      { key: 't2', label: '平台用户', value: userOptions.value.length, tone: 'tone-ok' },
+      { key: 't3', label: '已分配团队', value: userOptions.value.filter(u => u.team_id).length, tone: 'tone-tpl' },
+      { key: 't4', label: '未分配', value: userOptions.value.filter(u => !u.team_id).length, tone: 'tone-muted', valueClass: 'is-muted' }
+    ]
+  }
+  if (tab === 'recording') {
+    return [
+      { key: 'rc1', label: '录屏开关', value: recordingForm.recording_v2 ? '开' : '关', tone: 'tone-all' },
+      { key: 'rc2', label: '识别率阈值', value: `${recordingForm.min_recognition_rate}%`, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'rc3', label: '定位命中阈值', value: `${recordingForm.min_locator_hit_rate}%`, tone: 'tone-tpl' },
+      { key: 'rc4', label: '配置来源', value: recordingFeatures.value.source === 'runtime' ? '运行时' : 'YAML', tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'credentials') {
+    return [
+      { key: 'c1', label: '加密凭据', value: credentials.value.length, tone: 'tone-all' },
+      { key: 'c2', label: '备份文件', value: backups.value.length, tone: 'tone-ok' },
+      { key: 'c3', label: '审计日志', value: auditTotal.value, tone: 'tone-tpl' },
+      { key: 'c4', label: '回收站', value: recycleItems.value.length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'backup') {
+    return [
+      { key: 'bk1', label: '备份文件', value: backups.value.length, tone: 'tone-all' },
+      { key: 'bk2', label: '公共步骤', value: commonSteps.value.length, tone: 'tone-ok' },
+      { key: 'bk3', label: '环境数', value: envs.value.length, tone: 'tone-tpl' },
+      { key: 'bk4', label: '数据集', value: datasets.value.length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'monitor') {
+    return [
+      { key: 'm1', label: '整体状态', value: monitorOverallLabel.value, tone: 'tone-all' },
+      { key: 'm2', label: '在线设备', value: monitor.value.devices?.online ?? '-', tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'm3', label: '运行任务', value: monitor.value.scheduler?.running_tasks ?? '-', tone: 'tone-tpl' },
+      { key: 'm4', label: '执行器事件', value: executorEvents.value.length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'audit') {
+    return [
+      { key: 'au1', label: '审计日志', value: auditTotal.value, tone: 'tone-all' },
+      { key: 'au2', label: '当前页条数', value: auditLogs.value.length, tone: 'tone-ok' },
+      { key: 'au3', label: '凭据数', value: credentials.value.length, tone: 'tone-tpl' },
+      { key: 'au4', label: '备份数', value: backups.value.length, tone: 'tone-muted' }
+    ]
+  }
+  if (tab === 'assert-policy') {
+    const list = assertPolicies.value || []
+    return [
+      { key: 'ap1', label: '断言规则', value: list.length, tone: 'tone-all' },
+      { key: 'ap2', label: '已启用', value: list.filter(p => p.enabled).length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'ap3', label: '已停用', value: list.filter(p => !p.enabled).length, tone: 'tone-muted', valueClass: 'is-muted' },
+      { key: 'ap4', label: '全局参数', value: globalParams.value.length, tone: 'tone-tpl' }
+    ]
+  }
+  if (tab === 'data-factory') {
+    const list = dataFactoryTemplates.value || []
+    return [
+      { key: 'df1', label: '造数模板', value: list.length, tone: 'tone-all' },
+      { key: 'df2', label: '已启用', value: list.filter(t => t.enabled).length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'df3', label: '已停用', value: list.filter(t => !t.enabled).length, tone: 'tone-muted', valueClass: 'is-muted' },
+      { key: 'df4', label: '账号池', value: accounts.value.length, tone: 'tone-tpl' }
+    ]
+  }
+  return [
+    { key: 'x1', label: '环境', value: envs.value.length, tone: 'tone-all' },
+    { key: 'x2', label: '数据集', value: datasets.value.length, tone: 'tone-ok' },
+    { key: 'x3', label: '公共步骤', value: commonSteps.value.length, tone: 'tone-tpl' },
+    { key: 'x4', label: '定时任务', value: schedules.value.length, tone: 'tone-muted' }
+  ]
+})
+
 async function loadEnvs() { envs.value = (await envApi.list()).data }
 async function loadDatasets() { datasets.value = (await datasetApi.list()).data }
-async function loadSteps() { commonSteps.value = (await commonStepApi.list()).data }
+async function loadSteps() {
+  stepsLoading.value = true
+  try {
+    commonSteps.value = (await commonStepApi.list()).data || []
+  } finally {
+    stepsLoading.value = false
+  }
+}
+async function refreshSteps() {
+  await loadSteps()
+  ElMessage.success('列表已刷新')
+}
+function resetStepFilters() {
+  stepFilters.keyword = ''
+  stepFilters.status = ''
+  stepPage.value = 1
+}
+function onStepSelectionChange(rows) {
+  selectedStepRows.value = rows
+  selectedStepIds.value = rows.map(r => r.id)
+}
 async function loadSchedules() { schedules.value = (await scheduleApi.list()).data }
 async function loadBaselines() {
   try { baselines.value = (await baselineApi.list()).data } catch { baselines.value = [] }
@@ -937,7 +1467,12 @@ async function deleteDataset(row) {
 }
 
 function openStep(row) {
-  if (row) Object.assign(stepForm, row)
+  if (row) Object.assign(stepForm, {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    steps_content: row.steps_content || '{"steps":[]}'
+  })
   else Object.assign(stepForm, { id: null, name: '', description: '', steps_content: '{"steps":[]}' })
   showStepDialog.value = true
 }
@@ -947,14 +1482,156 @@ async function saveStep() {
   if (stepForm.id) await commonStepApi.update(stepForm.id, payload)
   else await commonStepApi.create(payload)
   showStepDialog.value = false
+  ElMessage.success(stepForm.id ? '公共步骤已更新' : '公共步骤已添加')
   loadSteps()
 }
 
 async function deleteStep(row) {
   try {
+    await ElMessageBox.confirm(
+      `确定删除公共步骤「${row.name}」？删除后将移入回收站，可在回收站恢复。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '移入回收站', cancelButtonText: '取消' }
+    )
     await commonStepApi.delete(row.id)
+    ElMessage.success('已移入回收站')
     loadSteps()
-  } catch { /* dependency error shown by interceptor */ }
+    loadRecycle()
+  } catch (e) {
+    if (e !== 'cancel' && e?.toString?.() !== 'cancel') { /* interceptor may show dependency error */ }
+  }
+}
+
+async function copyStep(row) {
+  const name = `${row.name}_副本`
+  await commonStepApi.create({
+    name,
+    description: row.description || '',
+    steps_content: row.steps_content || '{"steps":[]}',
+    status: 'active'
+  })
+  ElMessage.success(`已复制为「${name}」`)
+  loadSteps()
+}
+
+async function toggleStepStatus(row) {
+  const next = row.status === 'active' ? 'deprecated' : 'active'
+  await commonStepApi.update(row.id, {
+    name: row.name,
+    description: row.description,
+    steps_content: row.steps_content,
+    status: next
+  })
+  ElMessage.success(next === 'active' ? '已启用' : '已停用')
+  loadSteps()
+}
+
+async function batchSetStepStatus(status) {
+  if (!selectedStepRows.value.length) return
+  const label = status === 'active' ? '启用' : '停用'
+  await ElMessageBox.confirm(`确定批量${label}选中的 ${selectedStepRows.value.length} 条公共步骤？`, '批量操作', { type: 'warning' })
+  for (const row of selectedStepRows.value) {
+    await commonStepApi.update(row.id, {
+      name: row.name,
+      description: row.description,
+      steps_content: row.steps_content,
+      status
+    })
+  }
+  ElMessage.success(`已批量${label}`)
+  selectedStepIds.value = []
+  selectedStepRows.value = []
+  loadSteps()
+}
+
+async function batchCopySteps() {
+  if (!selectedStepRows.value.length) return
+  await ElMessageBox.confirm(`确定复制选中的 ${selectedStepRows.value.length} 条公共步骤？`, '批量复制', { type: 'info' })
+  for (const row of selectedStepRows.value) {
+    await commonStepApi.create({
+      name: `${row.name}_副本`,
+      description: row.description || '',
+      steps_content: row.steps_content || '{"steps":[]}',
+      status: 'active'
+    })
+  }
+  ElMessage.success('批量复制完成')
+  loadSteps()
+}
+
+async function batchDeleteSteps() {
+  if (!selectedStepRows.value.length) return
+  await ElMessageBox.confirm(
+    `确定删除选中的 ${selectedStepRows.value.length} 条？删除后将移入回收站，可在回收站恢复。`,
+    '批量删除',
+    { type: 'warning', confirmButtonText: '移入回收站' }
+  )
+  for (const row of selectedStepRows.value) {
+    try { await commonStepApi.delete(row.id) } catch { /* skip dependency failures */ }
+  }
+  ElMessage.success('已批量移入回收站')
+  selectedStepIds.value = []
+  selectedStepRows.value = []
+  loadSteps()
+  loadRecycle()
+}
+
+const STEP_TEMPLATES = [
+  {
+    name: '模板_通用登录',
+    description: '行业标准登录模板：打开应用并完成账号密码登录',
+    steps_content: JSON.stringify({
+      steps: [
+        { type: 'launch_app', name: '启动应用' },
+        { type: 'input', name: '输入账号', locator_type: 'id', locator_value: 'username' },
+        { type: 'input', name: '输入密码', locator_type: 'id', locator_value: 'password' },
+        { type: 'click', name: '点击登录', locator_type: 'id', locator_value: 'login_btn' }
+      ]
+    }, null, 2)
+  },
+  {
+    name: '模板_清理缓存',
+    description: '行业标准清理模板：清理应用缓存并回到首页',
+    steps_content: JSON.stringify({
+      steps: [
+        { type: 'shell', name: '清理应用缓存', command: 'pm clear ${app_package}' },
+        { type: 'launch_app', name: '重新启动应用' }
+      ]
+    }, null, 2)
+  },
+  {
+    name: '模板_应用初始化',
+    description: '行业标准初始化模板：授权弹窗处理与首页就绪等待',
+    steps_content: JSON.stringify({
+      steps: [
+        { type: 'launch_app', name: '启动应用' },
+        { type: 'click', name: '同意隐私协议', locator_type: 'text', locator_value: '同意', optional: true },
+        { type: 'wait', name: '等待首页加载', timeout: 5000 }
+      ]
+    }, null, 2)
+  }
+]
+
+async function importStepTemplates() {
+  if (!userStore.isAdmin) return
+  await ElMessageBox.confirm(
+    '将导入「通用登录 / 清理缓存 / 应用初始化」等行业标准步骤模板（名称含「模板」前缀）。已存在同名步骤将跳过。',
+    '导入步骤模板',
+    { type: 'info', confirmButtonText: '开始导入' }
+  )
+  const existing = new Set((commonSteps.value || []).map(s => s.name))
+  let created = 0
+  for (const tpl of STEP_TEMPLATES) {
+    if (existing.has(tpl.name)) continue
+    await commonStepApi.create({ ...tpl, status: 'active' })
+    created += 1
+  }
+  ElMessage.success(created ? `已导入 ${created} 套模板步骤` : '模板均已存在，无需重复导入')
+  loadSteps()
+}
+
+function showStepTutorial() {
+  showTutorialDialog.value = true
 }
 
 async function showStepComments(row) {
@@ -1309,6 +1986,7 @@ async function resetRecordingFeatures() {
 }
 
 onMounted(() => {
+  applyTabFromRoute()
   loadEnvs(); loadDatasets(); loadSteps(); loadSchedules(); loadBaselines(); loadTeams()
   loadGlobalParams(); loadAssertPolicies(); loadDataFactoryTemplates(); loadCredentials()
   loadBackups(); loadMonitor(); loadAuditLogs(); loadAccounts(); loadRecycle()
@@ -1317,7 +1995,281 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.config-page :deep(.page-header__info h2) {
+  font-size: 24px;
+  font-weight: 700;
+}
 .core-tabs :deep(.el-tabs__header) { margin-bottom: 16px; }
+.core-tabs--headless :deep(.el-tabs__header) { display: none; }
+.core-tabs--headless :deep(.el-tabs__content) { padding: 0; }
+
+.config-nav {
+  margin-bottom: 16px;
+  padding: 12px 14px 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+.nav-groups {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.nav-group-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  border: 1.5px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  padding: 10px 12px;
+  border-radius: 10px;
+  line-height: 1.2;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.nav-group-chip:hover {
+  color: var(--atp-primary);
+  border-color: rgba(37, 99, 235, 0.45);
+  background: #f8fbff;
+  transform: translateY(-1px);
+}
+.nav-group-chip.active {
+  color: #fff;
+  border-color: var(--atp-primary);
+  background: var(--atp-primary);
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.28);
+}
+.nav-group-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-fold-icon { font-size: 12px; flex-shrink: 0; }
+.nav-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.nav-group-chip.active .nav-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.nav-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border-top: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.nav-tab {
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  border-radius: 8px;
+  line-height: 1.2;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.nav-tab:hover {
+  color: var(--atp-primary);
+  border-color: rgba(37, 99, 235, 0.4);
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+.nav-tab.active {
+  color: #fff;
+  font-weight: 700;
+  border-color: var(--atp-primary);
+  background: var(--atp-primary);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+@media (max-width: 960px) {
+  .nav-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .nav-groups { grid-template-columns: 1fr; }
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  padding: 16px 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+.stat-card.tone-all { background: #eff6ff; }
+.stat-card.tone-ok { background: #ecfdf5; }
+.stat-card.tone-muted { background: #f1f5f9; }
+.stat-card.tone-tpl { background: #fff7ed; }
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--atp-text);
+}
+.stat-value.is-ok { color: #059669; }
+.stat-value.is-muted { color: #64748b; }
+.stat-label {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--atp-text-secondary);
+}
+
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.batch-wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.btn-muted { --el-button-bg-color: #f1f5f9; --el-button-border-color: #e2e8f0; }
+.btn-muted-sm {
+  --el-button-bg-color: #f8fafc;
+  --el-button-border-color: #e2e8f0;
+  --el-button-text-color: #64748b;
+}
+.steps-filter { margin-bottom: 12px; }
+.filter-right { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.table-empty {
+  text-align: center;
+  padding: 36px 16px 20px;
+}
+.empty-title {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--atp-text);
+}
+.empty-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.empty-hint {
+  margin: 12px auto 0;
+  max-width: 420px;
+  font-size: 12px;
+  color: var(--atp-text-secondary);
+  line-height: 1.5;
+}
+.pager-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--atp-border-neutral);
+}
+.pager-stats { font-size: 13px; color: var(--atp-text-secondary); }
+
+.guide-bar {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+  margin-top: 20px;
+  padding: 20px 22px;
+  background: #f8fafc;
+  border-radius: 14px;
+  border: 1px solid var(--atp-border-neutral);
+}
+.guide-left h4,
+.guide-right h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.guide-left ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--atp-text-secondary);
+  line-height: 1.8;
+}
+.guide-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.guide-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--atp-text-secondary);
+  line-height: 1.5;
+}
+
+.tutorial-list {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--atp-text);
+}
+.tutorial-list > li {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed #e2e8f0;
+  line-height: 1.6;
+}
+.tutorial-list > li:last-child {
+  margin-bottom: 8px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.tutorial-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--atp-text);
+  margin-bottom: 8px;
+}
+.tutorial-list p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.65;
+}
+.tutorial-list p:last-child { margin-bottom: 0; }
+.tutorial-tip {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.5;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
 .comment-list { max-height: 280px; overflow-y: auto; }
 .comment-empty { color: var(--atp-text-secondary); font-size: 13px; padding: 12px 0; text-align: center; }
 .comment-item { padding: 10px 0; border-bottom: 1px solid var(--atp-border-neutral); }
@@ -1330,4 +2282,13 @@ onMounted(() => {
 .monitor-card { border: 1px solid var(--atp-border-neutral); border-radius: var(--atp-radius); padding: 12px; margin-bottom: 12px; min-height: 120px; }
 .monitor-card-title { font-weight: 600; margin-bottom: 8px; }
 .monitor-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--atp-text-secondary); margin-top: 6px; }
+
+@media (max-width: 960px) {
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .guide-bar { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .stats-row { grid-template-columns: 1fr; }
+  .filter-right { margin-left: 0; width: 100%; }
+}
 </style>

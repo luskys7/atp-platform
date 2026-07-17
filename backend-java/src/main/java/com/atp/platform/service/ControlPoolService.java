@@ -46,7 +46,8 @@ public class ControlPoolService {
     private static final Pattern ELEMENT_NAME_JSON = Pattern.compile("\"element_name\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern ELEMENT_NAME_PY = Pattern.compile("(?:get_locator|tap_element|find)\\([\"']([^\"']+)[\"']");
 
-    private static final Pattern ELEMENT_NAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{2,47}$");
+    private static final Pattern ELEMENT_NAME_PATTERN = Pattern.compile(
+            "^[\\u4e00-\\u9fff][\\u4e00-\\u9fffA-Za-z0-9_\\-]{0,47}$|^[a-z][a-z0-9_]{2,47}$");
 
     public record ResolvedControl(String key, String elementName, String locatorType,
                                   String locatorValue, String source, Integer stepIndex,
@@ -433,8 +434,20 @@ public class ControlPoolService {
     }
 
     public void validateElementName(String elementName) {
-        if (elementName == null || !ELEMENT_NAME_PATTERN.matcher(elementName.trim()).matches()) {
-            throw new AppException("INVALID", "元素名须为小写 snake_case（3-48 字符，字母开头）", HttpStatus.BAD_REQUEST);
+        if (elementName == null || elementName.isBlank()) {
+            throw new AppException("INVALID", "请填写控件名称", HttpStatus.BAD_REQUEST);
+        }
+        String n = elementName.trim();
+        boolean hasChinese = n.codePoints().anyMatch(cp -> cp >= 0x4E00 && cp <= 0x9FFF);
+        boolean legacySnake = n.matches("^[a-z][a-z0-9_]{2,47}$");
+        if (hasChinese) {
+            if (!ELEMENT_NAME_PATTERN.matcher(n).matches()) {
+                throw new AppException("INVALID", "控件名称格式不正确（建议 1-48 字，以中文开头）", HttpStatus.BAD_REQUEST);
+            }
+            return;
+        }
+        if (!legacySnake) {
+            throw new AppException("INVALID", "请使用中文标识控件用途", HttpStatus.BAD_REQUEST);
         }
     }
 
