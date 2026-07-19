@@ -124,42 +124,10 @@
     </el-drawer>
 
     <!-- 快捷：新建步骤 -->
-    <el-dialog v-model="showStepDialog" title="新建步骤" width="560px" destroy-on-close>
-      <el-form :model="stepForm" label-width="90px">
-        <el-form-item label="名称" required><el-input v-model="stepForm.name" placeholder="如：登录流程" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="stepForm.description" /></el-form-item>
-        <el-form-item label="步骤 JSON">
-          <el-input v-model="stepForm.steps_content" type="textarea" :rows="6" placeholder='{"steps":[{"type":"wait","seconds":2}]}' />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showStepDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveStep">保存</el-button>
-      </template>
-    </el-dialog>
+    <CommonStepEditorDialog v-model="showStepDialog" :edit-row="null" @saved="onStepSaved" />
 
     <!-- 快捷：新增参数 -->
-    <el-dialog v-model="showParamDialog" title="新增参数" width="520px" destroy-on-close>
-      <el-form :model="paramForm" label-width="90px">
-        <el-form-item label="参数键" required><el-input v-model="paramForm.param_key" placeholder="API_HOST" /></el-form-item>
-        <el-form-item label="作用域">
-          <el-select v-model="paramForm.scope" style="width:100%">
-            <el-option label="平台级" value="platform" />
-            <el-option label="环境级" value="env" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="paramForm.scope === 'env'" label="环境ID">
-          <el-input v-model="paramForm.env_id" placeholder="环境 ID" />
-        </el-form-item>
-        <el-form-item label="值"><el-input v-model="paramForm.param_value" /></el-form-item>
-        <el-form-item label="敏感"><el-switch v-model="paramForm.sensitive" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="paramForm.description" type="textarea" :rows="2" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showParamDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveParam">保存</el-button>
-      </template>
-    </el-dialog>
+    <GlobalParamEditorDialog v-model="showParamDialog" :edit-row="null" @saved="loadStats" />
 
     <!-- 快捷：新建控件 -->
     <el-dialog v-model="showControlDialog" title="新建控件" width="560px" destroy-on-close>
@@ -201,6 +169,8 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { commonStepApi, globalParamApi, controlApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import CommonStepEditorDialog from '@/components/CommonStepEditorDialog.vue'
+import GlobalParamEditorDialog from '@/components/GlobalParamEditorDialog.vue'
 
 const PICK_HISTORY_KEY = 'atp_element_pick_history'
 
@@ -220,10 +190,6 @@ const showStepDialog = ref(false)
 const showParamDialog = ref(false)
 const showControlDialog = ref(false)
 
-const stepForm = reactive({ name: '', description: '', steps_content: '{"steps":[]}' })
-const paramForm = reactive({
-  param_key: '', scope: 'platform', env_id: '', param_value: '', sensitive: false, description: ''
-})
 const controlForm = reactive({
   app_package: '', page_name: '', element_name: '', platform: 'android',
   locator_type: 'id', locator_value: ''
@@ -328,8 +294,11 @@ async function loadStats() {
 }
 
 function openCreateStep() {
-  Object.assign(stepForm, { name: '', description: '', steps_content: '{"steps":[]}' })
   showStepDialog.value = true
+}
+
+function onStepSaved() {
+  loadStats()
 }
 
 function openCreateParam() {
@@ -337,9 +306,6 @@ function openCreateParam() {
     ElMessage.warning('仅管理员可新增全局参数')
     return
   }
-  Object.assign(paramForm, {
-    param_key: '', scope: 'platform', env_id: '', param_value: '', sensitive: false, description: ''
-  })
   showParamDialog.value = true
 }
 
@@ -349,50 +315,6 @@ function openCreateControl() {
     locator_type: 'id', locator_value: ''
   })
   showControlDialog.value = true
-}
-
-async function saveStep() {
-  if (!stepForm.name?.trim()) {
-    ElMessage.warning('请填写步骤名称')
-    return
-  }
-  saving.value = true
-  try {
-    await commonStepApi.create({
-      name: stepForm.name.trim(),
-      description: stepForm.description,
-      steps_content: stepForm.steps_content || '{"steps":[]}'
-    })
-    ElMessage.success('公共步骤已创建')
-    showStepDialog.value = false
-    await loadStats()
-  } finally {
-    saving.value = false
-  }
-}
-
-async function saveParam() {
-  if (!paramForm.param_key?.trim()) {
-    ElMessage.warning('请填写参数键')
-    return
-  }
-  saving.value = true
-  try {
-    const payload = {
-      param_key: paramForm.param_key.trim(),
-      scope: paramForm.scope,
-      sensitive: paramForm.sensitive,
-      description: paramForm.description
-    }
-    if (paramForm.scope === 'env' && paramForm.env_id) payload.env_id = Number(paramForm.env_id)
-    if (paramForm.param_value) payload.param_value = paramForm.param_value
-    await globalParamApi.create(payload)
-    ElMessage.success('全局参数已创建')
-    showParamDialog.value = false
-    await loadStats()
-  } finally {
-    saving.value = false
-  }
 }
 
 async function saveControl() {

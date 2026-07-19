@@ -71,6 +71,12 @@ public class RecordingResource {
     @Column(length = 16)
     private RecordingStatus status = RecordingStatus.recording;
 
+    /**
+     * 业务审核/留存状态：pending_review / approved / archived；空表示沿用技术状态展示
+     */
+    @Column(name = "review_status", length = 32)
+    private String reviewStatus;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

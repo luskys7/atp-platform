@@ -18,8 +18,19 @@ public class RecycleBinController {
     private final RecycleBinService service;
 
     @GetMapping
-    public ApiResponse<List<RecycleBinItem>> list() {
+    public ApiResponse<List<Map<String, Object>>> list() {
         return ApiResponse.ok(service.list());
+    }
+
+    @GetMapping("/stats")
+    public ApiResponse<Map<String, Object>> stats() {
+        return ApiResponse.ok(service.stats());
+    }
+
+    @GetMapping("/{id}/preview")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
+    public ApiResponse<Map<String, Object>> preview(@PathVariable Long id) {
+        return ApiResponse.ok(service.preview(id));
     }
 
     @PostMapping("/{id}/restore")
@@ -43,5 +54,21 @@ public class RecycleBinController {
     public ApiResponse<Void> purge(@PathVariable Long id) {
         service.purge(id);
         return ApiResponse.ok();
+    }
+
+    @PostMapping("/batch-purge")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
+    public ApiResponse<Map<String, Object>> batchPurge(@RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<Long> ids = ((List<?>) body.get("ids")).stream()
+                .map(o -> Long.valueOf(o.toString()))
+                .toList();
+        return ApiResponse.ok(service.batchPurge(ids));
+    }
+
+    @DeleteMapping
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
+    public ApiResponse<Map<String, Object>> clearAll() {
+        return ApiResponse.ok(service.clearAll());
     }
 }

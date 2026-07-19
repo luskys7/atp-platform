@@ -10,4 +10,6 @@ public interface ControlPoolVersionRepository extends JpaRepository<ControlPoolV
     List<ControlPoolVersion> findByPoolIdOrderByVersionNumDesc(Long poolId);
     Optional<ControlPoolVersion> findByPoolIdAndVersionNum(Long poolId, Integer versionNum);
     Optional<ControlPoolVersion> findTopByPoolIdOrderByVersionNumDesc(Long poolId);
+
+    void deleteByPoolId(Long poolId);
 }

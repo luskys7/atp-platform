@@ -139,6 +139,51 @@ public class AppPackageService {
         return get(packageId).getFilePath();
     }
 
+    @Transactional
+    public Map<String, Object> reverify(Long id) throws IOException {
+        AppPackage pkg = get(id);
+        Path path = Path.of(pkg.getFilePath());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("package_id", id);
+        if (!Files.exists(path)) {
+            pkg.setBuildLog("VERIFY_FAILED:文件不存在");
+            repository.save(pkg);
+            result.put("ok", false);
+            result.put("message", "安装包文件不存在或已损坏");
+            result.put("md5", pkg.getMd5Hash());
+            return result;
+        }
+        try (InputStream in = Files.newInputStream(path)) {
+            String md5 = computeMd5(in);
+            boolean match = md5 != null && md5.equalsIgnoreCase(pkg.getMd5Hash());
+            pkg.setMd5Hash(md5);
+            pkg.setFileSize(Files.size(path));
+            pkg.setBuildLog(match ? "VERIFY_OK" : "VERIFY_OK:校验码已刷新");
+            repository.save(pkg);
+            result.put("ok", true);
+            result.put("md5", md5);
+            result.put("matched_previous", match);
+            result.put("message", match ? "签名校验通过" : "已重新计算校验码");
+            return result;
+        } catch (Exception e) {
+            pkg.setBuildLog("VERIFY_FAILED:" + e.getMessage());
+            repository.save(pkg);
+            result.put("ok", false);
+            result.put("message", "校验失败: " + e.getMessage());
+            result.put("md5", pkg.getMd5Hash());
+            return result;
+        }
+    }
+
+    public Path resolveDownloadPath(Long id) {
+        AppPackage pkg = get(id);
+        Path path = Path.of(pkg.getFilePath());
+        if (!Files.exists(path)) {
+            throw new AppException("NOT_FOUND", "安装包文件不存在", HttpStatus.NOT_FOUND);
+        }
+        return path;
+    }
+
     private String computeMd5(InputStream in) throws IOException {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");

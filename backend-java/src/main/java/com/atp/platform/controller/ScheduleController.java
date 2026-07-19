@@ -23,6 +23,12 @@ public class ScheduleController {
         return ApiResponse.ok(service.list());
     }
 
+    @PostMapping("/cron-preview")
+    public ApiResponse<Map<String, Object>> cronPreview(@RequestBody Map<String, String> body) {
+        String expression = body != null ? body.get("expression") : null;
+        return ApiResponse.ok(service.previewCron(expression));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
     public ApiResponse<ScheduledJob> create(@RequestBody Map<String, Object> body) {

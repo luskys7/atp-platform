@@ -13,6 +13,8 @@ import java.util.List;
 public interface ControlChangeLogRepository extends JpaRepository<ControlChangeLog, Long> {
     Page<ControlChangeLog> findByPoolIdOrderByCreatedAtDesc(Long poolId, Pageable pageable);
 
+    void deleteByPoolId(Long poolId);
+
     @Query("""
             SELECT c.poolId, COUNT(c) FROM ControlChangeLog c
             WHERE c.poolId IS NOT NULL AND c.createdAt >= :since

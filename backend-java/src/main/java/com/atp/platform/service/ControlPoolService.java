@@ -105,6 +105,30 @@ public class ControlPoolService {
     }
 
     @Transactional
+    public Map<String, Object> deletePool(Long id, boolean force) {
+        ControlPool pool = getPool(id);
+        assertCanEditPool(pool);
+        Map<String, Object> deps = scanDependencies(id);
+        int total = ((Number) deps.get("total_refs")).intValue();
+        if (total > 0 && !force) {
+            throw new AppException("HAS_DEPS",
+                    "控件仍被 " + total + " 处引用，请先处理依赖或确认强制删除",
+                    HttpStatus.CONFLICT);
+        }
+        String name = pool.getElementName();
+        bindingRepository.deleteByPoolId(id);
+        versionRepository.deleteByPoolId(id);
+        changeLogRepository.deleteByPoolId(id);
+        poolRepository.delete(pool);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deleted_id", id);
+        result.put("element_name", name);
+        result.put("forced", force);
+        result.put("cleared_refs", total);
+        return result;
+    }
+
+    @Transactional
     public ControlPool updatePool(Long id, Map<String, Object> body, boolean propagateBindings, Long operatorId) {
         ControlPool pool = getPool(id);
         assertCanEditPool(pool);

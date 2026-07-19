@@ -22,6 +22,10 @@ public class SecureCredential {
     @Column(length = 64)
     private String category;
 
+    /** 可见权限：platform / project / team */
+    @Column(name = "visibility_scope", length = 16)
+    private String visibilityScope = "platform";
+
     @Column(name = "env_id")
     private Long envId;
 

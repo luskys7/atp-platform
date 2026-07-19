@@ -146,14 +146,17 @@ public class VersionBaselineService {
         if (body.containsKey("name")) b.setName(body.get("name").toString());
         if (body.containsKey("description")) b.setDescription(str(body.get("description")));
         if (body.containsKey("version_label")) b.setVersionLabel(str(body.get("version_label")));
-        if (body.containsKey("app_package_id") && body.get("app_package_id") != null) {
-            b.setAppPackageId(Long.valueOf(body.get("app_package_id").toString()));
+        if (body.containsKey("app_package_id")) {
+            b.setAppPackageId(body.get("app_package_id") == null || "".equals(body.get("app_package_id").toString().trim())
+                    ? null : Long.valueOf(body.get("app_package_id").toString()));
         }
-        if (body.containsKey("suite_id") && body.get("suite_id") != null) {
-            b.setSuiteId(Long.valueOf(body.get("suite_id").toString()));
+        if (body.containsKey("suite_id")) {
+            b.setSuiteId(body.get("suite_id") == null || "".equals(body.get("suite_id").toString().trim())
+                    ? null : Long.valueOf(body.get("suite_id").toString()));
         }
-        if (body.containsKey("env_id") && body.get("env_id") != null) {
-            b.setEnvId(Long.valueOf(body.get("env_id").toString()));
+        if (body.containsKey("env_id")) {
+            b.setEnvId(body.get("env_id") == null || "".equals(body.get("env_id").toString().trim())
+                    ? null : Long.valueOf(body.get("env_id").toString()));
         }
         if (body.containsKey("config_json")) b.setConfigJson(str(body.get("config_json")));
         return b;

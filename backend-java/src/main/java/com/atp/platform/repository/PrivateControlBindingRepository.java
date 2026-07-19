@@ -11,6 +11,8 @@ public interface PrivateControlBindingRepository extends JpaRepository<PrivateCo
 
     List<PrivateControlBinding> findByPoolId(Long poolId);
 
+    void deleteByPoolId(Long poolId);
+
     Optional<PrivateControlBinding> findByTaskIdAndStepIndexAndElementNameAndIsIsolated(
             Long taskId, Integer stepIndex, String elementName, Boolean isIsolated);
 

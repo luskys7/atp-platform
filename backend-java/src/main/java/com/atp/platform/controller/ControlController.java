@@ -192,6 +192,14 @@ public class ControlController {
         return ApiResponse.ok(controlPoolService.updatePool(id, patch, propagate, SecurityUtils.currentUserId()));
     }
 
+    @DeleteMapping("/pool/{id}")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin', 'tester')")
+    public ApiResponse<Map<String, Object>> deletePool(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "false") boolean force) {
+        return ApiResponse.ok(controlPoolService.deletePool(id, force));
+    }
+
     @PostMapping("/pool/batch-replace")
     @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
     public ApiResponse<Map<String, Object>> batchReplace(@RequestBody Map<String, Object> body) {
