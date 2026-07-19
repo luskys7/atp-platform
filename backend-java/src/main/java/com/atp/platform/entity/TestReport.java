@@ -49,6 +49,25 @@ public class TestReport {
     @Column(name = "pdf_path", length = 512)
     private String pdfPath;
 
+    @Column(name = "module_name", length = 128)
+    private String moduleName;
+
+    @Column(name = "version_label", length = 64)
+    private String versionLabel;
+
+    @Column(name = "project_code", length = 64)
+    private String projectCode;
+
+    @Column(name = "operator_label", length = 128)
+    private String operatorLabel;
+
+    @Column(name = "device_label", length = 256)
+    private String deviceLabel;
+
+    /** 归档后永久留存，不参与自动清理 */
+    @Column(name = "archived")
+    private Boolean archived = false;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

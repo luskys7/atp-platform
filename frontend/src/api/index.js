@@ -210,6 +210,7 @@ export const messageApi = {
 
 export const recordingApi = {
   list: (params) => request.get('/recordings', { params }),
+  facets: () => request.get('/recordings/facets'),
   playback: (id) => request.get(`/recordings/${id}/playback`),
   context: (id) => request.get(`/recordings/${id}/context`),
   thumbnailUrl: (id) => `/api/v1/recordings/${id}/thumbnail`,
@@ -232,6 +233,43 @@ export const recordingApi = {
     return URL.createObjectURL(res.data)
   },
   delete: (id) => request.delete(`/recordings/${id}`),
+  archive: (id) => request.post(`/recordings/${id}/archive`),
+  batchArchive: (ids) => request.post('/recordings/batch-archive', { ids }),
+  batchDelete: (ids) => request.post('/recordings/batch-delete', { ids }),
+  async batchExport(ids) {
+    try {
+      const res = await axios.post('/api/v1/recordings/batch-export', { ids }, {
+        responseType: 'blob',
+        headers: authHeaders()
+      })
+      const ct = res.headers['content-type'] || ''
+      if (ct.includes('application/json')) {
+        const text = await res.data.text()
+        const json = JSON.parse(text)
+        throw new Error(json?.error?.message || json?.message || '导出失败')
+      }
+      const cd = res.headers['content-disposition'] || ''
+      const m = /filename="?([^"]+)"?/.exec(cd)
+      const filename = m?.[1] || `recordings_${Date.now()}.zip`
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      if (e?.response?.data instanceof Blob) {
+        try {
+          const text = await e.response.data.text()
+          const json = JSON.parse(text)
+          throw new Error(json?.error?.message || json?.message || '导出失败')
+        } catch (inner) {
+          if (inner?.message && inner.message !== '导出失败') throw inner
+        }
+      }
+      throw e
+    }
+  },
   verifyWatermark: (id) => request.get(`/recordings/${id}/watermark-verify`),
   features: () => request.get('/recording/features'),
   updateFeatures: (data) => request.put('/recording/features', data),
@@ -240,7 +278,48 @@ export const recordingApi = {
 
 export const reportApi = {
   list: (params) => request.get('/reports', { params }),
+  facets: () => request.get('/reports/facets'),
+  stats: (params) => request.get('/reports/stats', { params }),
   detail: (taskId) => request.get(`/reports/${taskId}`),
+  archive: (id) => request.post(`/reports/${id}/archive`),
+  delete: (id) => request.delete(`/reports/${id}`),
+  batchArchive: (ids) => request.post('/reports/batch-archive', { ids }),
+  batchDelete: (ids) => request.post('/reports/batch-delete', { ids }),
+  purgeExpired: (ids = []) => request.post('/reports/purge-expired', { ids }),
+  async batchExport(ids) {
+    try {
+      const res = await axios.post('/api/v1/reports/batch-export', { ids }, {
+        responseType: 'blob',
+        headers: authHeaders()
+      })
+      const ct = res.headers['content-type'] || ''
+      if (ct.includes('application/json')) {
+        const text = await res.data.text()
+        const json = JSON.parse(text)
+        throw new Error(json?.error?.message || json?.message || '导出失败')
+      }
+      const cd = res.headers['content-disposition'] || ''
+      const m = /filename="?([^"]+)"?/.exec(cd)
+      const filename = m?.[1] || `reports_${Date.now()}.zip`
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      if (e?.response?.data instanceof Blob) {
+        try {
+          const text = await e.response.data.text()
+          const json = JSON.parse(text)
+          throw new Error(json?.error?.message || json?.message || '导出失败')
+        } catch (inner) {
+          if (inner?.message && !String(inner.message).includes('JSON')) throw inner
+        }
+      }
+      throw e
+    }
+  },
   async exportPDF(taskId) {
     const res = await axios.get(`/api/v1/reports/${taskId}/export`, {
       responseType: 'blob',
@@ -266,7 +345,7 @@ export const reportApi = {
     URL.revokeObjectURL(url)
   },
   dashboard: () => request.get('/dashboard'),
-  wallboard: () => request.get('/dashboard/wallboard'),
+  wallboard: (params) => request.get('/dashboard/wallboard', { params }),
   coverage: () => request.get('/dashboard/coverage'),
   queueBoard: () => request.get('/dashboard/queue-board')
 }
@@ -290,7 +369,8 @@ export const controlApi = {
   batchValidate: (data) => request.post('/controls/batch-validate', data),
   unstableStats: (params) => request.get('/controls/unstable-stats', { params }),
   locatorFailureStats: (params) => request.get('/controls/locator-failure-stats', { params }),
-  archivePool: (id, data) => request.post(`/controls/pool/${id}/archive`, data || {})
+  archivePool: (id, data) => request.post(`/controls/pool/${id}/archive`, data || {}),
+  deletePool: (id, force = false) => request.delete(`/controls/pool/${id}`, { params: { force } })
 }
 
 export const ciApi = {
@@ -366,14 +446,19 @@ export const scheduleApi = {
   create: (data) => request.post('/schedules', data),
   update: (id, data) => request.put(`/schedules/${id}`, data),
   delete: (id) => request.delete(`/schedules/${id}`),
-  toggle: (id, enabled) => request.post(`/schedules/${id}/toggle`, { enabled })
+  toggle: (id, enabled) => request.post(`/schedules/${id}/toggle`, { enabled }),
+  cronPreview: (expression) => request.post('/schedules/cron-preview', { expression })
 }
 
 export const recycleApi = {
   list: () => request.get('/recycle-bin'),
+  stats: () => request.get('/recycle-bin/stats'),
+  preview: (id) => request.get(`/recycle-bin/${id}/preview`),
   restore: (id) => request.post(`/recycle-bin/${id}/restore`),
   batchRestore: (ids) => request.post('/recycle-bin/batch-restore', { ids }),
-  purge: (id) => request.delete(`/recycle-bin/${id}`)
+  purge: (id) => request.delete(`/recycle-bin/${id}`),
+  batchPurge: (ids) => request.post('/recycle-bin/batch-purge', { ids }),
+  clearAll: () => request.delete('/recycle-bin')
 }
 
 export const recordApi = {
@@ -457,7 +542,11 @@ export const teamApi = {
 }
 
 export const auditApi = {
-  list: (params) => request.get('/audit-logs', { params })
+  list: (params) => request.get('/audit-logs', { params }),
+  stats: () => request.get('/audit-logs/stats'),
+  archive: () => request.post('/audit-logs/archive'),
+  archives: () => request.get('/audit-logs/archives'),
+  verify: (filename) => request.post('/audit-logs/archives/verify', { filename })
 }
 
 export const credentialApi = {
@@ -500,7 +589,8 @@ export const backupApi = {
 
 export const monitorApi = {
   snapshot: () => request.get('/platform/monitor'),
-  executorEvents: () => request.get('/platform/executor-events')
+  executorEvents: () => request.get('/platform/executor-events'),
+  clearExecutorEvents: () => request.delete('/platform/executor-events')
 }
 
 export const accountApi = {
@@ -518,7 +608,21 @@ export const appPackageApi = {
   get: (id) => request.get(`/app-packages/${id}`),
   upload: (formData) => request.post('/app-packages', formData, { timeout: LONG_TIMEOUT }),
   delete: (id) => request.delete(`/app-packages/${id}`),
-  batchInstall: (id, deviceIds) => request.post(`/app-packages/${id}/batch-install`, { device_ids: deviceIds }, { timeout: LONG_TIMEOUT })
+  batchInstall: (id, deviceIds) => request.post(`/app-packages/${id}/batch-install`, { device_ids: deviceIds }, { timeout: LONG_TIMEOUT }),
+  reverify: (id) => request.post(`/app-packages/${id}/reverify`),
+  async download(id, filename) {
+    const res = await axios.get(`/api/v1/app-packages/${id}/download`, {
+      responseType: 'blob',
+      headers: authHeaders(),
+      timeout: LONG_TIMEOUT
+    })
+    const url = URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || `app_package_${id}`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 }
 
 export const checkpointApi = {

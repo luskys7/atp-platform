@@ -456,7 +456,7 @@ public class OperationRecordService {
     }
 
     public Map<String, Object> auditSummary(int limit) {
-        int sample = Math.max(1, Math.min(limit, 50));
+        int sample = Math.max(1, Math.min(limit, 100));
         Page<OperationRecord> page = recordRepository.findByStatusOrderByCreatedAtDesc(
                 OperationRecord.RecordStatus.completed, PageRequest.of(0, sample));
         List<Map<String, Object>> sessions = new ArrayList<>();

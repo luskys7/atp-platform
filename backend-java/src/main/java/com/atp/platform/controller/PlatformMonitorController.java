@@ -5,6 +5,7 @@ import com.atp.platform.service.ExecutorPoolService;
 import com.atp.platform.service.PlatformMonitorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,5 +31,12 @@ public class PlatformMonitorController {
     @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
     public ApiResponse<List<Map<String, Object>>> executorEvents() {
         return ApiResponse.ok(executorPoolService.recentFailoverEvents());
+    }
+
+    @DeleteMapping("/executor-events")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
+    public ApiResponse<Void> clearExecutorEvents() {
+        executorPoolService.clearFailoverEvents();
+        return ApiResponse.ok();
     }
 }

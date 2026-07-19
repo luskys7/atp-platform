@@ -28,6 +28,9 @@ public class TestAccountService {
 
     @Transactional
     public TestAccount create(Map<String, Object> body) {
+        if (body.get("password") == null || body.get("password").toString().isBlank()) {
+            throw new AppException("INVALID", "新建账号必须填写密码", HttpStatus.BAD_REQUEST);
+        }
         TestAccount a = mapAccount(new TestAccount(), body);
         return repository.save(a);
     }
@@ -126,8 +129,25 @@ public class TestAccountService {
         if (body.containsKey("phone")) a.setPhone(str(body.get("phone")));
         if (body.containsKey("tags")) a.setTags(str(body.get("tags")));
         if (body.containsKey("remark")) a.setRemark(str(body.get("remark")));
-        if (body.containsKey("env_id") && body.get("env_id") != null) {
-            a.setEnvId(Long.valueOf(body.get("env_id").toString()));
+        if (body.containsKey("env_id")) {
+            a.setEnvId(body.get("env_id") == null || "".equals(body.get("env_id").toString().trim())
+                    ? null : Long.valueOf(body.get("env_id").toString()));
+        }
+        if (body.containsKey("team_id")) {
+            a.setTeamId(body.get("team_id") == null || "".equals(body.get("team_id").toString().trim())
+                    ? null : Long.valueOf(body.get("team_id").toString()));
+        }
+        if (body.containsKey("project_key")) {
+            a.setProjectKey(str(body.get("project_key")));
+        }
+        if (body.containsKey("enabled") && body.get("enabled") != null) {
+            boolean enabled = Boolean.parseBoolean(body.get("enabled").toString());
+            if (!enabled) {
+                a.setStatus(TestAccount.AccountStatus.archived);
+                a.setLockedByTaskId(null);
+            } else if (a.getStatus() == TestAccount.AccountStatus.archived) {
+                a.setStatus(TestAccount.AccountStatus.active);
+            }
         }
         if (body.containsKey("status")) {
             a.setStatus(TestAccount.AccountStatus.valueOf(body.get("status").toString()));
@@ -141,9 +161,13 @@ public class TestAccountService {
         row.put("username", a.getUsername());
         row.put("password_masked", maskSecret(cryptoService.decrypt(a.getPasswordCipher())));
         row.put("phone_masked", maskPhone(a.getPhone()));
+        row.put("phone", a.getPhone());
         row.put("tags", a.getTags());
         row.put("env_id", a.getEnvId());
+        row.put("team_id", a.getTeamId());
+        row.put("project_key", a.getProjectKey());
         row.put("status", a.getStatus().name());
+        row.put("enabled", a.getStatus() != TestAccount.AccountStatus.archived);
         row.put("locked_by_task_id", a.getLockedByTaskId());
         row.put("remark", a.getRemark());
         row.put("updated_at", a.getUpdatedAt());

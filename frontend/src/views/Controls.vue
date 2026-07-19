@@ -150,7 +150,7 @@
         <el-table-column prop="version_tag" label="版本" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.version_tag || '-' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="420" fixed="right">
+        <el-table-column label="操作" width="480" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-tooltip v-if="!canEditPool(row)" content="生产环境核心控件仅管理员可改" placement="top">
@@ -168,6 +168,15 @@
                 plain
                 @click="archiveRow(row)"
               >归档</el-button>
+              <el-button
+                v-if="canEditPool(row)"
+                size="small"
+                type="danger"
+                @click="deleteRow(row)"
+              >删除</el-button>
+              <el-tooltip v-else content="生产环境核心控件仅管理员可删" placement="top">
+                <el-button size="small" type="danger" disabled>删除</el-button>
+              </el-tooltip>
             </div>
           </template>
         </el-table-column>
@@ -721,6 +730,57 @@ async function archiveRow(row) {
   await controlApi.archivePool(row.id, { reason: '手动归档' })
   ElMessage.success('已归档')
   refreshAll()
+}
+
+async function deleteRow(row) {
+  if (!canEditPool(row)) {
+    ElMessage.warning('生产环境核心控件仅管理员可删除')
+    return
+  }
+  let depTotal = 0
+  try {
+    const depRes = await controlApi.scanDependencies(row.id)
+    depTotal = depRes.data?.total_refs || 0
+  } catch {
+    depTotal = 0
+  }
+
+  try {
+    if (depTotal > 0) {
+      await ElMessageBox.confirm(
+        `控件「${row.element_name}」仍被 ${depTotal} 处用例 / 套件 / 绑定引用。删除后相关步骤可能定位失败，且不可恢复。是否强制删除？`,
+        '高危删除确认',
+        { type: 'error', confirmButtonText: '强制删除', confirmButtonClass: 'el-button--danger', cancelButtonText: '取消' }
+      )
+      await controlApi.deletePool(row.id, true)
+    } else {
+      await ElMessageBox.confirm(
+        `确定删除控件「${row.element_name}」？删除后不可恢复，版本与变更记录将一并清除。`,
+        '删除确认',
+        { type: 'warning', confirmButtonText: '确认删除', confirmButtonClass: 'el-button--danger', cancelButtonText: '取消' }
+      )
+      await controlApi.deletePool(row.id, false)
+    }
+    ElMessage.success('控件已删除')
+    refreshAll()
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return
+    const msg = e?.message || ''
+    if (/引用|HAS_DEPS|依赖/.test(msg)) {
+      try {
+        await ElMessageBox.confirm(
+          `${msg}\n是否强制删除？强制删除不可恢复。`,
+          '强制删除确认',
+          { type: 'error', confirmButtonText: '强制删除', confirmButtonClass: 'el-button--danger' }
+        )
+        await controlApi.deletePool(row.id, true)
+        ElMessage.success('控件已强制删除')
+        refreshAll()
+      } catch { /* cancel */ }
+      return
+    }
+    if (msg) ElMessage.error(msg)
+  }
 }
 
 function poolStabilityScore(row) {

@@ -5,10 +5,18 @@ import com.atp.platform.entity.AppPackage;
 import com.atp.platform.security.SecurityUtils;
 import com.atp.platform.service.AppPackageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +35,26 @@ public class AppPackageController {
     @GetMapping("/{id}")
     public ApiResponse<AppPackage> get(@PathVariable Long id) {
         return ApiResponse.ok(service.get(id));
+    }
+
+    @GetMapping("/{id}/download")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin', 'tester')")
+    public ResponseEntity<Resource> download(@PathVariable Long id) {
+        AppPackage pkg = service.get(id);
+        Path path = service.resolveDownloadPath(id);
+        Resource resource = new FileSystemResource(path);
+        String filename = pkg.getFileName() != null ? pkg.getFileName() : path.getFileName().toString();
+        String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(resource);
+    }
+
+    @PostMapping("/{id}/reverify")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin', 'tester')")
+    public ApiResponse<Map<String, Object>> reverify(@PathVariable Long id) throws Exception {
+        return ApiResponse.ok(service.reverify(id));
     }
 
     @PostMapping(consumes = "multipart/form-data")

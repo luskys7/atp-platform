@@ -7,6 +7,7 @@ import com.atp.platform.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -26,8 +27,11 @@ public class DashboardController {
     }
 
     @GetMapping("/wallboard")
-    public ApiResponse<Map<String, Object>> wallboard() {
-        return ApiResponse.ok(reportService.wallboard());
+    public ApiResponse<Map<String, Object>> wallboard(
+            @RequestParam(name = "time_range", defaultValue = "today") String timeRange,
+            @RequestParam(name = "project_code", required = false) String projectCode,
+            @RequestParam(name = "team_id", required = false) Long teamId) {
+        return ApiResponse.ok(reportService.wallboard(timeRange, projectCode, teamId));
     }
 
     @GetMapping("/coverage")

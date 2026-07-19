@@ -98,10 +98,24 @@ public class GlobalParameterService {
 
     private GlobalParameter map(GlobalParameter p, Map<String, Object> body) {
         if (body.containsKey("scope")) {
-            p.setScope(GlobalParameter.ParamScope.valueOf(body.get("scope").toString()));
+            String scope = body.get("scope").toString().trim();
+            // 兼容旧「环境级」：映射为项目专属，便于前端三档作用域
+            if ("env".equals(scope)) {
+                scope = "project";
+            }
+            p.setScope(GlobalParameter.ParamScope.valueOf(scope));
         }
         if (body.containsKey("env_id")) {
-            p.setEnvId(body.get("env_id") != null ? Long.valueOf(body.get("env_id").toString()) : null);
+            p.setEnvId(body.get("env_id") != null && !"".equals(body.get("env_id").toString().trim())
+                    ? Long.valueOf(body.get("env_id").toString()) : null);
+        }
+        // 平台 / 项目 / 团队作用域默认不绑定 env_id
+        if (p.getScope() == GlobalParameter.ParamScope.platform
+                || p.getScope() == GlobalParameter.ParamScope.project
+                || p.getScope() == GlobalParameter.ParamScope.team) {
+            if (!body.containsKey("env_id")) {
+                p.setEnvId(null);
+            }
         }
         if (body.containsKey("param_key")) p.setParamKey(body.get("param_key").toString().trim());
         if (body.containsKey("description")) p.setDescription(str(body.get("description")));

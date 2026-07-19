@@ -64,8 +64,10 @@
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openEnv()">添加环境</el-button></div>
           <el-table :data="envs" stripe size="small">
             <el-table-column prop="name" label="名称" />
-            <el-table-column prop="env_type" label="类型" width="100" />
-            <el-table-column prop="base_url" label="Base URL" show-overflow-tooltip />
+            <el-table-column prop="env_type" label="类型" width="120">
+              <template #default="{ row }">{{ envTypeLabel(row.env_type) }}</template>
+            </el-table-column>
+            <el-table-column prop="base_url" label="接口基础域名地址" show-overflow-tooltip />
             <el-table-column label="操作" width="160">
               <template #default="{ row }">
                 <el-button size="small" type="primary" plain @click="openEnv(row)">编辑</el-button>
@@ -234,10 +236,12 @@
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openSchedule()">添加定时任务</el-button></div>
           <el-table :data="schedules" stripe size="small">
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="suite_id" label="套件ID" width="90" />
-            <el-table-column prop="cron_expression" label="Cron" width="140" />
-            <el-table-column prop="enabled" label="状态" width="80">
+            <el-table-column prop="name" label="任务名称" min-width="160" show-overflow-tooltip />
+            <el-table-column label="回归套件" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ scheduleSuiteLabel(row.suite_id) }}</template>
+            </el-table-column>
+            <el-table-column prop="cron_expression" label="调度周期" width="150" show-overflow-tooltip />
+            <el-table-column prop="enabled" label="状态" width="90">
               <template #default="{ row }">
                 <el-switch :model-value="row.enabled" @change="v => scheduleApi.toggle(row.id, v).then(loadSchedules)" />
               </template>
@@ -310,10 +314,9 @@
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openGlobalParam()">添加参数</el-button></div>
           <el-table :data="globalParams" stripe size="small">
             <el-table-column prop="param_key" label="参数键" width="160" />
-            <el-table-column prop="scope" label="作用域" width="90">
-              <template #default="{ row }">{{ row.scope === 'platform' ? '平台' : '环境' }}</template>
+            <el-table-column prop="scope" label="作用域" width="110">
+              <template #default="{ row }">{{ scopeLabel(row.scope) }}</template>
             </el-table-column>
-            <el-table-column prop="env_id" label="环境ID" width="80" />
             <el-table-column prop="param_value" label="值" show-overflow-tooltip />
             <el-table-column prop="enabled" label="启用" width="70">
               <template #default="{ row }">
@@ -328,7 +331,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <p class="tab-hint">执行时注入变量链（平台级优先于 YAML，环境级随 env_id 合并）；敏感参数 AES 加密存储</p>
+          <p class="tab-hint">作用域优先级：团队私有 &gt; 项目专属 &gt; 平台全局；脚本内使用 &#123;&#123;参数键&#125;&#125; 引用；敏感参数 AES 加密存储</p>
         </AppCard>
       </el-tab-pane>
 
@@ -336,14 +339,16 @@
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openAssertPolicy()">添加规则</el-button></div>
           <el-table :data="assertPolicies" stripe size="small">
-            <el-table-column prop="rule_type" label="类型" width="100">
-              <template #default="{ row }">{{ row.rule_type === 'whitelist' ? '白名单(软断言)' : '黑名单' }}</template>
+            <el-table-column prop="rule_type" label="规则类型" width="150">
+              <template #default="{ row }">{{ row.rule_type === 'whitelist' ? '白名单 (失败跳过)' : '黑名单 (强制阻断)' }}</template>
             </el-table-column>
-            <el-table-column prop="target_type" label="目标" width="120" />
+            <el-table-column prop="target_type" label="目标类型" width="110">
+              <template #default="{ row }">{{ assertTargetLabel(row.target_type) }}</template>
+            </el-table-column>
             <el-table-column prop="pattern" label="匹配模式" show-overflow-tooltip />
             <el-table-column prop="description" label="说明" show-overflow-tooltip />
             <el-table-column prop="enabled" label="启用" width="70">
-              <template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '是' : '否' }}</el-tag></template>
+              <template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '已启用' : '已停用' }}</el-tag></template>
             </el-table-column>
             <el-table-column label="操作" width="140">
               <template #default="{ row }">
@@ -352,7 +357,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <p class="tab-hint">白名单：断言失败时跳过；黑名单：直接跳过该断言不执行</p>
+          <p class="tab-hint">白名单：断言失败仅记日志并继续；黑名单：匹配失败立即阻断用例 / 套件。匹配模式支持 * 通配与英文逗号多关键词。</p>
         </AppCard>
       </el-tab-pane>
 
@@ -360,11 +365,15 @@
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openDataFactory()">添加模板</el-button></div>
           <el-table :data="dataFactoryTemplates" stripe size="small">
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="method" label="方法" width="80" />
-            <el-table-column prop="url_template" label="URL" show-overflow-tooltip />
-            <el-table-column prop="enabled" label="启用" width="70">
-              <template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '是' : '否' }}</el-tag></template>
+            <el-table-column prop="name" label="模板名称" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="method" label="请求方式" width="100">
+              <template #default="{ row }">{{ methodLabel(row.method) }}</template>
+            </el-table-column>
+            <el-table-column prop="url_template" label="接口地址" show-overflow-tooltip />
+            <el-table-column prop="enabled" label="启用" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled ? 'success' : 'info'" size="small">{{ row.enabled ? '已启用' : '已停用' }}</el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="操作" width="100">
               <template #default="{ row }">
@@ -380,10 +389,17 @@
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openCredential()">添加凭据</el-button></div>
           <el-table :data="credentials" stripe size="small">
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="category" label="分类" width="100" />
-            <el-table-column prop="value_masked" label="值" width="120" />
-            <el-table-column prop="env_id" label="环境ID" width="80" />
+            <el-table-column prop="name" label="凭据名称" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="category" label="分类" width="120">
+              <template #default="{ row }">{{ credentialCategoryLabel(row.category) }}</template>
+            </el-table-column>
+            <el-table-column prop="visibility_scope" label="可见权限" width="100">
+              <template #default="{ row }">{{ credentialScopeLabel(row.visibility_scope) }}</template>
+            </el-table-column>
+            <el-table-column prop="value_masked" label="密钥" width="120" />
+            <el-table-column prop="env_id" label="绑定环境" width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ credentialEnvLabel(row.env_id) }}</template>
+            </el-table-column>
             <el-table-column prop="description" label="描述" show-overflow-tooltip />
             <el-table-column label="操作" width="140">
               <template #default="{ row }">
@@ -392,7 +408,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <p class="tab-hint">执行时以 SECRET_名称 注入变量链，值 AES 加密存储</p>
+          <p class="tab-hint">脚本内以 &#123;&#123;凭据名称&#125;&#125; 引用；执行时 AES 解密注入，日志永久脱敏</p>
         </AppCard>
       </el-tab-pane>
 
@@ -423,56 +439,19 @@
       </el-tab-pane>
 
       <el-tab-pane v-if="userStore.isAdmin" label="健康监控" name="monitor">
-        <AppCard :hover="false" v-loading="monitorLoading">
-          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-            <el-tag :type="monitorOverallType">{{ monitorOverallLabel }}</el-tag>
-            <span class="tab-hint" style="margin:0">检测时间：{{ fmtTime(monitor.checked_at) }}</span>
-            <el-button size="small" @click="loadMonitor">刷新</el-button>
-          </div>
-          <el-row :gutter="12">
-            <el-col :span="8" v-for="card in monitorCards" :key="card.key">
-              <div class="monitor-card">
-                <div class="monitor-card-title">{{ card.title }}</div>
-                <el-tag size="small" :type="statusTagType(card.status)">{{ card.status }}</el-tag>
-                <div v-for="(val, key) in card.items" :key="key" class="monitor-row">
-                  <span>{{ key }}</span><span>{{ val }}</span>
-                </div>
-              </div>
-            </el-col>
-          </el-row>
-          <el-divider content-position="left">执行器故障自愈事件</el-divider>
-          <el-table :data="executorEvents" size="small" stripe empty-text="暂无 failover 记录" max-height="200">
-            <el-table-column prop="at" label="时间" width="170" />
-            <el-table-column prop="from_url" label="原节点" show-overflow-tooltip />
-            <el-table-column prop="to_url" label="切换至" show-overflow-tooltip />
-            <el-table-column prop="task_id" label="任务" width="70" />
-            <el-table-column prop="reason" label="原因" width="100" />
-          </el-table>
+        <AppCard :hover="false">
+          <HealthMonitorPanel
+            :active="activeTab === 'monitor'"
+            @updated="onMonitorUpdated"
+          />
         </AppCard>
       </el-tab-pane>
 
       <el-tab-pane v-if="userStore.isAdmin" label="安全审计" name="audit">
         <AppCard :hover="false">
-          <el-table :data="auditLogs" stripe size="small" v-loading="auditLoading">
-            <el-table-column prop="created_at" label="时间" width="170">
-              <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
-            </el-table-column>
-            <el-table-column label="用户" width="120">
-              <template #default="{ row }">{{ row.display_name || row.username || row.user_id }}</template>
-            </el-table-column>
-            <el-table-column prop="action" label="操作" width="120" />
-            <el-table-column prop="resource_type" label="资源类型" width="110" />
-            <el-table-column prop="resource_id" label="资源ID" width="100" show-overflow-tooltip />
-            <el-table-column prop="detail" label="详情" show-overflow-tooltip />
-            <el-table-column prop="ip" label="IP" width="120" />
-          </el-table>
-          <el-pagination
-            v-model:current-page="auditPage"
-            :page-size="20"
-            :total="auditTotal"
-            layout="total, prev, pager, next"
-            style="margin-top:12px;justify-content:flex-end"
-            @change="loadAuditLogs"
+          <AuditLogPanel
+            :active="activeTab === 'audit'"
+            @updated="onAuditUpdated"
           />
         </AppCard>
       </el-tab-pane>
@@ -484,7 +463,20 @@
             <el-table-column prop="username" label="用户名" width="140" />
             <el-table-column prop="password_masked" label="密码" width="100" />
             <el-table-column prop="phone_masked" label="手机号" width="130" />
-            <el-table-column prop="tags" label="标签" show-overflow-tooltip />
+            <el-table-column prop="tags" label="标签" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="project_key" label="所属项目" width="120" show-overflow-tooltip>
+              <template #default="{ row }">{{ accountProjectLabel(row.project_key) }}</template>
+            </el-table-column>
+            <el-table-column prop="team_id" label="所属团队" width="110" show-overflow-tooltip>
+              <template #default="{ row }">{{ accountTeamLabel(row.team_id) }}</template>
+            </el-table-column>
+            <el-table-column label="启用" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.enabled !== false && row.status !== 'archived' ? 'success' : 'info'">
+                  {{ row.enabled !== false && row.status !== 'archived' ? '已启用' : '已冻结' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="status" label="状态" width="90">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.status === 'active' ? 'success' : row.status === 'locked' ? 'warning' : 'info'">{{ { active: '空闲', locked: '占用', archived: '归档' }[row.status] || row.status }}</el-tag>
@@ -504,28 +496,10 @@
 
       <el-tab-pane label="回收站" name="recycle">
         <AppCard :hover="false">
-          <div style="margin-bottom:12px">
-            <el-button v-if="userStore.isAdmin" type="primary" size="small" :disabled="!selectedRecycleIds.length" @click="batchRestore">批量还原</el-button>
-          </div>
-          <el-table :data="recycleItems" stripe size="small" @selection-change="rows => selectedRecycleIds = rows.map(r => r.id)">
-            <el-table-column v-if="userStore.isAdmin" type="selection" width="45" />
-            <el-table-column prop="resource_type" label="类型" width="120">
-              <template #default="{ row }">{{ resourceTypeLabel[row.resource_type] || row.resource_type }}</template>
-            </el-table-column>
-            <el-table-column prop="resource_name" label="名称" />
-            <el-table-column prop="deleted_at" label="删除时间" width="170">
-              <template #default="{ row }">{{ fmtTime(row.deleted_at) }}</template>
-            </el-table-column>
-            <el-table-column prop="expire_at" label="过期时间" width="170">
-              <template #default="{ row }">{{ fmtTime(row.expire_at) }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="160">
-              <template #default="{ row }">
-                <el-button v-if="userStore.isAdmin" size="small" type="primary" plain @click="restoreItem(row)">还原</el-button>
-                <el-button v-if="userStore.isAdmin" size="small" type="danger" plain @click="recycleApi.purge(row.id).then(loadRecycle)">彻底删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <RecycleBinPanel
+            :active="activeTab === 'recycle'"
+            @updated="onRecycleUpdated"
+          />
         </AppCard>
       </el-tab-pane>
     </el-tabs>
@@ -558,86 +532,35 @@
       </div>
     </section>
 
-    <el-dialog v-model="showEnvDialog" title="环境配置" width="520px">
-      <el-form :model="envForm" label-width="90px">
-        <el-form-item label="名称"><el-input v-model="envForm.name" /></el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="envForm.env_type" style="width:100%">
-            <el-option label="测试" value="test" /><el-option label="预发" value="staging" />
-            <el-option label="灰度" value="gray" /><el-option label="生产" value="prod" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Base URL"><el-input v-model="envForm.base_url" /></el-form-item>
-        <el-form-item label="变量 JSON">
-          <el-input v-model="envForm.config_json" type="textarea" :rows="4" placeholder='{"token":"xxx","gray_device_tags":"gray-a,gray-b","allow_automation":false}' />
-          <p class="form-hint">灰度环境可设 gray_device_tags；生产环境需 allow_automation=true 才允许自动化</p>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showEnvDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveEnv">保存</el-button>
-      </template>
-    </el-dialog>
+    <EnvEditorDialog
+      v-model="showEnvDialog"
+      :edit-row="editingEnvRow"
+      @saved="loadEnvs"
+    />
 
-    <el-dialog v-model="showDatasetDialog" title="数据集" width="520px">
-      <el-form :model="datasetForm" label-width="90px">
-        <el-form-item label="名称"><el-input v-model="datasetForm.name" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="datasetForm.description" /></el-form-item>
-        <el-form-item label="数据行 JSON">
-          <el-input v-model="datasetForm.rowsText" type="textarea" :rows="6" placeholder='[{"username":"u1","password":"***"}]' />
-        </el-form-item>
-        <el-form-item v-if="datasetForm.id" label="CSV 导入">
-          <el-input v-model="datasetForm.csvText" type="textarea" :rows="4" placeholder="username,password&#10;user1,pass1" />
-          <el-button size="small" style="margin-top:8px" @click="importDatasetCsv">导入 CSV</el-button>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showDatasetDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveDataset">保存</el-button>
-      </template>
-    </el-dialog>
+    <DatasetEditorDialog
+      v-model="showDatasetDialog"
+      :edit-row="editingDatasetRow"
+      @saved="loadDatasets"
+    />
 
-    <el-dialog v-model="showStepDialog" title="公共步骤" width="560px">
-      <el-form :model="stepForm" label-width="90px">
-        <el-form-item label="名称"><el-input v-model="stepForm.name" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="stepForm.description" /></el-form-item>
-        <el-form-item label="步骤 JSON"><el-input v-model="stepForm.steps_content" type="textarea" :rows="6" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showStepDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveStep">保存</el-button>
-      </template>
-    </el-dialog>
+    <CommonStepEditorDialog
+      v-model="showStepDialog"
+      :edit-row="editingStepRow"
+      @saved="loadSteps"
+    />
 
-    <el-dialog v-model="showScheduleDialog" title="定时任务" width="480px">
-      <el-form :model="scheduleForm" label-width="100px">
-        <el-form-item label="名称"><el-input v-model="scheduleForm.name" /></el-form-item>
-        <el-form-item label="套件ID">
-          <el-select v-model="scheduleForm.suite_id" filterable placeholder="选择套件" style="width:100%">
-            <el-option v-for="s in suiteOptions" :key="s.id" :label="s.name" :value="s.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Cron"><el-input v-model="scheduleForm.cron_expression" placeholder="0 0 2 * * ?" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showScheduleDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveSchedule">保存</el-button>
-      </template>
-    </el-dialog>
+    <ScheduleEditorDialog
+      v-model="showScheduleDialog"
+      :edit-row="editingScheduleRow"
+      @saved="loadSchedules"
+    />
 
-    <el-dialog v-model="showAccountDialog" title="测试账号" width="480px">
-      <el-form :model="accountForm" label-width="90px">
-        <el-form-item label="用户名" required><el-input v-model="accountForm.username" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="accountForm.password" type="password" placeholder="留空则不修改" show-password /></el-form-item>
-        <el-form-item label="手机号"><el-input v-model="accountForm.phone" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="accountForm.tags" placeholder="冒烟,回归" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="accountForm.remark" type="textarea" :rows="2" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showAccountDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveAccount">保存</el-button>
-      </template>
-    </el-dialog>
+    <TestAccountEditorDialog
+      v-model="showAccountDialog"
+      :edit-row="editingAccountRow"
+      @saved="loadAccounts"
+    />
 
     <el-dialog v-model="showCommentDialog" :title="`协同批注 · ${commentAssetName}`" width="560px">
       <div class="comment-list">
@@ -658,33 +581,17 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showBaselineDialog" title="版本基线" width="560px">
-      <el-form :model="baselineForm" label-width="100px">
-        <el-form-item label="名称" required><el-input v-model="baselineForm.name" /></el-form-item>
-        <el-form-item label="版本标签"><el-input v-model="baselineForm.version_label" placeholder="v2.1.0" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="baselineForm.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="APP包ID"><el-input v-model="baselineForm.app_package_id" placeholder="可选" /></el-form-item>
-        <el-form-item label="套件ID"><el-input v-model="baselineForm.suite_id" placeholder="可选" /></el-form-item>
-        <el-form-item label="环境ID"><el-input v-model="baselineForm.env_id" placeholder="可选" /></el-form-item>
-        <el-form-item label="配置 JSON"><el-input v-model="baselineForm.config_json" type="textarea" :rows="4" placeholder='{"min_app_version":"1.0.0"}' /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showBaselineDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveBaseline">保存</el-button>
-      </template>
-    </el-dialog>
+    <BaselineEditorDialog
+      v-model="showBaselineDialog"
+      :edit-row="editingBaselineRow"
+      @saved="loadBaselines"
+    />
 
-    <el-dialog v-model="showTeamDialog" title="团队" width="480px">
-      <el-form :model="teamForm" label-width="80px">
-        <el-form-item label="名称" required><el-input v-model="teamForm.name" /></el-form-item>
-        <el-form-item label="编码" required><el-input v-model="teamForm.code" :disabled="!!teamForm.id" placeholder="default" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="teamForm.description" type="textarea" :rows="2" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showTeamDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveTeam">保存</el-button>
-      </template>
-    </el-dialog>
+    <TeamEditorDialog
+      v-model="showTeamDialog"
+      :edit-row="editingTeamRow"
+      @saved="onTeamSaved"
+    />
 
     <el-dialog v-model="showBaselineCompareDialog" title="基线比对" width="640px">
       <div v-if="baselineCompareResult">
@@ -701,30 +608,11 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showGlobalParamDialog" title="全局参数" width="520px">
-      <el-form :model="globalParamForm" label-width="90px">
-        <el-form-item label="参数键" required><el-input v-model="globalParamForm.param_key" placeholder="API_HOST" /></el-form-item>
-        <el-form-item label="作用域">
-          <el-select v-model="globalParamForm.scope" style="width:100%">
-            <el-option label="平台全局" value="platform" />
-            <el-option label="环境级" value="env" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="globalParamForm.scope === 'env'" label="环境ID">
-          <el-input v-model="globalParamForm.env_id" placeholder="环境 ID" />
-        </el-form-item>
-        <el-form-item :label="globalParamForm.id ? '新值' : '值'">
-          <el-input v-model="globalParamForm.param_value" :type="globalParamForm.sensitive ? 'password' : 'text'" show-password />
-        </el-form-item>
-        <el-form-item label="敏感"><el-switch v-model="globalParamForm.sensitive" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="globalParamForm.description" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item v-if="globalParamForm.id" label="变更说明"><el-input v-model="globalParamForm.change_note" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showGlobalParamDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveGlobalParam">保存</el-button>
-      </template>
-    </el-dialog>
+    <GlobalParamEditorDialog
+      v-model="showGlobalParamDialog"
+      :edit-row="editingGlobalParamRow"
+      @saved="loadGlobalParams"
+    />
 
     <el-dialog v-model="showGlobalParamLogDialog" title="参数变更日志" width="640px">
       <el-table :data="globalParamLogs" stripe size="small">
@@ -738,65 +626,23 @@
       </el-table>
     </el-dialog>
 
-    <el-dialog v-model="showAssertPolicyDialog" title="断言策略" width="520px">
-      <el-form :model="assertPolicyForm" label-width="90px">
-        <el-form-item label="规则类型">
-          <el-select v-model="assertPolicyForm.rule_type" style="width:100%">
-            <el-option label="白名单(失败跳过)" value="whitelist" />
-            <el-option label="黑名单(不执行)" value="blacklist" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="目标类型">
-          <el-select v-model="assertPolicyForm.target_type" style="width:100%">
-            <el-option label="断言类型" value="assert_type" />
-            <el-option label="控件名" value="element_name" />
-            <el-option label="Toast文本" value="toast_pattern" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="匹配模式"><el-input v-model="assertPolicyForm.pattern" placeholder="assert_toast 或 *popup*" /></el-form-item>
-        <el-form-item label="说明"><el-input v-model="assertPolicyForm.description" /></el-form-item>
-        <el-form-item label="启用"><el-switch v-model="assertPolicyForm.enabled" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showAssertPolicyDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveAssertPolicy">保存</el-button>
-      </template>
-    </el-dialog>
+    <AssertPolicyEditorDialog
+      v-model="showAssertPolicyDialog"
+      :edit-row="editingAssertPolicyRow"
+      @saved="loadAssertPolicies"
+    />
 
-    <el-dialog v-model="showDataFactoryDialog" title="造数模板" width="640px">
-      <el-form :model="dataFactoryForm" label-width="110px">
-        <el-form-item label="名称" required><el-input v-model="dataFactoryForm.name" /></el-form-item>
-        <el-form-item label="HTTP方法"><el-input v-model="dataFactoryForm.method" placeholder="POST" /></el-form-item>
-        <el-form-item label="URL模板" required><el-input v-model="dataFactoryForm.url_template" placeholder="https://api.test/{{BASE_URL}}/orders" /></el-form-item>
-        <el-form-item label="Headers JSON"><el-input v-model="dataFactoryForm.headers_json" type="textarea" :rows="2" placeholder='{"Authorization":"Bearer {{TOKEN}}"}' /></el-form-item>
-        <el-form-item label="Body模板"><el-input v-model="dataFactoryForm.body_template" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="变量提取"><el-input v-model="dataFactoryForm.extract_json" type="textarea" :rows="2" placeholder='{"order_id":"/data/id"}' /></el-form-item>
-        <el-form-item label="清理方法"><el-input v-model="dataFactoryForm.cleanup_method" placeholder="DELETE" /></el-form-item>
-        <el-form-item label="清理URL"><el-input v-model="dataFactoryForm.cleanup_url_template" placeholder="https://api.test/orders/{{order_id}}" /></el-form-item>
-        <el-form-item label="清理Body"><el-input v-model="dataFactoryForm.cleanup_body_template" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="启用"><el-switch v-model="dataFactoryForm.enabled" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showDataFactoryDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveDataFactory">保存</el-button>
-      </template>
-    </el-dialog>
+    <DataFactoryEditorDialog
+      v-model="showDataFactoryDialog"
+      :edit-row="editingDataFactoryRow"
+      @saved="loadDataFactoryTemplates"
+    />
 
-    <el-dialog v-model="showCredentialDialog" title="加密凭据" width="480px">
-      <el-form :model="credentialForm" label-width="90px">
-        <el-form-item label="名称" required><el-input v-model="credentialForm.name" placeholder="API_TOKEN" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="credentialForm.category" placeholder="api/db" /></el-form-item>
-        <el-form-item label="环境ID"><el-input v-model="credentialForm.env_id" placeholder="可选" /></el-form-item>
-        <el-form-item :label="credentialForm.id ? '新值' : '值'" :required="!credentialForm.id">
-          <el-input v-model="credentialForm.value" type="password" show-password placeholder="留空则不修改" />
-        </el-form-item>
-        <el-form-item label="描述"><el-input v-model="credentialForm.description" type="textarea" :rows="2" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button class="btn-cancel" @click="showCredentialDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveCredential">保存</el-button>
-      </template>
-    </el-dialog>
+    <CredentialEditorDialog
+      v-model="showCredentialDialog"
+      :edit-row="editingCredentialRow"
+      @saved="loadCredentials"
+    />
 
     <el-dialog v-model="showTransferDialog" title="资产移交" width="420px">
       <el-form label-width="90px">
@@ -858,6 +704,20 @@ import { useUserStore } from '@/stores/user'
 import { invalidateRecordingFeatures } from '@/composables/useRecordingFeatures'
 import { formatTime as fmtTime } from '@/utils/status'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import EnvEditorDialog from '@/components/EnvEditorDialog.vue'
+import TeamEditorDialog from '@/components/TeamEditorDialog.vue'
+import DatasetEditorDialog from '@/components/DatasetEditorDialog.vue'
+import BaselineEditorDialog from '@/components/BaselineEditorDialog.vue'
+import CommonStepEditorDialog from '@/components/CommonStepEditorDialog.vue'
+import GlobalParamEditorDialog from '@/components/GlobalParamEditorDialog.vue'
+import AssertPolicyEditorDialog from '@/components/AssertPolicyEditorDialog.vue'
+import ScheduleEditorDialog from '@/components/ScheduleEditorDialog.vue'
+import DataFactoryEditorDialog from '@/components/DataFactoryEditorDialog.vue'
+import TestAccountEditorDialog from '@/components/TestAccountEditorDialog.vue'
+import CredentialEditorDialog from '@/components/CredentialEditorDialog.vue'
+import HealthMonitorPanel from '@/components/HealthMonitorPanel.vue'
+import AuditLogPanel from '@/components/AuditLogPanel.vue'
+import RecycleBinPanel from '@/components/RecycleBinPanel.vue'
 
 const userStore = useUserStore()
 const route = useRoute()
@@ -878,7 +738,7 @@ const NAV_GROUPS = [
       { name: 'env', label: '环境配置', hint: '管理测试 / 预发 / 生产等执行环境与 Base URL', adminOnly: false },
       { name: 'dataset', label: '数据集', hint: '维护参数化测试数据，支持多行数据驱动', adminOnly: false },
       { name: 'steps', label: '公共步骤', hint: '封装登录、清理等可复用操作流程，供用例与套件引用', adminOnly: false },
-      { name: 'global-params', label: '全局参数', hint: '平台 / 环境级变量统一注入执行上下文', adminOnly: true },
+      { name: 'global-params', label: '全局参数', hint: '平台 / 项目 / 团队三级变量统一注入执行上下文', adminOnly: true },
       { name: 'assert-policy', label: '断言策略', hint: '配置断言白名单与校验规则策略', adminOnly: true }
     ]
   },
@@ -988,7 +848,7 @@ const schedules = ref([])
 const baselines = ref([])
 const teams = ref([])
 const showTeamDialog = ref(false)
-const teamForm = reactive({ id: null, name: '', code: '', description: '' })
+const editingTeamRow = ref(null)
 const credentials = ref([])
 const backups = ref([])
 const backupCreating = ref(false)
@@ -999,9 +859,10 @@ const auditLogs = ref([])
 const auditLoading = ref(false)
 const auditPage = ref(1)
 const auditTotal = ref(0)
+const auditStats = ref({ total: 0, evidence_count: 0, backup_count: 0 })
 const accounts = ref([])
 const recycleItems = ref([])
-const selectedRecycleIds = ref([])
+const recycleStats = ref({ total: 0, common_step: 0, case_suite: 0, data_set: 0, expired: 0 })
 const selectedStepIds = ref([])
 const selectedStepRows = ref([])
 const stepsLoading = ref(false)
@@ -1012,7 +873,6 @@ const userOptions = ref([])
 const showTransferDialog = ref(false)
 const showTutorialDialog = ref(false)
 const transferOwnerId = ref(null)
-const resourceTypeLabel = { test_case: '用例', test_suite: '套件', common_step: '公共步骤', data_set: '数据集' }
 const suiteOptions = ref([])
 const recordingFeatures = ref({
   recording_v2: true,
@@ -1032,15 +892,15 @@ const recordingFeaturesLoading = ref(false)
 const recordingFeaturesSaving = ref(false)
 
 const showEnvDialog = ref(false)
-const envForm = reactive({ id: null, name: '', env_type: 'test', base_url: '', config_json: '{}' })
+const editingEnvRow = ref(null)
 const showDatasetDialog = ref(false)
-const datasetForm = reactive({ id: null, name: '', description: '', rowsText: '[]', csvText: '' })
+const editingDatasetRow = ref(null)
 const showStepDialog = ref(false)
-const stepForm = reactive({ id: null, name: '', description: '', steps_content: '{"steps":[]}' })
+const editingStepRow = ref(null)
 const showScheduleDialog = ref(false)
+const editingScheduleRow = ref(null)
 const showAccountDialog = ref(false)
-const scheduleForm = reactive({ id: null, name: '', suite_id: null, cron_expression: '0 0 2 * * ?' })
-const accountForm = reactive({ id: null, username: '', password: '', phone: '', tags: '', remark: '' })
+const editingAccountRow = ref(null)
 const showCommentDialog = ref(false)
 const commentAssetType = ref('common_step')
 const commentAssetId = ref(null)
@@ -1048,30 +908,22 @@ const commentAssetName = ref('')
 const comments = ref([])
 const newComment = ref('')
 const showBaselineDialog = ref(false)
+const editingBaselineRow = ref(null)
 const showBaselineCompareDialog = ref(false)
 const baselineCompareResult = ref(null)
-const baselineForm = reactive({ id: null, name: '', version_label: '', description: '', app_package_id: '', suite_id: '', env_id: '', config_json: '{}' })
 const showCredentialDialog = ref(false)
-const credentialForm = reactive({ id: null, name: '', category: '', env_id: null, description: '', value: '' })
+const editingCredentialRow = ref(null)
 const globalParams = ref([])
 const showGlobalParamDialog = ref(false)
+const editingGlobalParamRow = ref(null)
 const showGlobalParamLogDialog = ref(false)
 const globalParamLogs = ref([])
-const globalParamForm = reactive({
-  id: null, param_key: '', scope: 'platform', env_id: null, param_value: '',
-  sensitive: false, description: '', change_note: ''
-})
 const assertPolicies = ref([])
 const showAssertPolicyDialog = ref(false)
-const assertPolicyForm = reactive({
-  id: null, rule_type: 'whitelist', target_type: 'assert_type', pattern: '', description: '', enabled: true
-})
+const editingAssertPolicyRow = ref(null)
 const dataFactoryTemplates = ref([])
 const showDataFactoryDialog = ref(false)
-const dataFactoryForm = reactive({
-  id: null, name: '', method: 'POST', url_template: '', headers_json: '{}', body_template: '',
-  extract_json: '{}', cleanup_method: 'DELETE', cleanup_url_template: '', cleanup_body_template: '', enabled: true
-})
+const editingDataFactoryRow = ref(null)
 
 const hasStepSelection = computed(() => selectedStepIds.value.length > 0)
 
@@ -1125,8 +977,8 @@ const moduleStats = computed(() => {
     return [
       { key: 'e1', label: '全部环境', value: list.length, tone: 'tone-all' },
       { key: 'e2', label: '测试环境', value: list.filter(e => e.env_type === 'test').length, tone: 'tone-ok', valueClass: 'is-ok' },
-      { key: 'e3', label: '预发 / 灰度', value: list.filter(e => ['staging', 'gray'].includes(e.env_type)).length, tone: 'tone-tpl' },
-      { key: 'e4', label: '生产环境', value: list.filter(e => e.env_type === 'prod').length, tone: 'tone-muted', valueClass: 'is-muted' }
+      { key: 'e3', label: '预发灰度', value: list.filter(e => ['staging', 'gray'].includes(e.env_type)).length, tone: 'tone-tpl' },
+      { key: 'e4', label: '生产正式', value: list.filter(e => e.env_type === 'prod').length, tone: 'tone-muted', valueClass: 'is-muted' }
     ]
   }
   if (tab === 'dataset') {
@@ -1156,21 +1008,21 @@ const moduleStats = computed(() => {
     ]
   }
   if (tab === 'recycle') {
-    const list = recycleItems.value || []
+    const s = recycleStats.value || {}
     return [
-      { key: 'r1', label: '回收站总数', value: list.length, tone: 'tone-all' },
-      { key: 'r2', label: '公共步骤', value: list.filter(i => i.resource_type === 'common_step').length, tone: 'tone-ok' },
-      { key: 'r3', label: '用例 / 套件', value: list.filter(i => ['test_case', 'test_suite'].includes(i.resource_type)).length, tone: 'tone-tpl' },
-      { key: 'r4', label: '数据集', value: list.filter(i => i.resource_type === 'data_set').length, tone: 'tone-muted' }
+      { key: 'r1', label: '回收站总数', value: s.total ?? recycleItems.value.length, tone: 'tone-all' },
+      { key: 'r2', label: '公共步骤', value: s.common_step ?? 0, tone: 'tone-ok' },
+      { key: 'r3', label: '用例 / 套件', value: s.case_suite ?? 0, tone: 'tone-tpl' },
+      { key: 'r4', label: '数据集', value: s.data_set ?? 0, tone: 'tone-muted' }
     ]
   }
   if (tab === 'global-params') {
     const list = globalParams.value || []
     return [
       { key: 'g1', label: '全部参数', value: list.length, tone: 'tone-all' },
-      { key: 'g2', label: '已启用', value: list.filter(p => p.enabled).length, tone: 'tone-ok', valueClass: 'is-ok' },
-      { key: 'g3', label: '敏感参数', value: list.filter(p => p.sensitive).length, tone: 'tone-muted' },
-      { key: 'g4', label: '平台级', value: list.filter(p => p.scope === 'platform').length, tone: 'tone-tpl' }
+      { key: 'g2', label: '平台全局', value: list.filter(p => p.scope === 'platform').length, tone: 'tone-ok' },
+      { key: 'g3', label: '项目 / 团队', value: list.filter(p => ['project', 'team', 'env'].includes(p.scope)).length, tone: 'tone-tpl' },
+      { key: 'g4', label: '敏感参数', value: list.filter(p => p.sensitive).length, tone: 'tone-muted' }
     ]
   }
   if (tab === 'baseline') {
@@ -1215,18 +1067,18 @@ const moduleStats = computed(() => {
   }
   if (tab === 'monitor') {
     return [
-      { key: 'm1', label: '整体状态', value: monitorOverallLabel.value, tone: 'tone-all' },
+      { key: 'm1', label: '整体状态', value: monitorOverallLabel.value, tone: monitor.value.overall === 'healthy' || !monitor.value.overall ? 'tone-ok' : 'tone-all', valueClass: monitor.value.overall === 'healthy' || !monitor.value.overall ? 'is-ok' : '' },
       { key: 'm2', label: '在线设备', value: monitor.value.devices?.online ?? '-', tone: 'tone-ok', valueClass: 'is-ok' },
       { key: 'm3', label: '运行任务', value: monitor.value.scheduler?.running_tasks ?? '-', tone: 'tone-tpl' },
-      { key: 'm4', label: '执行器事件', value: executorEvents.value.length, tone: 'tone-muted' }
+      { key: 'm4', label: '故障事件', value: executorEvents.value.length, tone: executorEvents.value.length > 0 ? 'tone-all' : 'tone-muted', valueClass: executorEvents.value.length > 0 ? '' : 'is-muted' }
     ]
   }
   if (tab === 'audit') {
     return [
       { key: 'au1', label: '审计日志', value: auditTotal.value, tone: 'tone-all' },
-      { key: 'au2', label: '当前页条数', value: auditLogs.value.length, tone: 'tone-ok' },
-      { key: 'au3', label: '凭据数', value: credentials.value.length, tone: 'tone-tpl' },
-      { key: 'au4', label: '备份数', value: backups.value.length, tone: 'tone-muted' }
+      { key: 'au2', label: '当前页条数', value: auditLogs.value.length, tone: 'tone-ok', valueClass: 'is-ok' },
+      { key: 'au3', label: '取证凭证', value: auditStats.value.evidence_count ?? 0, tone: (auditStats.value.evidence_count || 0) > 0 ? 'tone-tpl' : 'tone-muted', valueClass: (auditStats.value.evidence_count || 0) > 0 ? '' : 'is-muted' },
+      { key: 'au4', label: '备份份数', value: auditStats.value.backup_count ?? backups.value.length, tone: 'tone-muted' }
     ]
   }
   if (tab === 'assert-policy') {
@@ -1279,6 +1131,11 @@ function onStepSelectionChange(rows) {
   selectedStepIds.value = rows.map(r => r.id)
 }
 async function loadSchedules() { schedules.value = (await scheduleApi.list()).data }
+
+function scheduleSuiteLabel(suiteId) {
+  const s = (suiteOptions.value || []).find(x => x.id === suiteId)
+  return s ? `${s.name}（ID: ${s.id}）` : (suiteId != null ? `套件 #${suiteId}` : '-')
+}
 async function loadBaselines() {
   try { baselines.value = (await baselineApi.list()).data } catch { baselines.value = [] }
 }
@@ -1297,48 +1154,56 @@ async function loadGlobalParams() {
   if (!userStore.isAdmin) return
   try { globalParams.value = (await globalParamApi.list()).data } catch { globalParams.value = [] }
 }
+
+function scopeLabel(scope) {
+  return {
+    platform: '平台全局',
+    project: '项目专属',
+    team: '团队私有',
+    env: '项目专属'
+  }[scope] || scope || '-'
+}
 async function loadAssertPolicies() {
   if (!userStore.isAdmin) return
   try { assertPolicies.value = (await assertPolicyApi.list()).data } catch { assertPolicies.value = [] }
 }
+
+function assertTargetLabel(t) {
+  return {
+    assert_type: '断言类型',
+    element_name: '控件标识',
+    toast_pattern: '断言类型'
+  }[t] || t || '-'
+}
 async function loadDataFactoryTemplates() {
   if (!userStore.isAdmin) return
   try { dataFactoryTemplates.value = (await dataFactoryApi.listTemplates()).data } catch { dataFactoryTemplates.value = [] }
+}
+
+function methodLabel(m) {
+  return {
+    POST: 'POST 新增',
+    GET: 'GET 查询',
+    PUT: 'PUT 修改',
+    DELETE: 'DELETE 删除'
+  }[m] || m || '-'
 }
 async function loadBackups() {
   if (!userStore.isAdmin) return
   try { backups.value = (await backupApi.list()).data } catch { backups.value = [] }
 }
 
-const monitorOverallType = computed(() => ({ healthy: 'success', degraded: 'warning', critical: 'danger' }[monitor.value.overall] || 'info'))
-const monitorOverallLabel = computed(() => ({ healthy: '运行正常', degraded: '部分异常', critical: '严重异常' }[monitor.value.overall] || '未知'))
-
-const monitorCards = computed(() => {
-  const m = monitor.value
-  if (!m.backend) return []
-  const fmtBytes = (b) => b != null ? (b / 1048576).toFixed(1) + ' MB' : '-'
-  return [
-    { key: 'db', title: '数据库', status: m.database?.status, items: { 类型: m.database?.type || '-', 错误: m.database?.error || '无' } },
-    { key: 'exec', title: '执行器', status: m.executor?.status, items: {
-      主节点: m.executor?.url || '-',
-      健康节点: m.executor_pool ? `${m.executor_pool.healthy_count}/${m.executor_pool.total_count}` : '-',
-      错误: m.executor?.error || '无'
-    } },
-    { key: 'store', title: '存储', status: m.storage?.status, items: {
-      录屏: fmtBytes(m.storage?.recordings_bytes),
-      报告: fmtBytes(m.storage?.reports_bytes),
-      合计: fmtBytes(m.storage?.total_bytes),
-      使用率: m.storage?.usage_percent != null ? m.storage.usage_percent.toFixed(1) + '%' : '-',
-      告警: m.storage?.alert || '无'
-    } },
-    { key: 'dev', title: '设备池', status: 'up', items: { 在线: m.devices?.online, 占用: m.devices?.busy, 离线: m.devices?.offline, 异常: m.devices?.error } },
-    { key: 'sched', title: '调度队列', status: 'up', items: { 排队: m.scheduler?.queue_size, 运行中: m.scheduler?.running_tasks, 待调度: m.scheduler?.queued_tasks } },
-    { key: 'be', title: '后端服务', status: m.backend?.status, items: { 服务: m.backend?.service || '-' } }
-  ]
+const monitorOverallLabel = computed(() => {
+  const o = monitor.value.overall
+  if (o === 'healthy') return '运行正常'
+  if (o === 'degraded' || o === 'critical') return '存在组件故障'
+  return monitor.value.backend ? '运行正常' : '未知'
 })
 
-function statusTagType(s) {
-  return { up: 'success', down: 'danger', warn: 'warning' }[s] || 'info'
+function onMonitorUpdated({ monitor: m, events }) {
+  monitor.value = m || {}
+  executorEvents.value = events || []
+  monitorLoading.value = false
 }
 
 async function loadMonitor() {
@@ -1350,16 +1215,28 @@ async function loadMonitor() {
   } catch {
     monitor.value = {}
     executorEvents.value = []
+  } finally {
+    monitorLoading.value = false
   }
-  finally { monitorLoading.value = false }
 }
+function onAuditUpdated({ logs, total, stats }) {
+  auditLogs.value = logs || []
+  auditTotal.value = total ?? 0
+  if (stats) auditStats.value = stats
+  auditLoading.value = false
+}
+
 async function loadAuditLogs() {
   if (!userStore.isAdmin) return
   auditLoading.value = true
   try {
-    const res = await auditApi.list({ page: auditPage.value, page_size: 20 })
-    auditLogs.value = res.data.list
-    auditTotal.value = res.data.total
+    const [listRes, statsRes] = await Promise.all([
+      auditApi.list({ page: auditPage.value, page_size: 20 }),
+      auditApi.stats().catch(() => ({ data: null }))
+    ])
+    auditLogs.value = listRes.data?.list || []
+    auditTotal.value = listRes.data?.total || 0
+    if (statsRes?.data) auditStats.value = statsRes.data
   } catch {
     auditLogs.value = []
     auditTotal.value = 0
@@ -1368,25 +1245,28 @@ async function loadAuditLogs() {
   }
 }
 async function loadAccounts() { accounts.value = (await accountApi.list()).data }
-async function loadRecycle() { recycleItems.value = (await recycleApi.list()).data }
+async function loadRecycle() {
+  try {
+    const [listRes, statsRes] = await Promise.all([
+      recycleApi.list(),
+      recycleApi.stats().catch(() => ({ data: null }))
+    ])
+    recycleItems.value = listRes.data || []
+    if (statsRes?.data) recycleStats.value = statsRes.data
+  } catch {
+    recycleItems.value = []
+  }
+}
+
+function onRecycleUpdated({ items, stats }) {
+  recycleItems.value = items || []
+  if (stats) recycleStats.value = stats
+}
+
 async function loadUsers() {
   if (userStore.isAdmin) {
     userOptions.value = (await authApi.listUsers()).data
   }
-}
-
-async function restoreItem(row) {
-  await recycleApi.restore(row.id)
-  ElMessage.success('已还原')
-  loadRecycle()
-}
-
-async function batchRestore() {
-  const res = await recycleApi.batchRestore(selectedRecycleIds.value)
-  ElMessage.success(`已还原 ${res.data.restored} 项`)
-  if (res.data.errors?.length) ElMessage.warning(res.data.errors.join('; '))
-  selectedRecycleIds.value = []
-  loadRecycle()
 }
 
 function openStepTransfer() {
@@ -1405,58 +1285,18 @@ async function confirmStepTransfer() {
 
 async function loadSuiteOptions() { suiteOptions.value = (await suiteApi.list()).data }
 
+function envTypeLabel(t) {
+  return { test: '测试环境', staging: '预发灰度环境', gray: '预发灰度环境', prod: '生产正式环境' }[t] || t || '—'
+}
+
 function openEnv(row) {
-  if (row) Object.assign(envForm, { id: row.id, name: row.name, env_type: row.env_type, base_url: row.base_url, config_json: row.config_json || '{}' })
-  else Object.assign(envForm, { id: null, name: '', env_type: 'test', base_url: '', config_json: '{}' })
+  editingEnvRow.value = row || null
   showEnvDialog.value = true
 }
 
-async function saveEnv() {
-  const payload = { name: envForm.name, env_type: envForm.env_type, base_url: envForm.base_url, config_json: envForm.config_json }
-  if (envForm.id) await envApi.update(envForm.id, payload)
-  else await envApi.create(payload)
-  showEnvDialog.value = false
-  loadEnvs()
-}
-
 function openDataset(row) {
-  if (row) {
-    datasetApi.get(row.id).then(res => {
-      const ds = res.data.dataset
-      datasetForm.id = ds.id
-      datasetForm.name = ds.name
-      datasetForm.description = ds.description || ''
-      const rows = (res.data.rows || []).map(r => {
-        try { return JSON.parse(r.row_data_json || '{}') } catch { return {} }
-      })
-      datasetForm.rowsText = JSON.stringify(rows, null, 2)
-      showDatasetDialog.value = true
-    })
-  } else {
-    Object.assign(datasetForm, { id: null, name: '', description: '', rowsText: '[]' })
-    showDatasetDialog.value = true
-  }
-}
-
-async function saveDataset() {
-  let rows = []
-  try { rows = JSON.parse(datasetForm.rowsText) } catch { ElMessage.error('JSON 格式错误'); return }
-  const payload = { name: datasetForm.name, description: datasetForm.description, rows }
-  if (datasetForm.id) await datasetApi.update(datasetForm.id, payload)
-  else await datasetApi.create(payload)
-  showDatasetDialog.value = false
-  loadDatasets()
-}
-
-async function importDatasetCsv() {
-  if (!datasetForm.id || !datasetForm.csvText?.trim()) {
-    ElMessage.warning('请先保存数据集并填写 CSV')
-    return
-  }
-  const res = await datasetApi.importCsv(datasetForm.id, datasetForm.csvText)
-  ElMessage.success(`已导入 ${res.data.imported} 行`)
-  datasetForm.csvText = ''
-  openDataset({ id: datasetForm.id })
+  editingDatasetRow.value = row || null
+  showDatasetDialog.value = true
 }
 
 async function deleteDataset(row) {
@@ -1467,23 +1307,8 @@ async function deleteDataset(row) {
 }
 
 function openStep(row) {
-  if (row) Object.assign(stepForm, {
-    id: row.id,
-    name: row.name,
-    description: row.description || '',
-    steps_content: row.steps_content || '{"steps":[]}'
-  })
-  else Object.assign(stepForm, { id: null, name: '', description: '', steps_content: '{"steps":[]}' })
+  editingStepRow.value = row || null
   showStepDialog.value = true
-}
-
-async function saveStep() {
-  const payload = { name: stepForm.name, description: stepForm.description, steps_content: stepForm.steps_content }
-  if (stepForm.id) await commonStepApi.update(stepForm.id, payload)
-  else await commonStepApi.create(payload)
-  showStepDialog.value = false
-  ElMessage.success(stepForm.id ? '公共步骤已更新' : '公共步骤已添加')
-  loadSteps()
 }
 
 async function deleteStep(row) {
@@ -1658,34 +1483,8 @@ async function deleteComment(c) {
 }
 
 function openBaseline(row) {
-  if (row) {
-    Object.assign(baselineForm, {
-      id: row.id, name: row.name, version_label: row.version_label || '',
-      description: row.description || '', app_package_id: row.app_package_id || '',
-      suite_id: row.suite_id || '', env_id: row.env_id || '',
-      config_json: row.config_json || '{}'
-    })
-  } else {
-    Object.assign(baselineForm, { id: null, name: '', version_label: '', description: '', app_package_id: '', suite_id: '', env_id: '', config_json: '{}' })
-  }
+  editingBaselineRow.value = row || null
   showBaselineDialog.value = true
-}
-
-async function saveBaseline() {
-  if (!baselineForm.name?.trim()) { ElMessage.warning('请填写名称'); return }
-  const payload = {
-    name: baselineForm.name.trim(),
-    version_label: baselineForm.version_label,
-    description: baselineForm.description,
-    config_json: baselineForm.config_json
-  }
-  if (baselineForm.app_package_id) payload.app_package_id = Number(baselineForm.app_package_id)
-  if (baselineForm.suite_id) payload.suite_id = Number(baselineForm.suite_id)
-  if (baselineForm.env_id) payload.env_id = Number(baselineForm.env_id)
-  if (baselineForm.id) await baselineApi.update(baselineForm.id, payload)
-  else await baselineApi.create(payload)
-  showBaselineDialog.value = false
-  loadBaselines()
 }
 
 async function archiveBaseline(row) {
@@ -1702,22 +1501,13 @@ async function compareBaseline(row) {
 }
 
 function openTeam(row) {
-  if (row) {
-    Object.assign(teamForm, { id: row.id, name: row.name, code: row.code, description: row.description || '' })
-  } else {
-    Object.assign(teamForm, { id: null, name: '', code: '', description: '' })
-  }
+  editingTeamRow.value = row || null
   showTeamDialog.value = true
 }
 
-async function saveTeam() {
-  if (!teamForm.name?.trim() || !teamForm.code?.trim()) { ElMessage.warning('请填写名称和编码'); return }
-  const payload = { name: teamForm.name.trim(), code: teamForm.code.trim(), description: teamForm.description }
-  if (teamForm.id) await teamApi.update(teamForm.id, payload)
-  else await teamApi.create(payload)
-  ElMessage.success('团队已保存')
-  showTeamDialog.value = false
+function onTeamSaved() {
   loadTeams()
+  loadUsers()
 }
 
 async function assignUserTeam(userId, teamId) {
@@ -1727,25 +1517,27 @@ async function assignUserTeam(userId, teamId) {
 }
 
 function openCredential(row) {
-  if (row) {
-    Object.assign(credentialForm, { id: row.id, name: row.name, category: row.category || '', env_id: row.env_id, description: row.description || '', value: '' })
-  } else {
-    Object.assign(credentialForm, { id: null, name: '', category: '', env_id: null, description: '', value: '' })
-  }
+  editingCredentialRow.value = row || null
   showCredentialDialog.value = true
 }
 
-async function saveCredential() {
-  if (!credentialForm.name?.trim()) { ElMessage.warning('请填写名称'); return }
-  const payload = { name: credentialForm.name, category: credentialForm.category, description: credentialForm.description, env_id: credentialForm.env_id }
-  if (credentialForm.value) payload.value = credentialForm.value
-  if (credentialForm.id) await credentialApi.update(credentialForm.id, payload)
-  else {
-    if (!credentialForm.value) { ElMessage.warning('请填写凭据值'); return }
-    await credentialApi.create(payload)
+function credentialCategoryLabel(c) {
+  if (!c) return '—'
+  const map = {
+    api: '接口鉴权', auth: '接口鉴权', db: '数据库密钥', database: '数据库密钥',
+    account: '测试账号凭证', cert: '第三方证书', certificate: '第三方证书', other: '其他密钥'
   }
-  showCredentialDialog.value = false
-  loadCredentials()
+  return map[String(c).toLowerCase()] || c
+}
+
+function credentialScopeLabel(s) {
+  return ({ platform: '平台全局', project: '项目专属', team: '团队私有' }[s] || '平台全局')
+}
+
+function credentialEnvLabel(id) {
+  if (id == null || id === '') return '未绑定'
+  const hit = (envs.value || []).find((e) => String(e.id) === String(id))
+  return hit ? `${hit.name}（ID: ${hit.id}）` : `ID: ${id}`
 }
 
 async function deleteCredential(row) {
@@ -1755,41 +1547,8 @@ async function deleteCredential(row) {
 }
 
 function openGlobalParam(row) {
-  if (row) {
-    Object.assign(globalParamForm, {
-      id: row.id, param_key: row.param_key, scope: row.scope || 'platform',
-      env_id: row.env_id, param_value: '', sensitive: row.sensitive || false,
-      description: row.description || '', change_note: ''
-    })
-  } else {
-    Object.assign(globalParamForm, {
-      id: null, param_key: '', scope: 'platform', env_id: null, param_value: '',
-      sensitive: false, description: '', change_note: ''
-    })
-  }
+  editingGlobalParamRow.value = row || null
   showGlobalParamDialog.value = true
-}
-
-async function saveGlobalParam() {
-  if (!globalParamForm.param_key?.trim()) { ElMessage.warning('请填写参数键'); return }
-  const payload = {
-    param_key: globalParamForm.param_key.trim(),
-    scope: globalParamForm.scope,
-    sensitive: globalParamForm.sensitive,
-    description: globalParamForm.description,
-    enabled: true
-  }
-  if (globalParamForm.scope === 'env' && globalParamForm.env_id) payload.env_id = Number(globalParamForm.env_id)
-  if (globalParamForm.param_value) payload.param_value = globalParamForm.param_value
-  if (globalParamForm.id) {
-    payload.change_note = globalParamForm.change_note || '更新'
-    await globalParamApi.update(globalParamForm.id, payload)
-  } else {
-    if (!globalParamForm.param_value) { ElMessage.warning('请填写参数值'); return }
-    await globalParamApi.create(payload)
-  }
-  showGlobalParamDialog.value = false
-  loadGlobalParams()
 }
 
 async function toggleGlobalParam(row, enabled) {
@@ -1803,22 +1562,8 @@ async function showGlobalParamLogs(row) {
 }
 
 function openAssertPolicy(row) {
-  if (row) {
-    Object.assign(assertPolicyForm, { id: row.id, rule_type: row.rule_type, target_type: row.target_type, pattern: row.pattern, description: row.description || '', enabled: row.enabled !== false })
-  } else {
-    Object.assign(assertPolicyForm, { id: null, rule_type: 'whitelist', target_type: 'assert_type', pattern: '', description: '', enabled: true })
-  }
+  editingAssertPolicyRow.value = row || null
   showAssertPolicyDialog.value = true
-}
-
-async function saveAssertPolicy() {
-  if (!assertPolicyForm.pattern?.trim()) { ElMessage.warning('请填写匹配模式'); return }
-  const payload = { ...assertPolicyForm }
-  delete payload.id
-  if (assertPolicyForm.id) await assertPolicyApi.update(assertPolicyForm.id, payload)
-  else await assertPolicyApi.create(payload)
-  showAssertPolicyDialog.value = false
-  loadAssertPolicies()
 }
 
 async function deleteAssertPolicy(row) {
@@ -1828,33 +1573,8 @@ async function deleteAssertPolicy(row) {
 }
 
 function openDataFactory(row) {
-  if (row) {
-    Object.assign(dataFactoryForm, {
-      id: row.id, name: row.name, method: row.method || 'POST', url_template: row.url_template || '',
-      headers_json: row.headers_json || '{}', body_template: row.body_template || '',
-      extract_json: row.extract_json || '{}', cleanup_method: row.cleanup_method || 'DELETE',
-      cleanup_url_template: row.cleanup_url_template || '', cleanup_body_template: row.cleanup_body_template || '',
-      enabled: row.enabled !== false
-    })
-  } else {
-    Object.assign(dataFactoryForm, {
-      id: null, name: '', method: 'POST', url_template: '', headers_json: '{}', body_template: '',
-      extract_json: '{}', cleanup_method: 'DELETE', cleanup_url_template: '', cleanup_body_template: '', enabled: true
-    })
-  }
+  editingDataFactoryRow.value = row || null
   showDataFactoryDialog.value = true
-}
-
-async function saveDataFactory() {
-  if (!dataFactoryForm.name?.trim() || !dataFactoryForm.url_template?.trim()) {
-    ElMessage.warning('请填写名称和 URL'); return
-  }
-  const payload = { ...dataFactoryForm }
-  delete payload.id
-  if (dataFactoryForm.id) await dataFactoryApi.updateTemplate(dataFactoryForm.id, payload)
-  else await dataFactoryApi.createTemplate(payload)
-  showDataFactoryDialog.value = false
-  loadDataFactoryTemplates()
 }
 
 async function createBackup() {
@@ -1885,24 +1605,8 @@ async function deleteBackup(row) {
 }
 
 function openSchedule(row) {
-  if (row) {
-    Object.assign(scheduleForm, { id: row.id, name: row.name, suite_id: row.suite_id, cron_expression: row.cron_expression })
-  } else {
-    Object.assign(scheduleForm, { id: null, name: '', suite_id: suiteOptions.value[0]?.id || null, cron_expression: '0 0 2 * * ?' })
-  }
+  editingScheduleRow.value = row || null
   showScheduleDialog.value = true
-}
-
-async function saveSchedule() {
-  if (!scheduleForm.suite_id) {
-    ElMessage.warning('请选择套件')
-    return
-  }
-  const payload = { name: scheduleForm.name, suite_id: scheduleForm.suite_id, cron_expression: scheduleForm.cron_expression, enabled: true }
-  if (scheduleForm.id) await scheduleApi.update(scheduleForm.id, payload)
-  else await scheduleApi.create(payload)
-  showScheduleDialog.value = false
-  loadSchedules()
 }
 
 async function deleteSchedule(row) {
@@ -1913,22 +1617,30 @@ async function deleteSchedule(row) {
 }
 
 function openAccount(row) {
-  if (row) {
-    Object.assign(accountForm, { id: row.id, username: row.username, password: '', phone: '', tags: row.tags || '', remark: row.remark || '' })
-  } else {
-    Object.assign(accountForm, { id: null, username: '', password: '', phone: '', tags: '', remark: '' })
-  }
+  editingAccountRow.value = row || null
   showAccountDialog.value = true
 }
 
-async function saveAccount() {
-  if (!accountForm.username?.trim()) { ElMessage.warning('请填写用户名'); return }
-  const payload = { username: accountForm.username, phone: accountForm.phone, tags: accountForm.tags, remark: accountForm.remark }
-  if (accountForm.password) payload.password = accountForm.password
-  if (accountForm.id) await accountApi.update(accountForm.id, payload)
-  else await accountApi.create(payload)
-  showAccountDialog.value = false
-  loadAccounts()
+function accountProjectLabel(key) {
+  if (!key) return '—'
+  if (key === 'default') return '默认业务项目'
+  const teamHit = String(key).match(/^team-(\d+)$/)
+  if (teamHit) {
+    const t = (teams.value || []).find((x) => String(x.id) === teamHit[1])
+    return t?.name || key
+  }
+  try {
+    const list = JSON.parse(localStorage.getItem('atp_project_list') || '[]')
+    const hit = (list || []).find((p) => p.id === key)
+    if (hit?.name) return hit.name
+  } catch { /* ignore */ }
+  return key
+}
+
+function accountTeamLabel(id) {
+  if (id == null || id === '') return '—'
+  const hit = (teams.value || []).find((t) => String(t.id) === String(id))
+  return hit?.name || `#${id}`
 }
 
 async function deleteAccount(row) {
@@ -2279,9 +1991,6 @@ onMounted(() => {
 .comment-body { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 .tab-hint { margin-top: 10px; font-size: 12px; color: var(--atp-text-secondary); }
 .form-hint { margin: 4px 0 0; font-size: 12px; color: var(--atp-text-secondary); line-height: 1.5; }
-.monitor-card { border: 1px solid var(--atp-border-neutral); border-radius: var(--atp-radius); padding: 12px; margin-bottom: 12px; min-height: 120px; }
-.monitor-card-title { font-weight: 600; margin-bottom: 8px; }
-.monitor-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--atp-text-secondary); margin-top: 6px; }
 
 @media (max-width: 960px) {
   .stats-row { grid-template-columns: repeat(2, 1fr); }

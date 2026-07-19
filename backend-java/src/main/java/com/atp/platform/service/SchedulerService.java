@@ -37,6 +37,7 @@ public class SchedulerService {
     private final RecordingResourceRepository recordingRepository;
     private final DeviceService deviceService;
     private final TaskService taskService;
+    private final ReportService reportService;
     private final PythonExecutorClient executorClient;
     private final DataSetService dataSetService;
     private final Executor taskExecutor;
@@ -482,6 +483,7 @@ public class SchedulerService {
             summary += String.format(" [低于阈值 %.2f%%]", minPassRate);
         }
         report.setSummary(summary);
+        reportService.enrichFromTask(report, task);
         reportRepository.save(report);
         List<String> logMessages = logRepository.findByTaskIdOrderByCreatedAtAsc(taskId).stream()
                 .map(ExecutionLog::getMessage).toList();

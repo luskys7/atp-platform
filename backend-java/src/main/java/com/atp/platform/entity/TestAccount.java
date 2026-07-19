@@ -24,6 +24,11 @@ public class TestAccount {
     private String tags;
     @Column(name = "env_id")
     private Long envId;
+    @Column(name = "team_id")
+    private Long teamId;
+    /** 业务项目标识，对应前端项目管理切换 key */
+    @Column(name = "project_key", length = 64)
+    private String projectKey;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private AccountStatus status = AccountStatus.active;

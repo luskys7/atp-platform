@@ -57,5 +57,5 @@ public class GlobalParameter {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    public enum ParamScope { platform, env }
+    public enum ParamScope { platform, project, team, env }
 }

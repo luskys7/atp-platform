@@ -75,7 +75,8 @@ public class PlatformMonitorService {
 
     private Map<String, Object> checkExecutor() {
         Map<String, Object> row = new LinkedHashMap<>();
-        String url = properties.getExecutor().getUrl() + "/health";
+        String base = properties.getExecutor().getUrl();
+        String url = base + "/health";
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> body = restClient.get()
@@ -83,14 +84,16 @@ public class PlatformMonitorService {
                     .retrieve()
                     .body(Map.class);
             row.put("status", "up");
-            row.put("url", properties.getExecutor().getUrl());
+            row.put("url", base);
             if (body != null) {
                 row.put("service", body.get("service"));
             }
+            executorPoolService.onNodeHealthy(base);
         } catch (Exception e) {
             row.put("status", "down");
-            row.put("url", properties.getExecutor().getUrl());
+            row.put("url", base);
             row.put("error", e.getMessage());
+            executorPoolService.onNodeUnhealthy(base, e.getMessage());
         }
         return row;
     }
@@ -109,22 +112,45 @@ public class PlatformMonitorService {
             row.put("recordings_bytes", recBytes);
             row.put("reports_bytes", repBytes);
             row.put("total_bytes", totalBytes);
+            row.put("disk_usage_percent", diskUsagePercent(recordings));
+            row.put("disk_warn_threshold", 80);
+            row.put("disk_critical_threshold", 90);
             if (threshold > 0) {
                 row.put("warn_threshold_bytes", threshold);
                 row.put("usage_percent", Math.min(100.0, totalBytes * 100.0 / threshold));
-                if (totalBytes >= threshold) {
-                    row.put("status", "warn");
-                    row.put("alert", "存储用量已超过告警阈值");
-                } else if (totalBytes >= threshold * 0.85) {
-                    row.put("status", "warn");
-                    row.put("alert", "存储用量接近告警阈值");
-                }
+            }
+            Double diskPct = (Double) row.get("disk_usage_percent");
+            if (diskPct != null && diskPct >= 90) {
+                row.put("status", "warn");
+                row.put("alert", "磁盘使用率≥90%，请及时清理录屏与报告文件");
+            } else if (diskPct != null && diskPct >= 80) {
+                row.put("status", "warn");
+                row.put("alert", "磁盘使用率≥80%，触发橙色预警");
+            } else if (threshold > 0 && totalBytes >= threshold) {
+                row.put("status", "warn");
+                row.put("alert", "存储用量已超过告警阈值");
+            } else if (threshold > 0 && totalBytes >= threshold * 0.85) {
+                row.put("status", "warn");
+                row.put("alert", "存储用量接近告警阈值");
             }
         } catch (Exception e) {
             row.put("status", "warn");
             row.put("error", e.getMessage());
         }
         return row;
+    }
+
+    private Double diskUsagePercent(Path path) {
+        try {
+            Path probe = Files.exists(path) ? path : Paths.get(".").toAbsolutePath();
+            var store = Files.getFileStore(probe);
+            long total = store.getTotalSpace();
+            if (total <= 0) return 0.0;
+            long used = total - store.getUsableSpace();
+            return Math.min(100.0, used * 100.0 / total);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private long dirSize(Path dir) throws Exception {

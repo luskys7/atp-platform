@@ -18,6 +18,10 @@ public class ScheduledJob {
     private String name;
     @Column(name = "suite_id", nullable = false)
     private Long suiteId;
+    @Column(name = "env_id")
+    private Long envId;
+    @Column(name = "app_package_id")
+    private Long appPackageId;
     @Column(name = "cron_expression", nullable = false, length = 64)
     private String cronExpression;
     private Boolean enabled = true;
