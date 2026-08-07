@@ -39,6 +39,42 @@ public class CiConfig {
     @Column(name = "auto_submit")
     private Boolean autoSubmit = true;
 
+    /** 逗号/换行分隔的 Jenkins 服务器 IP 白名单，空表示不限制 */
+    @Column(name = "ip_whitelist", columnDefinition = "TEXT")
+    private String ipWhitelist;
+
+    /** 允许触发的分支，逗号/换行分隔；空表示不限制 */
+    @Column(name = "branch_allow", columnDefinition = "TEXT")
+    private String branchAllow;
+
+    /** 禁止触发的分支，逗号/换行分隔 */
+    @Column(name = "branch_deny", columnDefinition = "TEXT")
+    private String branchDeny;
+
+    /** 同一 CI 链路最多同时运行的自动化任务数 */
+    @Column(name = "max_concurrent_tasks")
+    private Integer maxConcurrentTasks = 3;
+
+    /** 接收失败时平台重试次数 */
+    @Column(name = "receive_retry_count")
+    private Integer receiveRetryCount = 0;
+
+    /** 消息接收超时时间（秒） */
+    @Column(name = "receive_timeout_seconds")
+    private Integer receiveTimeoutSeconds = 30;
+
+    /** 默认绑定的回归测试套件 */
+    @Column(name = "default_suite_id")
+    private Long defaultSuiteId;
+
+    /** 默认绑定的版本基线 */
+    @Column(name = "default_baseline_id")
+    private Long defaultBaselineId;
+
+    /** 默认执行环境 */
+    @Column(name = "default_env_id")
+    private Long defaultEnvId;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

@@ -21,9 +21,10 @@ EXECUTOR_DIR = Path(__file__).resolve().parent
 REMOTE_JAR = "/data/local/tmp/scrcpy-server.jar"
 
 SERVER_VERSION = os.environ.get("ATP_SCRCPY_SERVER_VERSION", "2.4")
-MAX_SIZE = int(os.environ.get("ATP_SCRCPY_MAX_SIZE", "1080"))
+# 默认 960p / 8Mbps / 30fps：兼顾流畅与清晰；过高分辨率会拖垮 WebCodecs
+MAX_SIZE = int(os.environ.get("ATP_SCRCPY_MAX_SIZE", "960"))
 MAX_FPS = int(os.environ.get("ATP_SCRCPY_MAX_FPS", "30"))
-BIT_RATE = int(os.environ.get("ATP_SCRCPY_BIT_RATE", "12000000"))
+BIT_RATE = int(os.environ.get("ATP_SCRCPY_BIT_RATE", "6000000"))
 
 _active: dict[str, asyncio.subprocess.Process] = {}
 
@@ -165,7 +166,7 @@ async def stream_scrcpy(websocket, serial: str):
     port = random.randint(27183, 28183)
 
     await _cleanup_serial(serial)
-    await asyncio.sleep(0.2)
+    await asyncio.sleep(0.35)
 
     code, _, err = await _run_adb("-s", serial, "push", str(server_jar), REMOTE_JAR)
     if code != 0:
@@ -183,7 +184,8 @@ async def stream_scrcpy(websocket, serial: str):
     )
     _active[serial] = server_proc
 
-    await asyncio.sleep(0.8)
+    # 华为等机型启动稍慢，多等一会再连
+    await asyncio.sleep(1.2)
 
     code, _, err = await _run_adb("-s", serial, "forward", f"tcp:{port}", "localabstract:scrcpy")
     if code != 0:
@@ -201,7 +203,7 @@ async def stream_scrcpy(websocket, serial: str):
     pending_vcl: list[bytes] = []
 
     try:
-        for _ in range(20):
+        for _ in range(30):
             try:
                 reader, writer = await asyncio.wait_for(
                     asyncio.open_connection("127.0.0.1", port), timeout=1.0
@@ -210,8 +212,8 @@ async def stream_scrcpy(websocket, serial: str):
             except (OSError, asyncio.TimeoutError):
                 if server_proc.returncode is not None:
                     err_msg = (await server_proc.stderr.read()).decode(errors="ignore") if server_proc.stderr else ""
-                    raise RuntimeError(f"scrcpy-server 启动失败: {err_msg[:300]}")
-                await asyncio.sleep(0.2)
+                    raise RuntimeError(f"scrcpy-server 启动失败: {err_msg[:300] or 'exit=' + str(server_proc.returncode)}")
+                await asyncio.sleep(0.25)
         else:
             raise RuntimeError("连接 scrcpy-server 超时")
 
@@ -220,9 +222,7 @@ async def stream_scrcpy(websocket, serial: str):
             if not pending_vcl or not meta_sent:
                 pending_vcl = []
                 return
-            if is_key and sps and pps:
-                desc = _build_avcc(sps, pps)
-                await websocket.send_bytes(bytes([1]) + desc)
+            # 勿在每个关键帧重复下发 AVC 配置，频繁 reconfigure 会导致浏览器花屏/绿屏
             avcc = _to_avcc(pending_vcl)
             flags = 2 if is_key else 0
             await websocket.send_bytes(bytes([flags]) + avcc)

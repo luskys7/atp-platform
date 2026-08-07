@@ -11,6 +11,9 @@
         <el-tag v-if="connected && streamMode === 'scrcpy'" type="success" size="small" effect="plain" style="margin-left:8px">
           scrcpy 低延迟
         </el-tag>
+        <el-tag v-else-if="connected && (streamMode === 'jpeg' || streamMode === 'adb')" type="warning" size="small" effect="plain" style="margin-left:8px">
+          adb 慢速
+        </el-tag>
         <el-tag v-if="connected && fps > 0" type="info" size="small" effect="plain" style="margin-left:8px">
           {{ fps }} FPS · ~{{ latencyMs }}ms
         </el-tag>
@@ -358,7 +361,7 @@ import { useRecordingFeatures } from '@/composables/useRecordingFeatures'
 
 const { features: recordingFeatures, loadFeatures: loadRecordingFeatures } = useRecordingFeatures()
 const recordingV2 = computed(() => recordingFeatures.value.recording_v2 !== false)
-import { fixedScreenFrameStyle, frameSizeFromDevice, androidVersionLabel, frameMaxHeight, NAV_BAR_HEIGHT } from '@/composables/screenFrameStyle'
+import { fixedScreenFrameStyle, fixedScreenFrameStyleInBox, frameSizeFromDevice, androidVersionLabel, frameMaxHeight, NAV_BAR_HEIGHT } from '@/composables/screenFrameStyle'
 import { createScreenCanvasRenderer } from '@/composables/useScreenCanvas'
 import { parseTaskStepProgress, stepStatus } from '@/composables/useTaskStepProgress'
 import { deviceStatusMap } from '@/utils/status'
@@ -380,6 +383,7 @@ const userStore = useUserStore()
 const deviceId = route.params.id
 const device = ref(null)
 const canvasRef = ref(null)
+const screenWrapRef = ref(null)
 const hasFrame = ref(false)
 const inputText = ref('')
 const recording = ref(false)
@@ -519,7 +523,9 @@ let detachFrame = null
 let detachMeta = null
 let renderer = null
 let noFrameTimer = null
+let snapshotTimer = null
 let triedJpegFallback = false
+let scrcpyRetryCount = 0
 
 function clearNoFrameTimer() {
   if (noFrameTimer) {
@@ -528,23 +534,70 @@ function clearNoFrameTimer() {
   }
 }
 
+function scheduleSnapshotCapture() {
+  if (snapshotTimer) return
+  snapshotTimer = setTimeout(() => {
+    snapshotTimer = null
+    if (canvasRef.value) captureSessionSnapshot(deviceId, canvasRef.value)
+  }, 1000)
+}
+
 function scheduleNoFrameCheck() {
   clearNoFrameTimer()
   if (!connected.value || hasFrame.value) return
   noFrameTimer = setTimeout(async () => {
     if (hasFrame.value || !connected.value) return
-    if (!triedJpegFallback && streamMode.value === 'scrcpy') {
+    if (scrcpyRetryCount < 2) {
+      scrcpyRetryCount += 1
+      ElMessage.warning(`投屏暂无画面，正在重连低延迟通道（${scrcpyRetryCount}/2）...`)
+      stopStream()
+      await startStream()
+      scheduleNoFrameCheck()
+      return
+    }
+    if (!triedJpegFallback) {
       triedJpegFallback = true
-      ElMessage.warning('H.264 无画面，正在切换 ADB 投屏模式...')
+      ElMessage.warning('低延迟通道不可用，已临时降级 ADB（较卡）')
       stopStream()
       await startStream({ forceJpeg: true })
       scheduleNoFrameCheck()
     }
-  }, 5000)
+  }, 6000)
+}
+
+/** 已卡在 ADB/JPEG 低帧率时，自动切回 scrcpy（每个会话最多一次） */
+let jpegUpgradeTimer = null
+let jpegUpgradeTried = false
+function clearJpegUpgradeTimer() {
+  if (jpegUpgradeTimer) {
+    clearTimeout(jpegUpgradeTimer)
+    jpegUpgradeTimer = null
+  }
+}
+function maybeUpgradeFromJpeg() {
+  clearJpegUpgradeTimer()
+  if (!connected.value || jpegUpgradeTried) return
+  if (streamMode.value !== 'jpeg' && streamMode.value !== 'adb') return
+  jpegUpgradeTimer = setTimeout(async () => {
+    jpegUpgradeTimer = null
+    if (!connected.value || jpegUpgradeTried) return
+    if (streamMode.value !== 'jpeg' && streamMode.value !== 'adb') return
+    if (fps.value >= 8) return
+    jpegUpgradeTried = true
+    ElMessage.info('检测到投屏卡顿，正在切换到低延迟通道...')
+    triedJpegFallback = false
+    scrcpyRetryCount = 0
+    hasFrame.value = false
+    stopStream()
+    await startStream()
+    scheduleNoFrameCheck()
+  }, 2500)
 }
 
 async function connectStream() {
   triedJpegFallback = false
+  scrcpyRetryCount = 0
+  jpegUpgradeTried = false
   hasFrame.value = false
   await startStream()
   scheduleNoFrameCheck()
@@ -558,11 +611,39 @@ const screenFrameStyle = computed(() => layoutStyle.value)
 
 function updateLayoutSize() {
   const { w, h } = frameSizeFromDevice(device.value || { screen_width: frameW.value, screen_height: frameH.value })
+  const wrap = screenWrapRef.value
+  if (wrap) {
+    const rect = wrap.getBoundingClientRect()
+    if (rect.width > 40 && rect.height > 40) {
+      layoutStyle.value = fixedScreenFrameStyleInBox(w, h, rect.width - 4, rect.height - 4, NAV_BAR_HEIGHT)
+      return
+    }
+  }
   layoutStyle.value = fixedScreenFrameStyle(
     w,
     h,
     frameMaxHeight('calc(100vh - 220px)', NAV_BAR_HEIGHT)
   )
+}
+
+let screenWrapObserver = null
+
+function bindScreenWrapObserver() {
+  if (screenWrapObserver || typeof ResizeObserver === 'undefined') return
+  nextTick(() => {
+    const wrap = screenWrapRef.value
+    if (!wrap) return
+    screenWrapObserver = new ResizeObserver(() => updateLayoutSize())
+    screenWrapObserver.observe(wrap)
+    updateLayoutSize()
+  })
+}
+
+function unbindScreenWrapObserver() {
+  if (screenWrapObserver) {
+    screenWrapObserver.disconnect()
+    screenWrapObserver = null
+  }
 }
 
 function androidVersion(d) {
@@ -590,9 +671,10 @@ function bindCanvasPipeline() {
 
   renderer = createScreenCanvasRenderer(canvasRef, {
     onFrameDrawn: () => {
-      hasFrame.value = true
+      if (!hasFrame.value) hasFrame.value = true
       clearNoFrameTimer()
-      if (canvasRef.value) captureSessionSnapshot(deviceId, canvasRef.value)
+      // 快照节流：避免每帧 copy canvas 拖垮投屏主线程
+      scheduleSnapshotCapture()
     },
     onDecodeError: (reason) => {
       console.warn('[screen]', reason)
@@ -634,6 +716,7 @@ let dragStartTime = 0
 const lastTapPoint = ref(null)
 let uiRefreshTimer = null
 let tapActionChain = Promise.resolve()
+let recordingTapChain = Promise.resolve()
 let recordClickChain = Promise.resolve()
 let locatorPatchChain = Promise.resolve()
 let lastInteractionAt = 0
@@ -641,6 +724,7 @@ let pendingClickInspect = null
 let liveStepSeq = 0
 let mousedownInspectGen = 0
 let lastMousedownInspectAt = 0
+let locatorPatchFailStreak = 0
 
 const manualPickActive = ref(false)
 const manualPickRecordId = ref(null)
@@ -850,12 +934,16 @@ async function applyManualLocator() {
 }
 
 const SWIPE_THRESHOLD_CSS = 12
+const SWIPE_THRESHOLD_RECORDING_CSS = 22
 const LONG_PRESS_MS = 750
-const UI_REFRESH_INTERVAL_MS = 18000
-const UI_REFRESH_INITIAL_DELAY_MS = 12000
-const WARM_IDLE_MS = 12000
-const RAPID_CLICK_GAP_MS = 450
-const MOUSEDOWN_INSPECT_GAP_MS = 280
+const UI_REFRESH_INTERVAL_MS = 6000
+const UI_REFRESH_INITIAL_DELAY_MS = 800
+const WARM_IDLE_MS = 1800
+const RAPID_CLICK_GAP_MS = 280
+const MOUSEDOWN_INSPECT_GAP_MS = 220
+const INSPECT_RACE_MS = 1200
+const LOCATOR_PATCH_IDLE_MS = 900
+const LOCATOR_PATCH_RETRY_IDLE_MS = 1600
 
 function markRecordingInteraction() {
   lastInteractionAt = Date.now()
@@ -958,7 +1046,8 @@ function dataUrlToBlob(dataUrl) {
 
 function applyInspectToEvent(event, data) {
   if (!data) return
-  if (data.ui_width && data.ui_height) {
+  // 录制中禁止用 UI 树尺寸改写投屏分辨率，否则底部弹层「确定」坐标会漂移
+  if (!recording.value && data.ui_width && data.ui_height) {
     nativeW.value = data.ui_width
     nativeH.value = data.ui_height
   }
@@ -977,6 +1066,7 @@ function applyInspectToEvent(event, data) {
 
 function startUiRefreshInterval() {
   stopUiRefreshInterval()
+  // 录制中默认不做后台 warm dump；仅在长时间完全空闲时轻量预热
   const tick = () => {
     if (!recording.value || !recordSessionId.value || recordingPaused.value) return
     if (Date.now() - lastInteractionAt < WARM_IDLE_MS) return
@@ -993,7 +1083,7 @@ function stopUiRefreshInterval() {
   }
 }
 
-async function captureInspectForClick(x, y, maxWaitMs = 320) {
+async function captureInspectForClick(x, y, maxWaitMs = INSPECT_RACE_MS) {
   if (!recordSessionId.value) return null
   const dw = nativeW.value || canvasRef.value?.width || 0
   const dh = nativeH.value || canvasRef.value?.height || 0
@@ -1009,13 +1099,20 @@ async function captureInspectForClick(x, y, maxWaitMs = 320) {
 }
 
 function scheduleLocatorPatch(x, y, stepId) {
-  const runPatch = async (delayMs, requireIdle, minIdleMs = 1800) => {
+  if (locatorPatchFailStreak >= 4) return
+  const runPatch = async (delayMs, minIdleMs = LOCATOR_PATCH_IDLE_MS, blocking = true) => {
     await sleepMs(delayMs)
-    if (requireIdle && Date.now() - lastInteractionAt < minIdleMs) return false
+    // 等用户停手后再 dump，避免与 tap 抢 ADB
+    const idleWaitDeadline = Date.now() + 4000
+    while (Date.now() - lastInteractionAt < minIdleMs) {
+      if (Date.now() > idleWaitDeadline) return false
+      if (!recording.value || recordingPaused.value) return false
+      await sleepMs(120)
+    }
     const dw = nativeW.value || canvasRef.value?.width || 0
     const dh = nativeH.value || canvasRef.value?.height || 0
     try {
-      const res = await recordApi.inspect(recordSessionId.value, x, y, dw, dh, false)
+      const res = await recordApi.inspect(recordSessionId.value, x, y, dw, dh, blocking)
       const data = res?.data
       const locCount = data?.locators && typeof data.locators === 'object'
         ? Object.keys(data.locators).length : 0
@@ -1025,14 +1122,19 @@ function scheduleLocatorPatch(x, y, stepId) {
       if (!patch.locator_valid) return false
       await recordApi.patchLastClick(recordSessionId.value, patch)
       updateLiveStep(stepId, { type: 'click', x, y, ...patch })
+      locatorPatchFailStreak = 0
       return true
     } catch {
       return false
     }
   }
   locatorPatchChain = locatorPatchChain.then(async () => {
-    const ok = await runPatch(500, true, 600)
-    if (!ok) await runPatch(1500, true, 2000)
+    const ok = await runPatch(350, LOCATOR_PATCH_IDLE_MS, true)
+    if (!ok) {
+      const ok2 = await runPatch(900, LOCATOR_PATCH_RETRY_IDLE_MS, true)
+      if (!ok2) locatorPatchFailStreak += 1
+      else locatorPatchFailStreak = 0
+    }
   }).catch(() => {})
 }
 
@@ -1064,6 +1166,7 @@ function enqueueRecordedClick(x, y, inspectPromise) {
     } catch {
       /* 步骤写入失败不影响后续点击 */
     }
+    // 连续操作时延后补定位；空闲后再尝试一次
     if (!event.locator_valid) {
       scheduleLocatorPatch(x, y, stepId)
     }
@@ -1076,7 +1179,10 @@ function performTap(x, y) {
   markRecordingInteraction()
 
   if (recording.value && recordSessionId.value && !recordingPaused.value) {
-    void sendRecordingTap(x, y)
+    // 录制点击串行：in-flight=1，丢掉过期堆积，保证每次 tap 都能尽快打到设备
+    recordingTapChain = recordingTapChain
+      .catch(() => {})
+      .then(() => sendRecordingTap(x, y))
     const inspectP = pendingClickInspect
     pendingClickInspect = null
     enqueueRecordedClick(x, y, inspectP)
@@ -1095,7 +1201,8 @@ function performTap(x, y) {
 
 function startMousedownInspect(x, y) {
   const now = Date.now()
-  if (now - lastInteractionAt < RAPID_CLICK_GAP_MS) return
+  // 录制连点时跳过 mousedown 预识别，优先保证 tap 通路
+  if (recording.value && now - lastInteractionAt < RAPID_CLICK_GAP_MS) return
   if (now - lastMousedownInspectAt < MOUSEDOWN_INSPECT_GAP_MS) return
   lastMousedownInspectAt = now
   const gen = ++mousedownInspectGen
@@ -1188,7 +1295,12 @@ async function onMouseUp(event) {
   const dxCss = Math.abs(event.clientX - startClient.x)
   const dyCss = Math.abs(event.clientY - startClient.y)
   const holdMs = Date.now() - dragStartTime
-  if (dxCss > SWIPE_THRESHOLD_CSS || dyCss > SWIPE_THRESHOLD_CSS) {
+  const swipeThreshold = (recording.value && !recordingPaused.value)
+    ? SWIPE_THRESHOLD_RECORDING_CSS
+    : SWIPE_THRESHOLD_CSS
+  // 短按时间内的轻微拖动按 tap 处理，避免时间滚轮误判成 swipe
+  const treatAsTap = holdMs < 220 && dxCss < swipeThreshold * 1.5 && dyCss < swipeThreshold * 1.5
+  if (!treatAsTap && (dxCss > swipeThreshold || dyCss > swipeThreshold)) {
     pendingClickInspect = null
     markRecordingInteraction()
     await deviceApi.screenSwipe(deviceId, {
@@ -1408,26 +1520,30 @@ async function doStartRecording() {
   mousedownInspectGen = 0
   lastMousedownInspectAt = 0
   recordClickChain = Promise.resolve()
+  recordingTapChain = Promise.resolve()
   locatorPatchChain = Promise.resolve()
   pendingClickInspect = null
+  locatorPatchFailStreak = 0
   lastInteractionAt = 0
   syncFromSession(res.data.id, deviceId, device.value?.name || '')
   operationRecordingState.watermarkEnabled = watermarkEnabled.value
+  // 录制开始立刻同步预热 UI 树，避免前几步全部「定位未识别」
+  try {
+    await recordApi.warmInspect(res.data.id)
+  } catch {
+    /* 预热失败不阻断录制，后续空闲仍会补刷 */
+  }
   operationRecordingState.videoRecording = videoRecorder.start(canvasRef.value, {
     watermark: watermarkEnabled.value,
     watermarkLines: watermarkLines(),
     desensitize: desensitizeEnabled.value,
-    fps: 12,
+    // scrcpy 不占 ADB 截图带宽，可用更高采集帧率保证清晰；JPEG 兜底仍降到 8
+    fps: streamMode.value === 'scrcpy' ? 14 : 8,
     cropRect: resolveRecordCropRect()
   })
   startStatusSync()
   startAutosave()
   startUiRefreshInterval()
-  setTimeout(() => {
-    if (recording.value && recordSessionId.value) {
-      recordApi.warmInspect(recordSessionId.value).catch(() => {})
-    }
-  }, 2000)
   ElMessage.success('录制已开始（视频 + 操作步骤）')
 }
 
@@ -1751,6 +1867,7 @@ onMounted(async () => {
   bindRecordingActions()
   resumeIfAlive()
   window.addEventListener('resize', updateLayoutSize)
+  bindScreenWrapObserver()
   if (route.query.auto_record === '1' && connected.value) {
     nextTick(() => maybeAutoStartRecording())
   }
@@ -1777,7 +1894,9 @@ watch(connected, (v) => {
   if (!v) {
     hasFrame.value = false
     triedJpegFallback = false
+    scrcpyRetryCount = 0
     clearNoFrameTimer()
+    clearJpegUpgradeTimer()
     if (renderer) {
       renderer.destroy()
       renderer = null
@@ -1786,8 +1905,13 @@ watch(connected, (v) => {
     nextTick(() => {
       if (!renderer) bindCanvasPipeline()
       scheduleNoFrameCheck()
+      maybeUpgradeFromJpeg()
     })
   }
+})
+
+watch([streamMode, fps], () => {
+  maybeUpgradeFromJpeg()
 })
 
 watch(() => videoRecorder.error.value, (err) => {
@@ -1804,7 +1928,13 @@ onUnmounted(() => {
   stopAutosave()
   stopDebugPolling()
   window.removeEventListener('resize', updateLayoutSize)
+  unbindScreenWrapObserver()
   clearNoFrameTimer()
+  clearJpegUpgradeTimer()
+  if (snapshotTimer) {
+    clearTimeout(snapshotTimer)
+    snapshotTimer = null
+  }
   stopStatusSync()
   if (detachFrame) detachFrame()
   if (detachMeta) detachMeta()
@@ -1820,20 +1950,31 @@ onUnmounted(() => {
 .screen-layout {
   display: flex;
   gap: 20px;
-  align-items: flex-start;
+  align-items: stretch;
   width: 100%;
   justify-content: flex-start;
+  height: calc(100vh - 140px);
+  min-height: 520px;
 }
 .screen-panel {
   flex: 0 0 auto;
-  width: fit-content;
+  width: min(420px, 38vw);
+  min-width: 260px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  min-height: 0;
+  height: 100%;
 }
 .screen-wrap {
   line-height: 0;
-  width: fit-content;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 .screen-device {
   display: flex;
@@ -1841,6 +1982,8 @@ onUnmounted(() => {
   border-radius: var(--atp-radius-md, 12px);
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(15, 23, 42, 0.15);
+  max-width: 100%;
+  max-height: 100%;
 }
 .screen-frame {
   position: relative;
@@ -1933,6 +2076,9 @@ onUnmounted(() => {
 .ops-panel {
   flex: 1;
   min-width: 420px;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;

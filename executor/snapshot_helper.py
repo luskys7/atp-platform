@@ -21,17 +21,26 @@ def capture_failure_snapshot(
 
     remote_xml = f"/sdcard/atp_ui_{execution_id}.xml"
     local_xml = local_dir / f"{execution_id}_ui.xml"
-    subprocess.run(
-        ["adb", "-s", serial, "shell", "uiautomator", "dump", remote_xml],
-        capture_output=True, text=True, timeout=20,
-    )
-    pull = subprocess.run(
-        ["adb", "-s", serial, "pull", remote_xml, str(local_xml)],
-        capture_output=True, text=True, timeout=20,
-    )
-    if pull.returncode == 0 and local_xml.exists():
-        snap["ui_tree"] = local_xml.read_text(encoding="utf-8", errors="ignore")[:50000]
-        snap["ui_tree_path"] = str(local_xml)
+    try:
+        from ui_dump_helper import dump_ui_xml
+        res = dump_ui_xml(serial, str(local_xml), prefer_u2=True, force=True, timeout=20)
+        if res.get("ok") and local_xml.exists():
+            snap["ui_tree"] = local_xml.read_text(encoding="utf-8", errors="ignore")[:50000]
+            snap["ui_tree_path"] = str(local_xml)
+            snap["dump_source"] = res.get("source")
+    except Exception:
+        subprocess.run(
+            ["adb", "-s", serial, "shell", "uiautomator", "dump", remote_xml],
+            capture_output=True, text=True, timeout=20,
+        )
+        pull = subprocess.run(
+            ["adb", "-s", serial, "pull", remote_xml, str(local_xml)],
+            capture_output=True, text=True, timeout=20,
+        )
+        if pull.returncode == 0 and local_xml.exists():
+            snap["ui_tree"] = local_xml.read_text(encoding="utf-8", errors="ignore")[:50000]
+            snap["ui_tree_path"] = str(local_xml)
+            snap["dump_source"] = "shell"
 
     if app_package:
         ps = subprocess.run(

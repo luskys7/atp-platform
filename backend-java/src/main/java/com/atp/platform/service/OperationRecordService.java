@@ -314,10 +314,8 @@ public class OperationRecordService {
             displayHeight = deviceRepository.findById(rec.getDeviceId())
                     .map(d -> d.getScreenHeight()).orElse(null);
         }
-        if (rec.getStatus() == OperationRecord.RecordStatus.recording
-                || rec.getStatus() == OperationRecord.RecordStatus.paused) {
-            blocking = false;
-        }
+        // 录制中允许 blocking：执行器侧有 tap_priority 保护，不会长时间抢占点击；
+        // 若强制非阻塞且无 UI 缓存，每一步都会变成「定位未识别」。
         Map<String, Object> inspect = executorClient.inspectPoint(
                 serial, platform, x, y, displayWidth, displayHeight, blocking);
         boolean valid = isInspectRecognized(inspect);
@@ -356,7 +354,8 @@ public class OperationRecordService {
         String platform = deviceRepository.findById(rec.getDeviceId())
                 .map(d -> d.getPlatform().name())
                 .orElse("android");
-        executorClient.warmUiCache(serial, platform);
+        // 同步预热：保证录制点击时有可用 UI 树缓存
+        executorClient.warmUiCache(serial, platform, true);
     }
 
     public OperationRecord resume(Long id) {

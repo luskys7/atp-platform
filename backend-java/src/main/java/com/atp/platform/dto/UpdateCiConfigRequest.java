@@ -14,4 +14,13 @@ public class UpdateCiConfigRequest {
     private String defaultAppPackage;
     private Integer defaultTimeoutSeconds;
     private Boolean autoSubmit;
+    private String ipWhitelist;
+    private String branchAllow;
+    private String branchDeny;
+    private Integer maxConcurrentTasks;
+    private Integer receiveRetryCount;
+    private Integer receiveTimeoutSeconds;
+    private Long defaultSuiteId;
+    private Long defaultBaselineId;
+    private Long defaultEnvId;
 }

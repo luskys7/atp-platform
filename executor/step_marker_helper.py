@@ -12,7 +12,7 @@ _STEP_BEGIN_RE = re.compile(
     r"ATP_STEP_BEGIN step=(\d+) type=(\w+) offset_ms=(\d+)(?: display=([^\s]+))?"
 )
 _STEP_END_RE = re.compile(
-    r"ATP_STEP_END step=(\d+) status=(ok|fail|skip) offset_ms=(\d+)(?: error=(.+))?"
+    r"ATP_STEP_END step=(\d+) status=(ok|fail|skip|interrupt|exception|ignore) offset_ms=(\d+)(?: error=(.+))?"
 )
 # 兼容旧版 VisualScriptGenerator 输出
 _LEGACY_STEP_START_RE = re.compile(r"ATP_STEP_START:step=(\d+):type=(\w+)")

@@ -50,3 +50,20 @@ atp:
     min-recognition-rate: 95.0
     min-locator-hit-rate: 98.0
     max-long-tasks-per-min: 2
+  ai-case:
+    enabled: true
+    # llm=OpenAI兼容直连；testbrain=外挂 TestBrain；offline=无Key规则草案
+    provider: ${ATP_AI_CASE_PROVIDER:llm}
+    testbrain-url: ${TESTBRAIN_URL:http://10.0.98.20:8000}
+    # 默认千问兼容模式；也可改回 https://api.deepseek.com + deepseek-chat
+    llm-base-url: ${ATP_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    llm-api-key: ${ATP_LLM_API_KEY:}
+    llm-model: ${ATP_LLM_MODEL:qwen-plus}
+    timeout-seconds: 120
+    max-cases: 8
+    max-doc-chars: 80000
+    # Confluence：也可在页面临时填 token；Cloud 常用 email + API Token（Basic）
+    confluence-base-url: ${CONFLUENCE_BASE_URL:}
+    confluence-token: ${CONFLUENCE_TOKEN:}
+    confluence-email: ${CONFLUENCE_EMAIL:}
+    confluence-auth-type: ${CONFLUENCE_AUTH_TYPE:cloud}

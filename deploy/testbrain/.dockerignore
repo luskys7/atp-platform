@@ -1,0 +1,7 @@
+# 构建上下文忽略项（勿忽略 vendor/TestBrain）
+**/.git
+**/__pycache__
+**/*.pyc
+vendor/*.zip
+.env
+bin/

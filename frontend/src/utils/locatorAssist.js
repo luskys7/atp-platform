@@ -1,9 +1,9 @@
 /** 控件定位辅助 — 与设计文档 §2/§3 对齐 */
 
 export const LOCATOR_CHAIN_PRIORITY = [
-  'id', 'resource_id', 'uiselector', 'content_desc', 'xpath_desc', 'text', 'xpath_text',
+  'id', 'resource_id', 'uiselector', 'content_desc', 'xpath_desc', 'xpath_desc_contains', 'text', 'xpath_text',
   'relative_xpath', 'parent_index', 'anchor_adjacent', 'region_locator',
-  'class_name', 'bounds', 'screen_ratio', 'ocr'
+  'class_name', 'absolute_xpath', 'bounds', 'screen_ratio', 'ocr'
 ]
 
 export const IOS_CHAIN_PRIORITY = [
@@ -12,9 +12,9 @@ export const IOS_CHAIN_PRIORITY = [
 ]
 
 const ANDROID_SCORE = {
-  id: 100, resource_id: 100, uiselector: 88, content_desc: 78, xpath_desc: 72,
+  id: 100, resource_id: 100, uiselector: 88, content_desc: 78, xpath_desc: 72, xpath_desc_contains: 68,
   text: 52, xpath_text: 48, relative_xpath: 46, parent_index: 44, anchor_adjacent: 42,
-  region_locator: 40, class_name: 22, bounds: 18, screen_ratio: 12, ocr: 8
+  region_locator: 40, class_name: 22, bounds: 18, absolute_xpath: 16, screen_ratio: 12, ocr: 8
 }
 
 const IOS_SCORE = {
@@ -28,16 +28,18 @@ export const RECOMMEND_REASON_LABELS = {
   accessibility_id: 'iOS 自动化专属标识',
   uiselector: 'Android UiSelector 原生组合',
   nspredicate: 'iOS NSPredicate 原生组合',
-  content_desc: '无障碍描述 content-desc / label',
-  xpath_desc: '基于 content-desc 的相对 XPath',
-  text: '静态固定文本',
-  relative_xpath: '短相对 XPath 备选',
-  parent_index: '父容器 + 下标',
-  anchor_adjacent: '锚点邻位',
-  region_locator: '区域限定',
-  class_name: '控件类名（稳定性偏低）',
+  content_desc: '文案定位（content-desc）',
+  xpath_desc: 'xpath（基于 content-desc）',
+  xpath_desc_contains: 'xpath（contains）',
+  text: '文本定位',
+  relative_xpath: '相对 xpath',
+  absolute_xpath: '绝对 xpath',
+  parent_index: '父容器下标',
+  anchor_adjacent: '锚点定位',
+  region_locator: '区域定位',
+  class_name: '类名定位',
   screen_ratio: '屏幕比例兜底',
-  ocr: 'OCR 文本兜底'
+  ocr: 'OCR 定位'
 }
 
 export const ELEMENT_NAME_PATTERN = /^([\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,47}|[a-z][a-z0-9_]{2,47})$/
@@ -73,8 +75,8 @@ export const RISK_TAG_LABELS = {
   not_interactive: '不可交互',
   ratio_fallback: '比例坐标兜底',
   parent_index: '父容器+下标',
-  anchor_adjacent: '锚点邻位',
-  region_locator: '区域限定'
+  anchor_adjacent: '锚点定位',
+  region_locator: '区域定位'
 }
 
 export const ANCHOR_DIRECTIONS = [
@@ -93,6 +95,20 @@ export function isDynamicText(text) {
   return false
 }
 
+function isShortOptionLabel(val) {
+  const s = String(val || '').trim()
+  if (!s) return false
+  if (/^\d{1,2}$/.test(s)) return true
+  return s.length <= 6 && /^[\u4e00-\u9fffA-Za-z0-9]+$/.test(s)
+}
+
+function isLongMarketingCopy(val) {
+  const s = String(val || '').trim()
+  if (s.length >= 16) return true
+  if (s.length >= 8 && /[，。；、：]|日常|期间|自动|勿扰|了解更多|点击|请|将/.test(s)) return true
+  return false
+}
+
 export function chainPriorityForPlatform(platform) {
   return platform === 'ios' ? IOS_CHAIN_PRIORITY : LOCATOR_CHAIN_PRIORITY
 }
@@ -103,7 +119,71 @@ export function scoreLocatorType(type, value, platform = 'android') {
   if ((type === 'id' || type === 'resource_id') && isGenericRid(val)) return -999
   if ((type === 'text' || type === 'ocr') && isDynamicText(val)) return 6
   const table = platform === 'ios' ? IOS_SCORE : ANDROID_SCORE
-  return table[type] ?? 10
+  let base = table[type] ?? 10
+  if (['content_desc', 'xpath_desc', 'xpath_desc_contains', 'text', 'xpath_text', 'ocr'].includes(type)) {
+    if (isLongMarketingCopy(val)) base -= (type.startsWith('content') || type.startsWith('xpath_desc')) ? 55 : 40
+    else if (isShortOptionLabel(val)) base += 18
+    else if (val.length > 10) base -= Math.min(30, (val.length - 10) * 2)
+  }
+  if (type === 'relative_xpath' && val.length <= 80) base += 6
+  if (type === 'absolute_xpath') base -= 4
+  if (['relative_xpath', 'xpath_desc', 'xpath_text', 'absolute_xpath'].includes(type) && val.length > 120) base -= 15
+  return base
+}
+
+/** 推荐分 → 预估通过率 % */
+export function scoreToPassRate(score) {
+  const s = Number(score)
+  if (!Number.isFinite(s) || s <= -100) return 5
+  return Math.max(5, Math.min(99, Math.round(40 + s * 0.55)))
+}
+
+/**
+ * 按通过率/推荐分降序排列定位链，并重写 priority（1=最高）。
+ * validateAttempts 存在时：可点击 > 仅存在 > 未命中，再比分数。
+ */
+export function sortLocatorChainByPassRate(chain, platform = 'android', validateAttempts = null) {
+  const attemptMap = new Map()
+  ;(validateAttempts || []).forEach(att => {
+    if (!att?.type) return
+    const key = `${att.type}:${String(att.value || '')}`
+    let rank = 0
+    if (att.clickable) rank = 3
+    else if (att.found) rank = 2
+    else if (att.reason && att.reason !== 'not_found') rank = 1
+    const prev = attemptMap.get(key)
+    if (!prev || rank > prev) attemptMap.set(key, rank)
+  })
+
+  const arr = (chain || []).map(item => {
+    const type = item.type || item.key
+    const value = String(item.value || '')
+    const score = item.recommend_score ?? scoreLocatorType(type, value, platform)
+    const passRate = item.pass_rate != null ? Number(item.pass_rate) : scoreToPassRate(score)
+    const validateRank = attemptMap.get(`${type}:${value}`) || 0
+    return { ...item, type, value, recommend_score: score, pass_rate: passRate, _validateRank: validateRank }
+  })
+
+  arr.sort((a, b) => {
+    if (b._validateRank !== a._validateRank) return b._validateRank - a._validateRank
+    if ((b.pass_rate || 0) !== (a.pass_rate || 0)) return (b.pass_rate || 0) - (a.pass_rate || 0)
+    return (b.recommend_score || -999) - (a.recommend_score || -999)
+  })
+
+  const bestScore = Math.max(...arr.map(i => i.recommend_score ?? -999), -999)
+  return arr.map((item, idx) => {
+    const { _validateRank, ...rest } = item
+    const recommended = idx === 0
+    return {
+      ...rest,
+      priority: idx + 1,
+      recommended,
+      primary: recommended,
+      recommend_reason: recommended
+        ? (rest.recommend_reason || recommendReasonLabel(rest.type))
+        : undefined
+    }
+  })
 }
 
 export function pickRecommendedIndex(chain, platform = 'android') {
@@ -112,7 +192,9 @@ export function pickRecommendedIndex(chain, platform = 'android') {
   let bestScore = -999
   chain.forEach((item, idx) => {
     if (item.enabled === false) return
-    const score = item.recommend_score ?? scoreLocatorType(item.type, item.value, platform)
+    const score = item.pass_rate != null
+      ? Number(item.pass_rate)
+      : (item.recommend_score ?? scoreLocatorType(item.type, item.value, platform))
     if (score > bestScore) {
       bestScore = score
       best = idx
@@ -141,28 +223,12 @@ export function riskTagLabel(tag) {
 export function validateElementName(name) {
   const n = String(name || '').trim()
   if (!n) return '请填写控件名称'
-  if (/^[a-z][a-z0-9_]{2,47}$/.test(n)) return ''
-  if (!/[\u4e00-\u9fff]/.test(n) && /^[a-zA-Z0-9_\-.]+$/.test(n)) {
-    return '请使用中文标识控件用途'
-  }
-  if (/[\u4e00-\u9fff]/.test(n) && !/^[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,47}$/.test(n)) {
-    return '控件名称格式不正确'
-  }
-  if (ELEMENT_NAME_PATTERN.test(n)) return ''
-  return '控件名称格式不正确'
+  if (n.length > 256) return '控件名称不能超过 256 字'
+  return ''
 }
 
 export function validateControlDisplayName(name) {
-  const n = String(name || '').trim()
-  if (!n) return '请填写控件名称'
-  if (n.length > 48) return '控件名称不能超过 48 字'
-  if (!/[\u4e00-\u9fff]/.test(n) || /^[a-zA-Z0-9_\-.]+$/.test(n)) {
-    return '请使用中文标识控件用途'
-  }
-  if (!/^[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_-]{0,47}$/.test(n)) {
-    return '控件名称格式不正确（建议以中文开头）'
-  }
-  return ''
+  return validateElementName(name)
 }
 
 export function controlTagLabel(tag) {
@@ -256,20 +322,18 @@ export function isWeakPick(pick) {
 export function buildLocatorChainFromPick(pick) {
   const platform = pick?.platform || 'android'
   if (pick?.locator_chain?.length) {
-    let recommendedIdx = pick.locator_chain.findIndex(i => i.recommended === true)
-    if (recommendedIdx < 0) recommendedIdx = pickRecommendedIndex(pick.locator_chain, platform)
-    if (recommendedIdx < 0) recommendedIdx = pick.locator_chain.findIndex(i => i.primary === true)
-    if (recommendedIdx < 0) recommendedIdx = 0
-    return pick.locator_chain.map((item, idx) => ({
+    const normalized = pick.locator_chain.map((item, idx) => ({
       type: item.type || item.key,
       value: String(item.value || ''),
       enabled: item.enabled !== false,
       priority: item.priority ?? idx + 1,
       recommend_score: item.recommend_score ?? scoreLocatorType(item.type || item.key, item.value, platform),
-      recommend_reason: item.recommend_reason || (idx === recommendedIdx ? recommendReasonLabel(item.type || item.key) : ''),
-      recommended: idx === recommendedIdx,
-      primary: item.primary === true || idx === recommendedIdx
+      pass_rate: item.pass_rate != null
+        ? Number(item.pass_rate)
+        : scoreToPassRate(item.recommend_score ?? scoreLocatorType(item.type || item.key, item.value, platform)),
+      recommend_reason: item.recommend_reason || ''
     }))
+    return sortLocatorChainByPassRate(normalized, platform)
   }
   const locs = pick?.locators || {}
   const chain = []
@@ -282,25 +346,16 @@ export function buildLocatorChainFromPick(pick) {
     const sig = `${type}:${value}`
     if (seen.has(sig)) continue
     seen.add(sig)
+    const score = scoreLocatorType(type, String(value), platform)
     chain.push({
       type,
       value: String(value),
       enabled: true,
-      priority: chain.length + 1,
-      recommend_score: scoreLocatorType(type, String(value), platform),
-      recommended: false,
-      primary: false
+      recommend_score: score,
+      pass_rate: scoreToPassRate(score)
     })
   }
-  const recIdx = pickRecommendedIndex(chain, platform)
-  if (recIdx >= 0) {
-    chain.forEach((item, idx) => {
-      item.recommended = idx === recIdx
-      item.primary = idx === recIdx
-      if (idx === recIdx) item.recommend_reason = recommendReasonLabel(item.type)
-    })
-  }
-  return chain
+  return sortLocatorChainByPassRate(chain, platform)
 }
 
 export function chainToLocators(chain) {
@@ -317,7 +372,7 @@ export function primaryFromChain(chain) {
   const primary = enabled.find(i => i.primary) || enabled[0]
   if (!primary) return { locator_type: '', locator_value: '' }
   const lt = primary.type === 'resource_id' ? 'id'
-    : ['xpath_desc', 'xpath_text', 'relative_xpath', 'parent_index', 'anchor_adjacent', 'region_locator'].includes(primary.type) ? 'xpath'
+    : ['xpath_desc', 'xpath_desc_contains', 'xpath_text', 'relative_xpath', 'absolute_xpath', 'parent_index', 'anchor_adjacent', 'region_locator'].includes(primary.type) ? 'xpath'
       : primary.type
   return { locator_type: lt, locator_value: primary.value }
 }
@@ -325,7 +380,7 @@ export function primaryFromChain(chain) {
 export function mapLocatorTypeForPool(type) {
   const t = type === 'resource_id' ? 'id' : type
   if (['id', 'xpath', 'accessibility', 'ai', 'image'].includes(t)) return t
-  if (['text', 'content_desc', 'xpath_desc', 'xpath_text', 'relative_xpath', 'class_name', 'bounds', 'screen_ratio', 'ocr',
+  if (['text', 'content_desc', 'xpath_desc', 'xpath_text', 'relative_xpath', 'absolute_xpath', 'class_name', 'bounds', 'screen_ratio', 'ocr',
     'parent_index', 'anchor_adjacent', 'region_locator'].includes(t)) {
     return 'xpath'
   }

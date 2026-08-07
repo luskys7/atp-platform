@@ -74,6 +74,28 @@ const routes = [
         meta: { title: '测试用例' }
       },
       {
+        path: 'ai-cases',
+        name: 'AiCaseGenerate',
+        component: () => import('@/views/AiCaseGenerate.vue'),
+        meta: { title: '用例生成' }
+      },
+      {
+        path: 'ai-knowledge',
+        name: 'AiKnowledge',
+        component: () => import('@/views/AiKnowledge.vue'),
+        meta: { title: '知识库' }
+      },
+      {
+        path: 'testbrain',
+        name: 'TestBrain',
+        component: () => import('@/views/AiTestBrainConsole.vue'),
+        meta: { title: 'TestBrain' }
+      },
+      {
+        path: 'ai-testbrain',
+        redirect: '/testbrain'
+      },
+      {
         path: 'suites',
         name: 'Suites',
         component: () => import('@/views/Suites.vue'),
@@ -84,6 +106,18 @@ const routes = [
         name: 'PlatformConfig',
         component: () => import('@/views/PlatformConfig.vue'),
         meta: { title: '平台配置' }
+      },
+      {
+        path: 'common-steps/new',
+        name: 'CommonStepNew',
+        component: () => import('@/views/CommonStepWizard.vue'),
+        meta: { title: '快速新建公共步骤' }
+      },
+      {
+        path: 'common-steps/:id/edit',
+        name: 'CommonStepEdit',
+        component: () => import('@/views/CommonStepWizard.vue'),
+        meta: { title: '编辑公共步骤' }
       },
       {
         path: 'app-packages',
@@ -102,6 +136,18 @@ const routes = [
         name: 'VisualCaseEditorEdit',
         component: () => import('@/views/VisualCaseEditor.vue'),
         meta: { title: '编辑可视化用例' }
+      },
+      {
+        path: 'cases/editor/:id/author',
+        name: 'CaseAuthor',
+        component: () => import('@/views/CaseAuthorWorkspace.vue'),
+        meta: { title: '同屏编写' }
+      },
+      {
+        path: 'cases/author',
+        name: 'CaseAuthorNew',
+        component: () => import('@/views/CaseAuthorWorkspace.vue'),
+        meta: { title: '同屏编写' }
       },
       {
         path: 'cases/:id/debug',
@@ -179,7 +225,7 @@ const routes = [
         path: 'ci',
         name: 'CiSettings',
         component: () => import('@/views/CiSettings.vue'),
-        meta: { title: 'CI/CD 配置', admin: true }
+        meta: { title: 'CI/CD 联动', admin: true }
       }
     ]
   }

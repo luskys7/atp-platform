@@ -15,7 +15,8 @@ function readStoredUser() {
 export const useUserStore = defineStore('user', {
   state: () => ({
     token: localStorage.getItem('token') || '',
-    user: readStoredUser()
+    user: readStoredUser(),
+    preferences: null
   }),
   getters: {
     isLoggedIn: (state) => !!state.token,
@@ -30,6 +31,7 @@ export const useUserStore = defineStore('user', {
       const res = await authApi.login(credentials)
       this.token = res.data.token
       this.user = res.data.user
+      this.preferences = res.data.preferences || null
       localStorage.setItem('token', res.data.token)
       localStorage.setItem('user', JSON.stringify(res.data.user))
       return res.data
@@ -37,13 +39,18 @@ export const useUserStore = defineStore('user', {
 
     async fetchProfile() {
       const res = await authApi.profile()
-      this.user = res.data
-      localStorage.setItem('user', JSON.stringify(res.data))
+      // 兼容旧结构：data 直接是 user，或 { user, preferences }
+      const payload = res.data || {}
+      this.user = payload.user || payload
+      this.preferences = payload.preferences || this.preferences
+      localStorage.setItem('user', JSON.stringify(this.user))
+      return payload
     },
 
     logout() {
       this.token = ''
       this.user = null
+      this.preferences = null
       localStorage.removeItem('token')
       localStorage.removeItem('user')
     }

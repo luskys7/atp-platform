@@ -107,6 +107,9 @@
       >
         <el-table-column type="selection" width="48" />
         <el-table-column prop="element_name" label="控件名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="设备关联元素值" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatDeviceElementValue(row) }}</template>
+        </el-table-column>
         <el-table-column prop="app_package" label="应用包名" min-width="160" show-overflow-tooltip />
         <el-table-column prop="page_name" label="所属页面" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ formatPageName(row.page_name) }}</template>
@@ -245,10 +248,10 @@
         <el-form-item label="控件名称"><el-input v-model="editForm.element_name" disabled /></el-form-item>
         <el-form-item label="主定位类型">
           <el-select v-model="editForm.locator_type" style="width:100%">
-            <el-option label="资源 ID 定位" value="id" />
-            <el-option label="路径定位" value="xpath" />
-            <el-option label="文本描述定位" value="accessibility" />
-            <el-option label="文本内容定位" value="text" />
+            <el-option label="ID 定位" value="id" />
+            <el-option label="xpath" value="xpath" />
+            <el-option label="文案定位" value="accessibility" />
+            <el-option label="文本定位" value="text" />
           </el-select>
         </el-form-item>
         <el-form-item label="主定位值"><el-input v-model="editForm.locator_value" type="textarea" :rows="2" /></el-form-item>
@@ -538,6 +541,25 @@ const PAGE_NAME_MAP = {
   wallet: '钱包页'
 }
 
+function formatDeviceElementValue(row) {
+  let raw = row?.device_element_bindings
+  if (typeof raw === 'string' && raw.trim()) {
+    try { raw = JSON.parse(raw) } catch { raw = null }
+  }
+  if (Array.isArray(raw) && raw.length) {
+    const parts = raw
+      .map(item => {
+        const model = (item?.device_model || item?.deviceModel || '*').trim() || '*'
+        const val = (item?.element_value || item?.elementValue || '').trim()
+        if (!val) return null
+        return model === '*' ? val : `${model}:${val}`
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join('；')
+  }
+  return row?.device_element_value || '-'
+}
+
 function formatPageName(name) {
   const raw = String(name || '').trim()
   if (!raw) return '未命名页面'
@@ -570,17 +592,17 @@ function impactLabel(level) {
 
 function locatorTypeLabel(type) {
   const map = {
-    id: '资源 ID 定位',
-    resource_id: '资源 ID 定位',
-    accessibility: '文本描述定位',
-    accessibility_id: '文本描述定位',
-    content_desc: '文本描述定位',
-    desc: '文本描述定位',
-    text: '文本内容定位',
-    xpath: '路径定位',
-    xpath_desc: '路径定位',
-    absolute_xpath: '路径定位',
-    relative_xpath: '路径定位',
+    id: 'ID 定位',
+    resource_id: 'ID 定位',
+    accessibility: '文案定位',
+    accessibility_id: '文案定位',
+    content_desc: '文案定位',
+    desc: '文案定位',
+    text: '文本定位',
+    xpath: 'xpath',
+    xpath_desc: 'xpath',
+    absolute_xpath: '绝对 xpath',
+    relative_xpath: '相对 xpath',
     ai: 'AI 定位',
     image: '图像定位'
   }

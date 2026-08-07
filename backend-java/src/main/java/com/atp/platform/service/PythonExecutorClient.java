@@ -316,23 +316,79 @@ public class PythonExecutorClient {
         warmUiCache(serialNumber, platform, false);
     }
 
-    public void warmUiCache(Device device, boolean blocking) {
-        warmUiCache(device.getSerialNumber(), device.getPlatform().name(), blocking, resolveBaseUrl(device));
+    public Map<String, Object> warmUiCache(Device device, boolean blocking) {
+        return warmUiCache(device.getSerialNumber(), device.getPlatform().name(), blocking, resolveBaseUrl(device));
     }
 
-    public void warmUiCache(String serialNumber, String platform, boolean blocking) {
-        warmUiCache(serialNumber, platform, blocking, resolveBaseUrlBySerial(serialNumber));
+    public Map<String, Object> warmUiCache(String serialNumber, String platform, boolean blocking) {
+        return warmUiCache(serialNumber, platform, blocking, resolveBaseUrlBySerial(serialNumber));
     }
 
-    private void warmUiCache(String serialNumber, String platform, boolean blocking, String baseUrl) {
+    private Map<String, Object> warmUiCache(String serialNumber, String platform, boolean blocking, String baseUrl) {
         try {
-            postJsonForMap(baseUrl, "/api/v1/device/warm-ui-cache", Map.of(
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/warm-ui-cache", Map.of(
                     "serial_number", serialNumber,
                     "platform", platform != null ? platform : "android",
                     "blocking", blocking
             ));
+            return resp != null ? resp : Map.of("ok", true, "blocking", blocking);
         } catch (Exception e) {
             log.warn("warmUiCache failed serial={}: {}", serialNumber, e.getMessage());
+            return Map.of("ok", false, "blocking", blocking, "error", e.getMessage() != null ? e.getMessage() : "warm_failed");
+        }
+    }
+
+    public Map<String, Object> prepareUi(Device device) {
+        return prepareUi(device.getSerialNumber(), device.getPlatform().name(), resolveBaseUrl(device));
+    }
+
+    public Map<String, Object> uiHierarchy(Device device, boolean force) {
+        return uiHierarchy(device.getSerialNumber(), device.getPlatform().name(), force, resolveBaseUrl(device));
+    }
+
+    private Map<String, Object> uiHierarchy(String serialNumber, String platform, boolean force, String baseUrl) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("serial_number", serialNumber);
+            body.put("platform", platform != null ? platform : "android");
+            body.put("force", force);
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/ui-hierarchy", body);
+            return resp != null ? resp : Map.of("ok", false, "error", "empty_response");
+        } catch (Exception e) {
+            log.warn("uiHierarchy failed serial={}: {}", serialNumber, e.getMessage());
+            return Map.of("ok", false, "error", e.getMessage() != null ? e.getMessage() : "hierarchy_failed");
+        }
+    }
+
+    public Map<String, Object> inspectByBounds(Device device, String bounds) {
+        return inspectByBounds(device.getSerialNumber(), device.getPlatform().name(), bounds, resolveBaseUrl(device));
+    }
+
+    private Map<String, Object> inspectByBounds(String serialNumber, String platform, String bounds, String baseUrl) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("serial_number", serialNumber);
+            body.put("platform", platform != null ? platform : "android");
+            body.put("bounds", bounds != null ? bounds : "");
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/inspect-bounds", body);
+            return resp != null ? resp : Map.of("valid", false, "inspect_error", "empty_response");
+        } catch (Exception e) {
+            log.warn("inspectByBounds failed serial={}: {}", serialNumber, e.getMessage());
+            return Map.of("valid", false, "inspect_error", e.getMessage() != null ? e.getMessage() : "inspect_failed");
+        }
+    }
+
+    private Map<String, Object> prepareUi(String serialNumber, String platform, String baseUrl) {
+        try {
+            Map<String, Object> resp = postJsonForMap(baseUrl, "/api/v1/device/prepare-ui", Map.of(
+                    "serial_number", serialNumber,
+                    "platform", platform != null ? platform : "android"
+            ));
+            return resp != null ? resp : Map.of("ok", false, "error", "empty_response");
+        } catch (Exception e) {
+            log.warn("prepareUi failed serial={}: {}", serialNumber, e.getMessage());
+            return Map.of("ok", false, "error", e.getMessage() != null ? e.getMessage() : "prepare_failed",
+                    "message", "UI 预热失败，请确认执行器已启动且手机已授权 USB 调试");
         }
     }
 

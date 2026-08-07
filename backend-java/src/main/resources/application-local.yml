@@ -47,6 +47,20 @@ atp:
   device:
     usb-auto-discover-enabled: true
     usb-scan-interval-ms: 10000
+  ai-case:
+    enabled: true
+    provider: llm
+    testbrain-url: http://10.0.98.20:8000
+    # 通义千问（阿里云百炼 OpenAI 兼容模式）
+    llm-base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # 请填入百炼 API Key（控制台 → API-KEY）；勿提交到公开仓库
+    llm-api-key: sk-ws-H.EIEPLDH.weJL.MEQCIHYjPOg2ZC7yVnuOx83aPu_ql78LvnG655cM8a0ahzamAiBmu-7z-V2-cDpYOh_DlkDB6G7UBVYuHvIZqNw7-wvB3g
+    llm-model: qwen-plus
+    # Confluence（可选；也可在页面临时填写 Token）
+    confluence-base-url: ${CONFLUENCE_BASE_URL:}
+    confluence-token: ${CONFLUENCE_TOKEN:}
+    confluence-email: ${CONFLUENCE_EMAIL:}
+    confluence-auth-type: cloud
 
 logging:
   level:

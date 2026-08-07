@@ -1,0 +1,43 @@
+{% for test_case in cases %}
+<tr data-id="{{ test_case.id }}" data-status="{{ test_case.status }}">
+  <td>
+    <input type="checkbox" class="row-check {{ checkbox_class }}" data-id="{{ test_case.id }}" />
+  </td>
+  <td>
+    {% if test_case.status == 'pending' %}
+    <span class="status-tag pending">待评审</span>
+    {% elif test_case.status == 'approved' %}
+    <span class="status-tag approved">已通过</span>
+    {% else %}
+    <span class="status-tag rejected">未通过</span>
+    {% endif %}
+  </td>
+  <td class="col-desc">
+    <span class="desc-summary" title="{{ test_case.description }}">{{ test_case.description|truncatechars:48 }}</span>
+  </td>
+  <td class="col-text">
+    <div class="text-preview">{{ test_case.test_steps|truncatechars:80 }}</div>
+    <button type="button" class="btn-expand" data-title="测试步骤" data-src="steps-{{ test_case.id }}">展开</button>
+    <textarea id="steps-{{ test_case.id }}" class="d-none" readonly>{{ test_case.test_steps }}</textarea>
+  </td>
+  <td class="col-text">
+    <div class="text-preview">{{ test_case.expected_results|truncatechars:80 }}</div>
+    <button type="button" class="btn-expand" data-title="预期结果" data-src="expected-{{ test_case.id }}">展开</button>
+    <textarea id="expected-{{ test_case.id }}" class="d-none" readonly>{{ test_case.expected_results }}</textarea>
+  </td>
+  <td class="col-time">{{ test_case.created_at|date:"Y-m-d H:i" }}</td>
+  <td class="col-actions">
+    <div class="action-row">
+      {% if test_case.status == 'pending' %}
+      <button type="button" class="btn btn-sm btn-primary btn-ai-review" data-id="{{ test_case.id }}">AI 评审</button>
+      <button type="button" class="btn btn-sm btn-outline-primary btn-detail" data-id="{{ test_case.id }}">查看详情</button>
+      <button type="button" class="btn btn-sm btn-outline-success btn-manual-review" data-id="{{ test_case.id }}">评审处理</button>
+      {% else %}
+      <button type="button" class="btn btn-sm btn-outline-primary btn-detail" data-id="{{ test_case.id }}">查看详情</button>
+      {% endif %}
+    </div>
+  </td>
+</tr>
+{% empty %}
+<tr><td colspan="7" class="text-center text-muted py-4">暂无数据</td></tr>
+{% endfor %}

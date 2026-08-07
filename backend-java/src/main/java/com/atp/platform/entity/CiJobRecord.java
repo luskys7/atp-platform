@@ -19,6 +19,9 @@ public class CiJobRecord {
     @Column(name = "task_id")
     private Long taskId;
 
+    @Column(name = "suite_run_id")
+    private Long suiteRunId;
+
     @Column(length = 32)
     private String source = "jenkins";
 
@@ -28,11 +31,23 @@ public class CiJobRecord {
     @Column(name = "build_number", length = 64)
     private String buildNumber;
 
+    @Column(length = 256)
+    private String branch;
+
+    @Column(name = "download_url", length = 1024)
+    private String downloadUrl;
+
     @Column(name = "callback_url", length = 512)
     private String callbackUrl;
 
     @Column(length = 32)
     private String status = "triggered";
+
+    @Column(name = "request_payload", columnDefinition = "TEXT")
+    private String requestPayload;
+
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
 
     @Column(name = "callback_status")
     private Integer callbackStatus;

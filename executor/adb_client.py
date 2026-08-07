@@ -38,7 +38,7 @@ U2_DUMP_GUARD_SEC = 3.0
 
 MIN_DUMP_INTERVAL_SEC = 3.0
 
-TAP_PRIORITY_SEC = 3.0
+TAP_PRIORITY_SEC = 0.8
 
 
 
@@ -50,9 +50,9 @@ _tap_priority_until: dict[str, float] = {}
 
 def request_tap_priority(serial: str, seconds: float = TAP_PRIORITY_SEC) -> None:
 
-    """用户点击优先：窗口内暂停 UI dump / 投屏抓帧，避免与 input tap 争抢 adb。"""
+    """用户点击优先：窗口内暂停 UI dump，避免与 input tap 争抢 adb。"""
 
-    until = time.monotonic() + max(0.5, seconds)
+    until = time.monotonic() + max(0.2, seconds)
 
     prev = _tap_priority_until.get(serial, 0)
 
@@ -81,17 +81,14 @@ def note_adb_interaction(serial: str) -> None:
 
 
 def note_u2_session(serial: str) -> None:
-
-    """uiautomator2 占用设备 UiAutomation 期间禁止 shell uiautomator dump。"""
-
+    """记录 u2 会话时间：短窗口内禁止 shell uiautomator dump（与 u2 争用 UiAutomation）。
+    u2.dump_hierarchy 自身不受此守卫阻塞，见 ui_dump_helper。
+    """
     _last_u2_at[serial] = time.time()
 
 
-
-
-
 def u2_guard_blocks_dump(serial: str) -> bool:
-
+    """仅用于 shell dump；u2 hierarchy dump 请勿调用此守卫。"""
     return time.time() - _last_u2_at.get(serial, 0) < U2_DUMP_GUARD_SEC
 
 

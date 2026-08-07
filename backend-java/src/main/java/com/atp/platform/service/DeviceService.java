@@ -166,6 +166,10 @@ public class DeviceService {
                 candidates = new ArrayList<>();
                 candidates.addAll(deviceRepository.findAvailable(Device.Platform.android, teamId, PageRequest.of(0, androidCount * 3)));
                 candidates.addAll(deviceRepository.findAvailable(Device.Platform.ios, teamId, PageRequest.of(0, iosCount * 3)));
+            } else if (task.getPlatform() == TestTask.TaskPlatform.chrome) {
+                // Chrome 浏览器执行暂复用 Android 设备池（后续可扩展独立 WebDriver 节点）
+                candidates = new ArrayList<>(deviceRepository.findAvailable(
+                        Device.Platform.android, teamId, PageRequest.of(0, count * 3)));
             } else {
                 Device.Platform p = Device.Platform.valueOf(task.getPlatform().name());
                 candidates = new ArrayList<>(deviceRepository.findAvailable(p, teamId, PageRequest.of(0, count * 3)));

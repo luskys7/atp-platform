@@ -5,7 +5,6 @@ import lombok.Data;
 
 @Data
 public class CreateControlPoolRequest {
-    @NotBlank
     private String appPackage;
     private String pageName;
     @NotBlank
@@ -15,6 +14,10 @@ public class CreateControlPoolRequest {
     private String locatorType;
     @NotBlank
     private String locatorValue;
+    /** 设备关联元素值（控件在设备上的原始标识文案，默认值） */
+    private String deviceElementValue;
+    /** 按设备型号映射：[{device_model, element_value}] */
+    private java.util.List<java.util.Map<String, String>> deviceElementBindings;
     private String versionTag;
     private String envTag;
     private Long teamId;

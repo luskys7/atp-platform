@@ -394,7 +394,9 @@ const availableCases = computed(() =>
 
 const typeLabels = {
   wait: '等待', launch: '启动应用', clear_cache: '清理缓存', dismiss_popup: '关闭弹窗',
-  force_stop: '退出应用', swipe: '滑动', invoke_common: '公共步骤'
+  force_stop: '退出应用', swipe: '滑动', invoke_common: '公共步骤',
+  set_relative_time: '设置相对时间',
+  custom_script: '自定义脚本'
 }
 
 function stepTypeLabel(t) { return typeLabels[t] || t }

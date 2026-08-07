@@ -182,7 +182,8 @@ let pollTimer = null
 
 const typeLabels = {
   wait: '等待', click: '点击', tap_xy: '坐标点击', input: '输入', launch: '启动', swipe: '滑动',
-  assert_text: '断言', assert_exists: '存在', tap_ocr: 'OCR点击', manual_wait: '人工'
+  assert_text: '断言', assert_exists: '存在', tap_ocr: 'OCR点击', manual_wait: '人工',
+  set_relative_time: '设置相对时间'
 }
 
 function stepTypeLabel(t) { return typeLabels[t] || t }

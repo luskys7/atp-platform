@@ -1,11 +1,8 @@
 """AI 元素定位 - 基于 UI 层级 dump 的启发式匹配（本地可运行，无需外网 API）"""
 
-from adb_client import adb_dump_ui, adb_shell
+from adb_client import adb_shell
 import re
-import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
 
 def locate(serial: str, platform: str, query: str, app_package: str = "") -> dict:
@@ -15,24 +12,19 @@ def locate(serial: str, platform: str, query: str, app_package: str = "") -> dic
 
 
 def dump_ui(serial: str) -> str:
-    """返回当前界面 UI dump 文本，供断言使用"""
-    import tempfile
-    from pathlib import Path
-
-    remote = "/sdcard/atp_ui_dump.xml"
-    local = Path(tempfile.gettempdir()) / f"atp_ui_{serial}.xml"
-    if not adb_dump_ui(serial, str(local), remote=remote, timeout=8):
-        return ""
-    return local.read_text(encoding="utf-8", errors="ignore")
+    """返回当前界面 UI dump 文本（优先 uiautomator2 hierarchy）。"""
+    from ui_dump_helper import dump_ui_text
+    return dump_ui_text(serial, prefer_u2=True, force=False)
 
 
 def _locate_android(serial: str, query: str, app_package: str) -> dict:
-    remote = "/sdcard/atp_ui_dump.xml"
-    local = Path(tempfile.gettempdir()) / f"atp_ui_{serial}.xml"
-    if not adb_dump_ui(serial, str(local), remote=remote, timeout=30):
-        raise RuntimeError("uiautomator dump 失败")
+    from ui_dump_helper import dump_ui_xml
 
-    tree = ET.parse(local)
+    res = dump_ui_xml(serial, prefer_u2=True, force=True, timeout=30)
+    if not res.get("ok"):
+        raise RuntimeError(res.get("error") or "UI dump 失败")
+
+    tree = ET.parse(res["local_path"])
     query_lower = query.lower().strip()
     candidates = []
 
@@ -70,7 +62,8 @@ def _locate_android(serial: str, query: str, app_package: str) -> dict:
         "locator_type": best["locator_type"],
         "locator_value": best["locator_value"],
         "confidence": round(confidence, 3),
-        "strategy": "uiautomator_text_match",
+        "strategy": "u2_hierarchy_text_match",
+        "dump_source": res.get("source"),
         "bounds": best["bounds"],
     }
 
@@ -80,30 +73,23 @@ def _score(query: str, text: str, desc: str, rid: str) -> float:
     desc_l = desc.lower()
     rid_l = rid.lower()
     if query == text_l or query == desc_l:
-        return 0.95
+        return 1.0
     if query in text_l or query in desc_l:
         return 0.85
     if query in rid_l:
-        return 0.75
-    # 分词模糊
-    for part in re.split(r"[\s_\-]+", query):
-        if len(part) >= 2 and (part in text_l or part in desc_l or part in rid_l):
-            return 0.65
+        return 0.7
+    tokens = [t for t in re.split(r"[\s_\-./:]+", query) if len(t) >= 2]
+    hit = sum(1 for t in tokens if t in text_l or t in desc_l or t in rid_l)
+    if hit:
+        return 0.4 + 0.15 * min(hit, 3)
     return 0.0
 
 
 def _to_locator(text: str, desc: str, rid: str, bounds: str) -> tuple[str, str]:
     if rid:
-        if ":id/" in rid:
-            rid_short = rid.split(":id/")[-1]
-            return "id", rid_short
         return "id", rid
-    if text:
-        escaped = text.replace('"', '\\"')
-        return "xpath", f'//*[@text="{escaped}"]'
     if desc:
-        escaped = desc.replace('"', '\\"')
-        return "xpath", f'//*[@content-desc="{escaped}"]'
-    if bounds:
-        return "bounds", bounds
-    return "xpath", "//*"
+        return "content_desc", desc
+    if text:
+        return "text", text
+    return "bounds", bounds

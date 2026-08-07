@@ -141,6 +141,23 @@ class WarmUiCacheRequest(BaseModel):
     blocking: bool = False
 
 
+class PrepareUiRequest(BaseModel):
+    serial_number: str
+    platform: str = "android"
+
+
+class UiHierarchyRequest(BaseModel):
+    serial_number: str
+    platform: str = "android"
+    force: bool = False
+
+
+class InspectBoundsRequest(BaseModel):
+    serial_number: str
+    platform: str = "android"
+    bounds: str
+
+
 class ValidateLocatorRequest(BaseModel):
     serial_number: str
     platform: str = "android"
@@ -392,6 +409,24 @@ def ai_locate(req: AiLocateRequest):
         return AiLocateResponse(success=False, error_message=str(e))
 
 
+def _prefer_jpeg_for_device(serial: str) -> bool:
+    """仅在显式要求时强制 JPEG。华为机 scrcpy 码流正常，绿屏多为前端重复 configure 导致。"""
+    force = (os.environ.get("ATP_SCREEN_FORCE_JPEG") or "").strip().lower()
+    if force in {"1", "true", "yes", "all"}:
+        return True
+    if force in {"huawei", "honor"}:
+        try:
+            proc = subprocess.run(
+                ["adb", "-s", serial, "shell", "getprop", "ro.product.manufacturer"],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            mfr = (proc.stdout or "").strip().upper()
+            return mfr in {"HUAWEI", "HONOR"}
+        except Exception:
+            return False
+    return False
+
+
 @app.websocket("/ws/screen/{serial}")
 async def ws_screen(websocket: WebSocket, serial: str, token: str = Query(...), mode: str = Query("auto")):
     if not screen_stream.verify_token(token, serial):
@@ -403,20 +438,29 @@ async def ws_screen(websocket: WebSocket, serial: str, token: str = Query(...), 
     use_scrcpy = stream_mode in ("auto", "scrcpy") and scrcpy_stream.is_available()
     if stream_mode == "jpeg":
         use_scrcpy = False
+    # auto：默认 scrcpy；仅 ATP_SCREEN_FORCE_JPEG=1/huawei 时强制 JPEG
+    if use_scrcpy and stream_mode == "auto" and _prefer_jpeg_for_device(serial):
+        logger.info("screen stream force jpeg serial=%s", serial)
+        use_scrcpy = False
     if use_scrcpy:
         logger.info("screen stream scrcpy serial=%s", serial)
         try:
             await scrcpy_stream.stream_scrcpy(websocket, serial)
             return
+        except WebSocketDisconnect:
+            logger.info("scrcpy stream disconnected serial=%s", serial)
+            return
         except Exception as e:
-            logger.warning("scrcpy stream failed serial=%s: %s, fallback adb", serial, e)
+            err_msg = str(e) or repr(e) or type(e).__name__
+            logger.warning("scrcpy stream failed serial=%s: %s, fallback adb", serial, err_msg)
             if stream_mode == "scrcpy":
-                await websocket.close(code=1011, reason=str(e)[:120])
+                await websocket.close(code=1011, reason=err_msg[:120])
                 return
+            # 客户端可能已因异常断开，fallback 前检查连接状态
             try:
                 await websocket.send_text('{"mode":"jpeg","fallback":true}')
             except Exception:
-                pass
+                return
     logger.info("screen stream adb serial=%s", serial)
     try:
         await screen_stream.stream_screen(websocket, serial)
@@ -493,6 +537,57 @@ def device_warm_ui_cache(req: WarmUiCacheRequest):
     if req.platform != "android":
         return {"ok": False, "message": "unsupported platform"}
     return warm_ui_cache(req.serial_number, blocking=req.blocking)
+
+
+@app.post("/api/v1/device/ui-hierarchy")
+async def device_ui_hierarchy(req: UiHierarchyRequest):
+    from record_helper import export_ui_hierarchy
+    if req.platform != "android":
+        return {"ok": False, "error": "unsupported_platform", "root": None, "nodeCount": 0}
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _inspect_executor,
+        lambda: export_ui_hierarchy(req.serial_number, force=req.force),
+    )
+
+
+@app.post("/api/v1/device/inspect-bounds")
+async def device_inspect_bounds(req: InspectBoundsRequest):
+    from record_helper import inspect_by_bounds
+    if req.platform != "android":
+        return {"valid": False, "inspect_error": "unsupported_platform"}
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _inspect_executor,
+        lambda: inspect_by_bounds(req.serial_number, req.bounds, req.platform),
+    )
+
+
+@app.post("/api/v1/device/prepare-ui")
+def device_prepare_ui(req: PrepareUiRequest):
+    """首次连接 uiautomator2 并验证 hierarchy，供控件拾取预热。"""
+    from ui_dump_helper import prepare_ui_dump
+    from record_helper import warm_ui_cache, invalidate_ui_cache
+    if req.platform != "android":
+        return {"ok": False, "message": "unsupported platform", "source": "fail"}
+    prepared = prepare_ui_dump(req.serial_number)
+    if prepared.get("ok"):
+        invalidate_ui_cache(req.serial_number)
+        # 写入缓存，后续 inspect 可复用
+        warm = warm_ui_cache(req.serial_number, blocking=True)
+        prepared["warm"] = {
+            "ok": warm.get("ok"),
+            "bytes": warm.get("bytes"),
+            "dump_source": warm.get("dump_source"),
+            "app_profile": warm.get("app_profile"),
+            "page_context": warm.get("page_context"),
+        }
+        if warm.get("app_profile"):
+            prepared["app_profile"] = warm.get("app_profile")
+        if warm.get("page_context"):
+            prepared["page_context"] = warm.get("page_context")
+        prepared["dump_source"] = warm.get("dump_source") or prepared.get("dump_source")
+    return prepared
 
 
 @app.post("/api/v1/device/validate-locator")

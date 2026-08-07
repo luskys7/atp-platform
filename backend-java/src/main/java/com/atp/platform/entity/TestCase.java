@@ -31,7 +31,11 @@ public class TestCase {
     private Platform platform = Platform.android;
     @Column(name = "app_package", length = 256)
     private String appPackage;
-    private Byte priority = 3;
+    /** 业务模块：登录/首页/商品等，用于分类筛选 */
+    @Column(name = "module_name", length = 64)
+    private String moduleName;
+    /** 优先级：0=P0, 1=P1, 2=P2, 3=P3 */
+    private Byte priority = 1;
     @Column(length = 512)
     private String tags;
     @Enumerated(EnumType.STRING)
@@ -64,6 +68,6 @@ public class TestCase {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    public enum Platform { android, ios, both }
+    public enum Platform { android, ios, both, chrome }
     public enum CaseStatus { draft, review, active, deprecated }
 }

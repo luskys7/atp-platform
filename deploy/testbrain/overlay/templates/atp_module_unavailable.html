@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}模块未启用 - TestBrain{% endblock %}
+{% block content %}
+<div class="alert alert-warning" role="alert">
+  <h4 class="alert-heading">该模块在当前部署中暂未启用</h4>
+  <p>请求路径：<code>{{ module_path }}</code></p>
+  {% if reason %}
+  <hr>
+  <p class="mb-0 text-muted small">原因：{{ reason }}</p>
+  {% endif %}
+  <p class="mt-3 mb-0"><a href="/">返回首页</a></p>
+</div>
+{% endblock %}

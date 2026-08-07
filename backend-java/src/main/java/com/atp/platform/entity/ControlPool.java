@@ -41,6 +41,14 @@ public class ControlPool {
     @Column(name = "locator_value", columnDefinition = "TEXT")
     private String locatorValue;
 
+    /** 设备侧原始关联文案/属性值，如 content-desc、text、resource-id 短名（默认/兜底） */
+    @Column(name = "device_element_value", length = 512)
+    private String deviceElementValue;
+
+    /** 按手机型号映射的控件元素值 JSON：[{"device_model":"LGE-AN00","element_value":"定时"}] */
+    @Column(name = "device_element_bindings", columnDefinition = "JSON")
+    private String deviceElementBindings;
+
     @Column(name = "feature_vector", columnDefinition = "JSON")
     private String featureVector;
 

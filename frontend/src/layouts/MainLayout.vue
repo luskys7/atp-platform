@@ -211,6 +211,12 @@ const menuGroups = computed(() => {
       ]
     },
     {
+      label: 'AI 测试助手',
+      items: [
+        { path: '/testbrain', title: 'TestBrain', icon: 'Monitor' }
+      ]
+    },
+    {
       label: '测试用例',
       items: [
         { path: '/cases', title: '用例列表', icon: 'DocumentCopy' },

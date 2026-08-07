@@ -177,7 +177,9 @@ public class CaseCatalogService {
     public TestCase createCase(Map<String, Object> body, Long userId) {
         TestCase c = mapToCase(new TestCase(), body);
         c.setOwnerId(userId);
-        c.setCaseStatus(TestCase.CaseStatus.draft);
+        if (c.getCaseStatus() == null) {
+            c.setCaseStatus(TestCase.CaseStatus.draft);
+        }
         c.setVersionNum(1);
         Long reqTeam = body.get("team_id") != null ? Long.valueOf(body.get("team_id").toString()) : null;
         c.setTeamId(teamScope.teamIdForCreate(reqTeam));
@@ -429,8 +431,9 @@ public class CaseCatalogService {
 
     private TestCase mapToCase(TestCase c, Map<String, Object> body) {
         if (body.containsKey("name")) c.setName(body.get("name").toString());
-        if (body.containsKey("folder_id") && body.get("folder_id") != null) {
-            c.setFolderId(Long.valueOf(body.get("folder_id").toString()));
+        if (body.containsKey("folder_id")) {
+            Object fid = body.get("folder_id");
+            c.setFolderId(fid == null || "".equals(fid.toString()) ? null : Long.valueOf(fid.toString()));
         }
         if (body.containsKey("preconditions")) c.setPreconditions(str(body.get("preconditions")));
         if (body.containsKey("expected_result")) c.setExpectedResult(str(body.get("expected_result")));
@@ -438,11 +441,15 @@ public class CaseCatalogService {
         if (body.containsKey("script_type")) c.setScriptType(str(body.get("script_type")));
         if (body.containsKey("platform")) c.setPlatform(TestCase.Platform.valueOf(str(body.get("platform"))));
         if (body.containsKey("app_package")) c.setAppPackage(str(body.get("app_package")));
+        if (body.containsKey("module_name")) c.setModuleName(str(body.get("module_name")));
         if (body.containsKey("priority") && body.get("priority") != null) {
-            c.setPriority(Byte.valueOf(body.get("priority").toString()));
+            c.setPriority(parsePriority(body.get("priority")));
         }
         if (body.containsKey("tags")) c.setTags(str(body.get("tags")));
-        if (body.containsKey("case_status")) c.setCaseStatus(TestCase.CaseStatus.valueOf(str(body.get("case_status"))));
+        if (body.containsKey("case_status") && body.get("case_status") != null
+                && !body.get("case_status").toString().isBlank()) {
+            c.setCaseStatus(TestCase.CaseStatus.valueOf(str(body.get("case_status"))));
+        }
         if (body.containsKey("requirement_id")) c.setRequirementId(str(body.get("requirement_id")));
         if (body.containsKey("defect_id")) c.setDefectId(str(body.get("defect_id")));
         if (body.containsKey("env_id") && body.get("env_id") != null) {
@@ -456,6 +463,24 @@ public class CaseCatalogService {
             c.setTimeoutSeconds(Integer.valueOf(body.get("timeout_seconds").toString()));
         }
         return c;
+    }
+
+    /** 兼容 P0/P1/数字/high-medium-low */
+    private Byte parsePriority(Object raw) {
+        String v = raw.toString().trim().toLowerCase();
+        return switch (v) {
+            case "0", "p0", "critical" -> (byte) 0;
+            case "1", "p1", "high", "高" -> (byte) 1;
+            case "2", "p2", "medium", "mid", "中" -> (byte) 2;
+            case "3", "p3", "low", "低" -> (byte) 3;
+            default -> {
+                try {
+                    yield Byte.valueOf(v);
+                } catch (NumberFormatException e) {
+                    yield (byte) 1;
+                }
+            }
+        };
     }
 
     private String str(Object o) {

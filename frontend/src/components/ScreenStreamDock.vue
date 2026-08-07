@@ -49,14 +49,14 @@ onMounted(() => syncActiveScreenSessions())
 <style scoped lang="scss">
 .screen-dock {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  right: 12px;
+  bottom: 12px;
   z-index: 2000;
-  width: 280px;
+  width: 200px;
   background: rgba(12, 18, 34, 0.94);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--atp-dark-border);
-  border-radius: 14px;
+  border-radius: 10px;
   box-shadow: var(--atp-shadow-lg);
   color: var(--atp-screen-text);
   overflow: hidden;
@@ -65,24 +65,35 @@ onMounted(() => syncActiveScreenSessions())
 .dock-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  font-size: 13px;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 12px;
   font-weight: 600;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+  :deep(.el-icon) {
+    font-size: 14px;
+  }
+
+  :deep(.el-tag) {
+    height: 18px;
+    padding: 0 5px;
+    font-size: 11px;
+    line-height: 16px;
+  }
 }
 
 .dock-list {
-  max-height: 200px;
+  max-height: 140px;
   overflow-y: auto;
 }
 
 .dock-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 6px 10px;
   border: none;
   background: transparent;
   color: inherit;
@@ -100,39 +111,39 @@ onMounted(() => syncActiveScreenSessions())
 }
 
 .dock-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--atp-text-muted);
   flex-shrink: 0;
 
   &.live {
     background: var(--atp-success);
-    box-shadow: 0 0 8px rgba(108, 212, 178, 0.6);
+    box-shadow: 0 0 6px rgba(108, 212, 178, 0.55);
   }
 }
 
 .dock-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dock-meta {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--atp-screen-text-muted);
 }
 
 .dock-close-all {
   width: 100%;
-  padding: 8px;
+  padding: 5px;
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: transparent;
   color: var(--atp-danger);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 
   &:hover {

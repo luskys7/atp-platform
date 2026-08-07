@@ -3,10 +3,10 @@
  */
 import { ref, computed } from 'vue'
 
-const DEFAULT_FPS = 12
-const MIN_FPS = 6
-const MAX_FPS = 12
-const DEFAULT_BITRATE = 600_000
+const DEFAULT_FPS = 8
+const MIN_FPS = 5
+const MAX_FPS = 10
+const DEFAULT_BITRATE = 500_000
 
 /** 窗口模式默认裁剪：去掉侧边空白，保留主内容区（相对 Canvas 归一化坐标） */
 export const WINDOW_CROP_RECT = { x: 0.04, y: 0.03, w: 0.92, h: 0.85 }
