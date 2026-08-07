@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}TestBrain - 测试用例生成{% endblock %}
+
+{% block extra_css %}
+<style>
+.gen-page {
+  --atp-primary: #0284C7; --atp-brand-50: #F0F9FF; --atp-brand-100: #E0F2FE;
+  --atp-brand-200: #BAE6FD; --atp-brand-600: #0369A1; --atp-success: #10B981;
+  --atp-danger: #EF4444; --atp-text: #0F172A; --atp-text-secondary: #475569;
+  --atp-border: #E2E8F0; --atp-radius: 10px;
+  max-width: 1100px; color: var(--atp-text);
+}
+.tip-card {
+  padding: 14px 18px; margin-bottom: 14px; border-radius: var(--atp-radius);
+  background: linear-gradient(135deg, var(--atp-brand-50), #fff);
+  border: 1px solid var(--atp-brand-200); color: var(--atp-text-secondary); font-size: 14px; line-height: 1.55;
+}
+.tip-card strong { color: var(--atp-primary); }
+.form-card, .result-card {
+  background: #fff; border: 1px solid var(--atp-border); border-radius: var(--atp-radius);
+  box-shadow: 0 1px 3px rgba(15,23,42,.06); margin-bottom: 14px; padding: 18px 20px;
+}
+.form-card h2, .result-card h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+.gen-page label { font-size: 13px; font-weight: 600; color: var(--atp-text-secondary); }
+.gen-page .form-control { border-radius: 8px; border-color: var(--atp-border); }
+.gen-page .form-control:focus { border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(2,132,199,.15); }
+.req { color: var(--atp-danger); }
+.label-with-help { display: inline-flex; align-items: center; gap: 6px; }
+.help-tip {
+  width: 16px; height: 16px; border-radius: 50%; border: 1px solid #94A3B8; color: #64748B;
+  font-size: 11px; display: inline-flex; align-items: center; justify-content: center; cursor: help;
+  position: relative;
+}
+.help-tip:hover::after {
+  content: attr(data-tip); position: absolute; left: 22px; top: -6px; z-index: 20;
+  width: 220px; padding: 8px 10px; background: #0F172A; color: #fff; border-radius: 8px;
+  font-size: 12px; font-weight: 400; line-height: 1.4; white-space: normal;
+}
+
+.input-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.input-tabs .tab-btn {
+  border: 1px solid var(--atp-border); background: var(--atp-brand-50); color: var(--atp-text-secondary);
+  border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.input-tabs .tab-btn.active { background: var(--atp-primary); color: #fff; border-color: var(--atp-primary); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+.manual-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.doc-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.doc-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: var(--atp-brand-50); border: 1px solid var(--atp-brand-100); border-radius: 999px; font-size: 12px;
+}
+.doc-chip button { border: none; background: transparent; color: var(--atp-danger); cursor: pointer; }
+
+.advanced-box {
+  margin-top: 12px; border: 1px solid var(--atp-brand-100); border-radius: 8px; overflow: hidden;
+}
+.advanced-toggle {
+  width: 100%; text-align: left; border: none; background: var(--atp-brand-50);
+  padding: 10px 14px; font-weight: 600; color: var(--atp-brand-600);
+  display: flex; justify-content: space-between;
+}
+.advanced-body { padding: 12px 14px; display: block; }
+.form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--atp-brand-50); }
+.btn-clear { background: #fff; border: 1px solid var(--atp-border); color: var(--atp-text-secondary); border-radius: 8px; }
+.btn-gen { background: var(--atp-primary); border: none; color: #fff; border-radius: 8px; font-weight: 600; min-width: 140px; }
+.btn-gen:disabled { background: #BAE6FD; cursor: not-allowed; }
+
+.result-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.result-toolbar .btn { border-radius: 8px; font-size: 13px; }
+.result-empty, .result-loading {
+  text-align: center; padding: 48px 16px; color: #94A3B8;
+}
+.case-list { list-style: none; margin: 0; padding: 0; }
+.case-row {
+  border: 1px solid var(--atp-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
+  display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start;
+}
+.case-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.case-meta { font-size: 12px; color: var(--atp-text-secondary); margin-bottom: 4px; white-space: pre-wrap; }
+.case-actions { display: flex; flex-direction: column; gap: 6px; }
+.case-actions .btn { white-space: nowrap; }
+.modal-body textarea { width: 100%; border-radius: 8px; border: 1px solid var(--atp-border); padding: 8px; }
+.doc-modal-list { max-height: 320px; overflow: auto; }
+.doc-modal-item { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--atp-brand-50); }
+</style>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="gen-page">
+  <div class="tip-card">
+    💡<strong>使用技巧：</strong>优先选择项目并关联知识库 PRD / 接口文档，AI 生成的测试用例业务匹配度更高；支持文本 + 文档组合输入。
+  </div>
+
+  <div class="form-card">
+    <h2>基础生成配置</h2>
+    <form id="generate-form">
+      <div class="row">
+        <div class="form-group col-md-4">
+          <label>项目归属 <span class="req">*</span></label>
+          <select id="project-select" class="form-control">
+            <option value="">请选择项目</option>
+            {% for key, name in projects %}
+            <option value="{{ key }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group col-md-4">
+          <label>选择大模型</label>
+          <select id="llm-provider" class="form-control" name="llm_provider">
+            {% for provider_key, provider_config in llm_providers.items %}
+            <option value="{{ provider_key }}" {% if llm_provider == provider_key %}selected{% endif %}>{{ provider_config.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group col-md-4">
+          <label>用例生成模板</label>
+          <select id="case-template" class="form-control">
+            <option value="functional_ui" selected>功能测试用例（移动端 UI 自动化）</option>
+            <option value="api">接口测试用例</option>
+            <option value="boundary">边界 & 异常场景用例</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div class="input-tabs">
+          <button type="button" class="tab-btn active" data-tab="manual">手动输入</button>
+          <button type="button" class="tab-btn" data-tab="docs">关联知识库文档</button>
+        </div>
+
+        <div class="tab-pane active" id="tab-manual">
+          <div class="manual-head">
+            <label class="mb-0">需求描述</label>
+            <button type="button" class="btn btn-link btn-sm p-0" id="btn-example">填写示例</button>
+          </div>
+          <textarea id="input-text" class="form-control" rows="7" placeholder="粘贴需求文档、功能描述、验收标准；支持多条需求分段输入"></textarea>
+        </div>
+
+        <div class="tab-pane" id="tab-docs">
+          <div class="doc-toolbar">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="btn-pick-docs">选择文档</button>
+            <span class="text-muted" style="font-size:12px;">仅展示当前项目已上传文档，可多选</span>
+          </div>
+          <div class="doc-chip-list" id="selected-docs"></div>
+        </div>
+      </div>
+
+      <div class="advanced-box">
+        <button type="button" class="advanced-toggle" id="advanced-toggle" aria-expanded="true">
+          <span>高级参数</span><span id="advanced-arrow">▴</span>
+        </button>
+        <div class="advanced-body" id="advanced-body">
+          <div class="form-row">
+            <div class="form-group col-md-3">
+              <label class="label-with-help">
+                创造性（温度）
+                <span class="help-tip" data-tip="控制输出随机性。越低越稳定规范，越高越多样但可能偏离。建议 0.1~0.3。">?</span>
+              </label>
+              <input type="number" class="form-control" id="temperature" min="0" max="1" step="0.1" value="0.2" />
+            </div>
+            <div class="form-group col-md-3">
+              <label class="label-with-help">
+                单批次生成数量
+                <span class="help-tip" data-tip="本轮请求期望生成的用例条数（1~100）。">?</span>
+              </label>
+              <select class="form-control" id="case_count"></select>
+            </div>
+            <div class="form-group col-md-3">
+              <label class="label-with-help">
+                负面异常场景
+                <span class="help-tip" data-tip="开启后会额外覆盖错误输入、权限不足、超时等异常路径。">?</span>
+              </label>
+              <select class="form-control" id="include_negative">
+                <option value="1" selected>是</option>
+                <option value="0">否</option>
+              </select>
+            </div>
+            <div class="form-group col-md-3">
+              <label class="label-with-help">
+                前置/后置步骤
+                <span class="help-tip" data-tip="开启后要求输出前置条件，并在步骤中体现必要的清理/恢复操作。">?</span>
+              </label>
+              <select class="form-control" id="include_pre_post">
+                <option value="1" selected>是</option>
+                <option value="0">否</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label>测试用例设计方法</label>
+              <select class="form-control selectpicker" id="case_design_methods" multiple>
+                <option value="等价类划分法" selected>等价类划分法</option>
+                <option value="场景法" selected>场景法</option>
+                <option value="边界值">边界值</option>
+                <option value="错误推测法">错误推测法</option>
+              </select>
+            </div>
+            <div class="form-group col-md-6">
+              <label>用例类型</label>
+              <select class="form-control selectpicker" id="case_categories" multiple>
+                <option value="功能测试" selected>功能测试</option>
+                <option value="兼容性测试">兼容性测试</option>
+                <option value="性能测试">性能测试</option>
+                <option value="界面测试">界面测试</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-clear" id="clear-button">清空内容</button>
+        <button type="submit" class="btn btn-gen" id="generate-button" disabled>生成测试用例</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="result-card">
+    <h2>生成结果预览</h2>
+    <div class="result-toolbar" id="result-toolbar" style="display:none;">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-select-all">全选</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-batch-edit">批量编辑</button>
+      <button type="button" class="btn btn-outline-danger btn-sm" id="btn-batch-delete">批量删除</button>
+      <button type="button" class="btn btn-primary btn-sm" id="btn-submit-review">提交至用例评审</button>
+      <button type="button" class="btn btn-success btn-sm" id="btn-export">导出 Excel</button>
+    </div>
+    <div id="result-container">
+      <div class="result-empty" id="result-empty">点击【生成测试用例】，AI 产出的测试用例将在此展示</div>
+    </div>
+  </div>
+</div>
+
+<!-- 示例 -->
+<div class="modal fade" id="exampleModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">需求填写示例</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+    <div class="modal-body">
+      <pre id="example-text" style="white-space:pre-wrap;">APP 登录功能，输入手机号 + 验证码，验证码 60s 倒计时，验证码错误提示弹窗，手机号格式非法拦截。</pre>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+      <button type="button" class="btn btn-primary" id="btn-apply-example">填入示例</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- 选择文档 -->
+<div class="modal fade" id="docsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">选择知识库文档</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+    <div class="modal-body"><div class="doc-modal-list" id="docs-modal-list">请先选择项目</div></div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
+      <button type="button" class="btn btn-primary" id="btn-confirm-docs">确认选择</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- 编辑用例 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">编辑用例</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-index" />
+      <div class="form-group"><label>用例标题</label><textarea id="edit-title" rows="2"></textarea></div>
+      <div class="form-group"><label>前置条件</label><textarea id="edit-pre" rows="2"></textarea></div>
+      <div class="form-group"><label>测试步骤（每行一步）</label><textarea id="edit-steps" rows="5"></textarea></div>
+      <div class="form-group"><label>预期结果（每行一条）</label><textarea id="edit-expected" rows="5"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
+      <button type="button" class="btn btn-primary" id="btn-save-edit">保存</button>
+    </div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.addEventListener('load', function () {
+  if (typeof $ === 'undefined' || !$.fn.selectpicker) return;
+  $('.selectpicker').selectpicker({ style: '', styleBase: 'form-control', noneSelectedText: '请选择', actionsBox: true, selectAllText: '全选', deselectAllText: '取消全选' });
+});
+</script>
+<script src="{% static 'generate.js' %}?v=atp-gen12"></script>
+{% endblock %}

@@ -1,6 +1,6 @@
 <template>
   <div class="page-container config-page">
-    <PageHeader title="平台配置" subtitle="统一管理环境、测试数据集、复用步骤、定时调度、数据备份与回收站资源" />
+    <PageHeader title="平台配置" subtitle="侧栏已覆盖的高频入口不再重复展示；此处集中维护数据集、断言、录屏、账号池、团队基线与运维配置" />
 
     <!-- 模块 2：分组标签导航（紧凑双行） -->
     <nav class="config-nav" aria-label="配置分组导航">
@@ -97,7 +97,8 @@
       <el-tab-pane label="公共步骤" name="steps">
         <AppCard :hover="false" class="steps-card">
           <div class="toolbar-row">
-            <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">添加步骤</el-button>
+            <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">+ 快速新建</el-button>
+            <el-button v-if="userStore.isAdmin" @click="showStepTemplates = true">模板库</el-button>
             <el-tooltip content="请先勾选条目后执行批量操作" :disabled="hasStepSelection" placement="top">
               <span class="batch-wrap">
                 <el-button class="btn-muted" :disabled="!hasStepSelection || !userStore.isAdmin" @click="openStepTransfer">移交选中</el-button>
@@ -119,6 +120,14 @@
             >
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
+            <el-select v-model="stepFilters.category" placeholder="大类" clearable style="width:160px" @change="stepPage = 1">
+              <el-option label="全部大类" value="" />
+              <el-option v-for="c in stepCategoryOptions" :key="c.key" :label="c.label" :value="c.key" />
+            </el-select>
+            <el-select v-model="stepFilters.platform" placeholder="适用端" clearable style="width:120px" @change="stepPage = 1">
+              <el-option label="全部端" value="" />
+              <el-option v-for="p in stepPlatformOptions" :key="p.key" :label="p.label" :value="p.key" />
+            </el-select>
             <el-select v-model="stepFilters.status" placeholder="使用状态" clearable style="width:140px" @change="stepPage = 1">
               <el-option label="全部" value="" />
               <el-option label="已启用" value="active" />
@@ -142,7 +151,13 @@
           >
             <el-table-column v-if="userStore.isAdmin" type="selection" width="48" />
             <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="description" label="功能描述" min-width="200" show-overflow-tooltip>
+            <el-table-column label="大类" width="130">
+              <template #default="{ row }">{{ stepCategoryLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="适用端" width="90">
+              <template #default="{ row }">{{ stepPlatformLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column prop="description" label="功能描述" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">{{ row.description || '—' }}</template>
             </el-table-column>
             <el-table-column label="使用状态" width="110">
@@ -151,7 +166,6 @@
                   size="small"
                   effect="plain"
                   :type="row.status === 'active' ? 'success' : 'info'"
-                  :title="row.status === 'active' ? '可在测试用例 / 套件中正常引用' : '引用时会提示不可使用'"
                 >
                   {{ row.status === 'active' ? '已启用' : '已停用' }}
                 </el-tag>
@@ -178,7 +192,7 @@
           <div v-if="!stepsLoading && !filteredSteps.length" class="table-empty">
             <p class="empty-title">暂无公共复用步骤</p>
             <div class="empty-actions">
-              <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">添加步骤</el-button>
+                  <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">快速新建</el-button>
               <el-button v-if="userStore.isAdmin" @click="importStepTemplates">导入步骤模板</el-button>
             </div>
             <p class="empty-hint">公共步骤可在测试用例、套件钩子内一键复用，减少重复编写操作流程。</p>
@@ -544,11 +558,20 @@
       @saved="loadDatasets"
     />
 
-    <CommonStepEditorDialog
-      v-model="showStepDialog"
-      :edit-row="editingStepRow"
-      @saved="loadSteps"
-    />
+    <el-dialog v-model="showStepTemplates" title="高频公共步骤模板" width="520px">
+      <div class="tpl-grid">
+        <button
+          v-for="t in stepTemplateList"
+          :key="t.id"
+          type="button"
+          class="tpl-card"
+          @click="createFromTemplate(t.id)"
+        >
+          <strong>{{ t.name }}</strong>
+          <span>{{ t.keywords?.join(' · ') }}</span>
+        </button>
+      </div>
+    </el-dialog>
 
     <ScheduleEditorDialog
       v-model="showScheduleDialog"
@@ -708,8 +731,15 @@ import EnvEditorDialog from '@/components/EnvEditorDialog.vue'
 import TeamEditorDialog from '@/components/TeamEditorDialog.vue'
 import DatasetEditorDialog from '@/components/DatasetEditorDialog.vue'
 import BaselineEditorDialog from '@/components/BaselineEditorDialog.vue'
-import CommonStepEditorDialog from '@/components/CommonStepEditorDialog.vue'
 import GlobalParamEditorDialog from '@/components/GlobalParamEditorDialog.vue'
+import {
+  CATEGORIES as stepCategoryOptions,
+  PLATFORMS as stepPlatformOptions,
+  TEMPLATES as stepTemplateList,
+  categoryLabel,
+  platformLabel,
+  extractMetaFromRow
+} from '@/config/commonStepCatalog'
 import AssertPolicyEditorDialog from '@/components/AssertPolicyEditorDialog.vue'
 import ScheduleEditorDialog from '@/components/ScheduleEditorDialog.vue'
 import DataFactoryEditorDialog from '@/components/DataFactoryEditorDialog.vue'
@@ -727,28 +757,29 @@ const TAB_ALLOW = new Set([
   'global-params', 'assert-policy', 'data-factory', 'credentials', 'backup',
   'monitor', 'audit', 'accounts', 'recycle'
 ])
-const activeTab = ref('env')
+const activeTab = ref('dataset')
 
 const NAV_GROUPS = [
   {
     id: 'reuse',
     title: '环境与复用组件',
-    tip: '日常高频配置：环境、数据集、公共步骤、全局参数与断言策略，支撑用例编写与执行复用',
+    tip: '数据集与断言策略等复用配置；环境 / 公共步骤 / 全局参数请从左侧导航进入',
     tabs: [
-      { name: 'env', label: '环境配置', hint: '管理测试 / 预发 / 生产等执行环境与 Base URL', adminOnly: false },
+      // 侧栏已有：环境配置、公共步骤、全局参数 —— 不在此重复展示
+      { name: 'env', label: '环境配置', hint: '管理测试 / 预发 / 生产等执行环境与 Base URL', adminOnly: false, sidebarOnly: true },
       { name: 'dataset', label: '数据集', hint: '维护参数化测试数据，支持多行数据驱动', adminOnly: false },
-      { name: 'steps', label: '公共步骤', hint: '封装登录、清理等可复用操作流程，供用例与套件引用', adminOnly: false },
-      { name: 'global-params', label: '全局参数', hint: '平台 / 项目 / 团队三级变量统一注入执行上下文', adminOnly: true },
+      { name: 'steps', label: '公共步骤', hint: '封装登录、清理等可复用操作流程，供用例与套件引用', adminOnly: false, sidebarOnly: true },
+      { name: 'global-params', label: '全局参数', hint: '平台 / 项目 / 团队三级变量统一注入执行上下文', adminOnly: true, sidebarOnly: true },
       { name: 'assert-policy', label: '断言策略', hint: '配置断言白名单与校验规则策略', adminOnly: true }
     ]
   },
   {
     id: 'runtime',
     title: '录制与调度执行',
-    tip: '录屏质量阈值、定时回归、动态造数与测试账号池，保障自动化稳定跑批',
+    tip: '录屏质量、动态造数与测试账号池；定时任务请从左侧「测试任务」进入',
     tabs: [
       { name: 'recording', label: '录屏配置', hint: '调整录制开关与识别率 / 定位命中阈值', adminOnly: false },
-      { name: 'schedule', label: '定时调度', hint: '按 Cron 自动执行测试套件回归', adminOnly: false },
+      { name: 'schedule', label: '定时调度', hint: '按 Cron 自动执行测试套件回归', adminOnly: false, sidebarOnly: true },
       { name: 'data-factory', label: '动态造数', hint: '接口造数模板，执行前自动准备业务数据', adminOnly: true },
       { name: 'accounts', label: '账号池', hint: '统一管理测试账号，供登录步骤引用', adminOnly: false }
     ]
@@ -781,7 +812,7 @@ const groupTabsCollapsed = ref(false)
 
 const visibleNavGroups = computed(() => NAV_GROUPS.map(g => ({
   ...g,
-  tabs: g.tabs.filter(t => !t.adminOnly || userStore.isAdmin)
+  tabs: g.tabs.filter(t => !t.sidebarOnly && (!t.adminOnly || userStore.isAdmin))
 })).filter(g => g.tabs.length > 0))
 
 const activeGroupTabs = computed(() => {
@@ -791,7 +822,15 @@ const activeGroupTabs = computed(() => {
 
 function findGroupIdByTab(tabName) {
   const g = NAV_GROUPS.find(x => x.tabs.some(t => t.name === tabName))
-  return g?.id || 'reuse'
+  return g?.id || visibleNavGroups.value[0]?.id || 'reuse'
+}
+
+function isSidebarOnlyTab(tabName) {
+  return NAV_GROUPS.some(g => g.tabs.some(t => t.name === tabName && t.sidebarOnly))
+}
+
+function firstVisibleTab() {
+  return visibleNavGroups.value[0]?.tabs[0]?.name || 'dataset'
 }
 
 function toggleGroup(id) {
@@ -810,13 +849,13 @@ function toggleGroup(id) {
 function selectTab(name) {
   activeTab.value = name
   activeGroupId.value = findGroupIdByTab(name)
-  groupTabsCollapsed.value = false
+  groupTabsCollapsed.value = isSidebarOnlyTab(name)
   syncTabToRoute(name)
 }
 
 function onTabChange(name) {
   activeGroupId.value = findGroupIdByTab(name)
-  groupTabsCollapsed.value = false
+  groupTabsCollapsed.value = isSidebarOnlyTab(name)
   syncTabToRoute(name)
 }
 
@@ -830,12 +869,20 @@ function applyTabFromRoute() {
   if (tab && TAB_ALLOW.has(tab)) {
     if (['teams', 'global-params', 'assert-policy', 'data-factory', 'credentials', 'backup', 'monitor', 'audit'].includes(tab)
       && !userStore.isAdmin) {
-      activeTab.value = 'env'
-      activeGroupId.value = 'reuse'
+      activeTab.value = firstVisibleTab()
+      activeGroupId.value = findGroupIdByTab(activeTab.value)
+      groupTabsCollapsed.value = false
       return
     }
     activeTab.value = tab
     activeGroupId.value = findGroupIdByTab(tab)
+    // 侧栏直达的高频页：收起分组子导航，避免与侧栏入口重复抢视线
+    groupTabsCollapsed.value = isSidebarOnlyTab(tab)
+    return
+  }
+  if (!tab) {
+    activeTab.value = firstVisibleTab()
+    activeGroupId.value = findGroupIdByTab(activeTab.value)
     groupTabsCollapsed.value = false
   }
 }
@@ -868,7 +915,8 @@ const selectedStepRows = ref([])
 const stepsLoading = ref(false)
 const stepPage = ref(1)
 const stepPageSize = ref(15)
-const stepFilters = reactive({ keyword: '', status: '' })
+const stepFilters = reactive({ keyword: '', status: '', category: '', platform: '' })
+const showStepTemplates = ref(false)
 const userOptions = ref([])
 const showTransferDialog = ref(false)
 const showTutorialDialog = ref(false)
@@ -897,6 +945,15 @@ const showDatasetDialog = ref(false)
 const editingDatasetRow = ref(null)
 const showStepDialog = ref(false)
 const editingStepRow = ref(null)
+
+function stepCategoryLabel(row) {
+  const meta = extractMetaFromRow(row)
+  return categoryLabel(meta.category) || '—'
+}
+function stepPlatformLabel(row) {
+  const meta = extractMetaFromRow(row)
+  return platformLabel(meta.platform) || '—'
+}
 const showScheduleDialog = ref(false)
 const editingScheduleRow = ref(null)
 const showAccountDialog = ref(false)
@@ -936,6 +993,9 @@ const filteredSteps = computed(() => {
   const kw = (stepFilters.keyword || '').trim().toLowerCase()
   return (commonSteps.value || []).filter(row => {
     if (stepFilters.status && row.status !== stepFilters.status) return false
+    const meta = extractMetaFromRow(row)
+    if (stepFilters.category && meta.category !== stepFilters.category) return false
+    if (stepFilters.platform && meta.platform !== stepFilters.platform) return false
     if (!kw) return true
     return String(row.name || '').toLowerCase().includes(kw)
       || String(row.description || '').toLowerCase().includes(kw)
@@ -1124,6 +1184,8 @@ async function refreshSteps() {
 function resetStepFilters() {
   stepFilters.keyword = ''
   stepFilters.status = ''
+  stepFilters.category = ''
+  stepFilters.platform = ''
   stepPage.value = 1
 }
 function onStepSelectionChange(rows) {
@@ -1307,8 +1369,16 @@ async function deleteDataset(row) {
 }
 
 function openStep(row) {
-  editingStepRow.value = row || null
-  showStepDialog.value = true
+  if (row?.id) {
+    router.push(`/common-steps/${row.id}/edit`)
+    return
+  }
+  router.push('/common-steps/new')
+}
+
+function createFromTemplate(templateId) {
+  showStepTemplates.value = false
+  router.push({ path: '/common-steps/new', query: { template: templateId } })
 }
 
 async function deleteStep(row) {
@@ -1983,6 +2053,14 @@ onMounted(() => {
 }
 
 .comment-list { max-height: 280px; overflow-y: auto; }
+.tpl-grid { display: flex; flex-direction: column; gap: 8px; }
+.tpl-card {
+  text-align: left; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 10px 12px; background: #fff; cursor: pointer;
+}
+.tpl-card:hover { border-color: #93c5fd; background: #f8fafc; }
+.tpl-card strong { display: block; margin-bottom: 4px; }
+.tpl-card span { font-size: 12px; color: #64748b; }
 .comment-empty { color: var(--atp-text-secondary); font-size: 13px; padding: 12px 0; text-align: center; }
 .comment-item { padding: 10px 0; border-bottom: 1px solid var(--atp-border-neutral); }
 .comment-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--atp-text-secondary); margin-bottom: 4px; }

@@ -100,15 +100,13 @@
     <!-- 控件拾取工作台 -->
     <template v-else>
       <PageHeader
+        class="picker-workbench-header"
         :title="`控件获取 · ${device?.model || device?.name || device?.serial_number || `#${deviceId}`}`"
-        subtitle="在投屏画面点击控件即可获取定位信息；识别前建议先刷新 UI 树"
       >
         <template #actions>
           <el-tag v-if="connected" type="success" size="small">已连接</el-tag>
           <el-tag v-else-if="connecting" type="warning" size="small">连接中</el-tag>
-          <el-tag v-if="connected && fps > 0" type="info" size="small" style="margin-left:8px">
-            {{ fps }} FPS
-          </el-tag>
+          <ScreenFpsTag v-if="deviceId" :device-id="deviceId" />
           <el-button style="margin-left:12px" @click="goHub">切换设备</el-button>
           <el-button @click="$router.push('/controls')">进入控件库</el-button>
           <el-button v-if="pickReturnTo" type="primary" @click="goReturn">返回审阅</el-button>
@@ -119,350 +117,120 @@
         正在为审阅步骤 <strong>#{{ pickStepIndex + 1 }}</strong> 补定位 — 点击目标控件后点「应用到审阅步骤」
       </div>
 
-      <div class="picker-workbench">
+      <div class="picker-workbench inspector-3pane">
         <aside class="screen-panel">
           <AppCard :hover="false" class="screen-card">
             <template #header>
-              <div class="screen-card-head">
-                <span>设备投屏拾取画面 - {{ device?.model || device?.name || device?.serial_number || '未知设备' }}</span>
-                <div class="screen-card-actions">
-                  <el-button size="small" type="danger" plain @click="endPickSession">结束拾取</el-button>
-                  <el-button size="small" :disabled="!hasFrame" @click="captureScreenshot">截取当前页面截图</el-button>
-                  <el-button size="small" :disabled="!currentPick" @click="clearCurrentPick">清空上一次拾取的控件信息</el-button>
-                </div>
+              <div class="screen-card-title">
+                <span class="screen-title-text">设备投屏</span>
+                <span class="screen-device-name">{{ device?.model || device?.name || device?.serial_number || '未知设备' }}</span>
+                <span class="resolution-tag">{{ resolutionLabel }}</span>
+                <el-tag v-if="uiTreeReady" type="success" size="small" effect="plain">树已就绪</el-tag>
+                <el-tag v-else-if="connected" type="info" size="small" effect="plain">未刷新</el-tag>
+                <el-tag v-if="dumpSource" size="small" :type="dumpSource === 'u2' ? 'success' : 'warning'" effect="plain">{{ dumpSourceLabel }}</el-tag>
               </div>
             </template>
-            <div class="screen-wrap" ref="screenWrapRef">
-              <div class="screen-device">
-                <div class="screen-frame" :style="screenFrameStyle">
-                  <canvas
-                    ref="canvasRef"
-                    class="screen-canvas"
-                    :class="{ picking: interactionMode === 'pick' }"
-                    @mousedown.prevent="onMouseDown"
-                    @mouseup.prevent="onMouseUp"
-                  />
-                  <div
-                    v-if="lastPickMarker && interactionMode === 'pick'"
-                    class="pick-marker"
-                    :style="pickMarkerStyle"
-                  />
-                  <div v-if="!hasFrame" class="screen-placeholder">
-                    <el-icon :size="40"><Monitor /></el-icon>
-                    <p>{{ statusText }}</p>
-                    <p class="frame-dim">{{ resolutionLabel }}</p>
-                    <el-button v-if="!connecting && !connected" type="primary" @click="connectStream">连接投屏</el-button>
+            <div class="screen-body" ref="screenBodyRef">
+              <div class="screen-wrap" ref="screenWrapRef">
+                <div class="screen-device">
+                  <div class="screen-frame" :style="screenFrameStyle">
+                    <canvas
+                      ref="canvasRef"
+                      class="screen-canvas"
+                      :class="{ picking: interactionMode === 'pick', operating: interactionMode === 'operate' }"
+                      @mousedown.prevent="onMouseDown"
+                    />
+                    <template v-if="interactionMode === 'pick' && resultPanelMode === 'current' && showPickHighlight && currentHighlightBox">
+                      <div
+                        :key="'cur-' + highlightFlashKey"
+                        class="pick-highlight pick-highlight--current"
+                        :class="{ 'is-flashing': highlightFlash }"
+                        :style="currentHighlightBox.style"
+                      />
+                    </template>
+                    <div v-if="!hasFrame" class="screen-placeholder">
+                      <el-icon :size="40"><Monitor /></el-icon>
+                      <p>{{ statusText }}</p>
+                      <p class="frame-dim">{{ resolutionLabel }}</p>
+                      <el-button v-if="!connecting && !connected" type="primary" @click="connectStream">连接投屏</el-button>
+                    </div>
                   </div>
+                  <ScreenNavBar :disabled="!connected" @key="pressNavKey" />
                 </div>
-                <ScreenNavBar :disabled="!connected" @key="pressNavKey" />
               </div>
+              <aside class="screen-side-toolbar">
+                <el-button type="primary" size="small" :disabled="connected" :loading="connecting" @click="connectStream">连接</el-button>
+                <el-button size="small" :disabled="!connected" @click="stopStream">断开</el-button>
+                <el-button type="primary" size="small" :loading="warming || hierarchyLoading" :disabled="!connected" @click="refreshUiTree">刷新树</el-button>
+                <el-button
+                  size="small"
+                  :type="interactionMode === 'operate' ? 'primary' : 'default'"
+                  @click="interactionMode = 'operate'"
+                >操控</el-button>
+                <el-button
+                  size="small"
+                  :type="interactionMode === 'pick' ? 'primary' : 'default'"
+                  @click="interactionMode = 'pick'"
+                >识别</el-button>
+                <span class="toolbar-sep" />
+                <el-button size="small" type="danger" class="btn-end-pick" @click="confirmEndPick">结束</el-button>
+                <el-button size="small" class="btn-outline-blue" :disabled="!hasFrame" @click="captureScreenshot">截图</el-button>
+                <el-button size="small" class="btn-outline-blue" :disabled="!currentPick && !pickHistory.length" @click="confirmClearPickInfo">清空</el-button>
+              </aside>
             </div>
           </AppCard>
         </aside>
 
+        <aside class="tree-panel">
+          <UiHierarchyTree
+            ref="hierarchyTreeRef"
+            :root="hierarchyRoot"
+            :loading="hierarchyLoading"
+            :ready="connected"
+            :node-count="hierarchyNodeCount"
+            :truncated="hierarchyTruncated"
+            :current-id="hierarchyCurrentId"
+            :select-bounds="currentPick?.bounds || ''"
+            @select="onHierarchyNodeSelect"
+            @refresh="refreshUiTree"
+          />
+        </aside>
+
         <section class="detail-panel">
-          <AppCard title="拾取操作" :hover="false">
-            <div class="pick-toolbar">
-              <el-button type="primary" size="small" :disabled="connected" :loading="connecting" @click="connectStream">连接</el-button>
-              <el-button size="small" :disabled="!connected" @click="stopStream">断开</el-button>
-              <el-divider direction="vertical" />
-              <el-button type="primary" size="small" :loading="warming" :disabled="!connected" @click="refreshUiTree">刷新 UI 树</el-button>
-              <el-button v-if="currentPick?.needs_context_switch" size="small" type="warning" :disabled="!connected" @click="switchWebViewContext">手动切换 WebView</el-button>
-              <el-tag v-if="pageContext && pageContext !== 'native'" size="small" type="warning" effect="plain">页面上下文：{{ pageContextLabel }}</el-tag>
-              <el-button v-if="currentPick && !currentPick.valid" size="small" :disabled="!connected" @click="ocrFallbackPick">OCR 兜底</el-button>
-              <el-tag v-if="uiTreeReady" type="success" size="small" effect="plain">已就绪</el-tag>
-              <el-tag v-else-if="connected" type="info" size="small" effect="plain">未刷新</el-tag>
-              <el-divider direction="vertical" />
-              <el-radio-group v-model="interactionMode" size="small">
-                <el-radio-button value="operate">操控设备</el-radio-button>
-                <el-radio-button value="pick">识别控件</el-radio-button>
-              </el-radio-group>
-              <span class="resolution-tag">{{ resolutionLabel }}</span>
-            </div>
-            <p class="hint">
-              <template v-if="interactionMode === 'operate'">单击画面操作设备（点击/滑动），不会识别控件。</template>
-              <template v-else>先点「刷新 UI 树」，再在画面上单击要识别的控件（不会点击设备）。</template>
-            </p>
-          </AppCard>
-
-          <AppCard title="控件定位结果" :hover="false" class="panel-block pick-result-card">
-            <div v-if="inspecting" class="inspecting-tip">
-              <el-icon class="spin"><Loading /></el-icon>
-              识别中，请稍候…
-            </div>
-            <template v-else-if="currentPick">
-              <div class="pick-summary">
-                <div class="pick-title-row">
-                  <h3 class="pick-title">{{ currentPick.display_name || currentPick.element_name || '未命名控件' }}</h3>
-                  <div class="pick-badges">
-                    <el-tag v-if="currentPick.valid && !isWeakPick(currentPick)" type="success" size="small" round>已识别</el-tag>
-                    <el-tag v-else-if="isWeakPick(currentPick)" type="danger" size="small" round>高风险</el-tag>
-                    <el-tag v-else type="warning" size="small" round>需补充</el-tag>
-                    <el-tag v-if="currentPick.risk_level" :type="riskTagType(currentPick.risk_level)" size="small" round effect="light">
-                      {{ riskLevelLabel(currentPick.risk_level) }}
-                    </el-tag>
-                    <el-tag v-for="tag in (currentPick.risk_tags || [])" :key="tag" size="small" type="warning" effect="plain" round>
-                      {{ riskTagLabel(tag) }}
-                    </el-tag>
-                    <el-tag v-if="stabilityScore != null" :type="stabilityScoreType(stabilityScore)" size="small" round effect="dark">
-                      稳定性 {{ stabilityScore }} · {{ stabilityScoreLabel(stabilityScore) }}
-                    </el-tag>
-                  </div>
-                </div>
-
-                <div class="basic-info-block">
-                  <div class="basic-info-title">基础信息</div>
-                  <el-descriptions :column="2" size="small" border class="pick-desc">
-                    <el-descriptions-item label="控件名称">{{ currentPick.display_name || currentPick.element_name || '-' }}</el-descriptions-item>
-                    <el-descriptions-item label="控件类型">{{ widgetTypeLabel(currentPick.widget_type || currentPick.class) }}</el-descriptions-item>
-                    <el-descriptions-item label="点击坐标">{{ currentPick.x }}, {{ currentPick.y }}</el-descriptions-item>
-                    <el-descriptions-item label="界面坐标" v-if="currentPick.inspect_x != null">
-                      {{ currentPick.inspect_x }}, {{ currentPick.inspect_y }}
-                    </el-descriptions-item>
-                    <el-descriptions-item label="类名" v-if="currentPick.class">{{ shortClass(currentPick.class) }}</el-descriptions-item>
-                    <el-descriptions-item label="控件边界" :span="2" v-if="currentPick.bounds">{{ currentPick.bounds }}</el-descriptions-item>
-                  </el-descriptions>
-                </div>
-
-                <el-alert
-                  v-if="currentPick.risk_reasons?.length"
-                  :title="currentPick.risk_reasons[0]"
-                  :description="currentPick.risk_reasons.length > 1 ? currentPick.risk_reasons.slice(1).join('；') : undefined"
-                  type="warning"
-                  :closable="false"
-                  show-icon
-                  class="pick-alert"
-                />
-
-                <el-alert
-                  v-if="currentPick.auto_context_switched && currentPick.context_hint"
-                  :title="currentPick.context_hint"
-                  type="success"
-                  :closable="false"
-                  show-icon
-                  class="pick-alert"
-                />
-                <el-alert
-                  v-else-if="currentPick.needs_context_switch"
-                  title="检测到 WebView 混合页面，拾取时已尝试自动切换；仍异常可手动切换"
-                  type="warning"
-                  :closable="false"
-                  show-icon
-                  class="pick-alert"
-                />
-
-                <div class="locator-schemes">
-                  <div class="basic-info-title">多套定位方案</div>
-                  <div
-                    v-for="scheme in locatorSchemes"
-                    :key="scheme.key"
-                    class="locator-scheme-card"
-                    :class="{ recommend: scheme.recommended }"
-                  >
-                    <div class="scheme-head">
-                      <span>{{ scheme.label }}<em v-if="scheme.recommended">（推荐优先使用）</em></span>
-                      <el-button size="small" type="primary" plain :disabled="!scheme.value" @click="copyText(scheme.value)">一键复制</el-button>
-                    </div>
-                    <code class="scheme-value">{{ scheme.value || '暂无该定位方案' }}</code>
-                  </div>
-                </div>
-
-                <div v-if="recommendedLocatorItem" class="primary-loc-card recommended">
-                  <div class="plc-head">
-                    <span class="plc-badge rec">推荐定位</span>
-                    <span class="plc-type">{{ formatLocatorType(recommendedLocatorItem.type === 'resource_id' ? 'id' : recommendedLocatorItem.type) }}</span>
-                    <el-tag v-if="!isSelectedDifferentFromRecommended" size="small" type="primary" effect="plain" round>当前选用</el-tag>
-                  </div>
-                  <p v-if="recommendReasonText" class="plc-reason">{{ recommendReasonText }}</p>
-                  <div class="plc-value-row">
-                    <code class="plc-value">{{ recommendedLocatorItem.value }}</code>
-                    <el-button text type="primary" size="small" :icon="CopyDocument" @click="copyText(recommendedLocatorItem.value)" />
-                  </div>
-                </div>
-
-                <div v-if="isSelectedDifferentFromRecommended && primaryLocatorItem" class="primary-loc-card selected">
-                  <div class="plc-head">
-                    <span class="plc-badge">当前选用</span>
-                    <span class="plc-type">{{ formatLocatorType(primaryLocatorItem.type === 'resource_id' ? 'id' : primaryLocatorItem.type) }}</span>
-                  </div>
-                  <div class="plc-value-row">
-                    <code class="plc-value">{{ primaryLocatorItem.value }}</code>
-                    <el-button text type="primary" size="small" :icon="CopyDocument" @click="copyText(primaryLocatorItem.value)" />
-                  </div>
-                </div>
-
-                <div class="relative-section">
-                  <div class="section-head">
-                    <span class="section-title">相对定位</span>
-                    <span class="section-sub">配置后可加入定位链</span>
-                  </div>
-                  <div class="relative-grid">
-                    <div class="relative-card">
-                      <div class="rc-title">父容器 + 下标</div>
-                      <el-input v-model="relativeForm.container" size="small" placeholder="容器 resource-id 短名" />
-                      <el-input-number v-model="relativeForm.index" size="small" :min="0" :max="99" controls-position="right" />
-                      <code v-if="relativePreview.parent_index" class="rc-preview">{{ relativePreview.parent_index }}</code>
-                      <el-button size="small" text type="primary" :disabled="!relativePreview.parent_index" @click="addRelativeToChain('parent_index')">加入链</el-button>
-                    </div>
-                    <div class="relative-card">
-                      <div class="rc-title">锚点邻位</div>
-                      <el-input v-model="relativeForm.anchor" size="small" placeholder="锚点文本/content-desc" />
-                      <el-select v-model="relativeForm.direction" size="small" style="width:100%">
-                        <el-option v-for="d in ANCHOR_DIRECTIONS" :key="d.value" :label="d.label" :value="d.value" />
-                      </el-select>
-                      <code v-if="relativePreview.anchor_adjacent" class="rc-preview">{{ relativePreview.anchor_adjacent }}</code>
-                      <el-button size="small" text type="primary" :disabled="!relativePreview.anchor_adjacent" @click="addRelativeToChain('anchor_adjacent')">加入链</el-button>
-                    </div>
-                    <div class="relative-card">
-                      <div class="rc-title">区域限定</div>
-                      <el-input v-model="relativeForm.region_bounds" size="small" placeholder="[x1,y1][x2,y2]" />
-                      <div class="region-inner">
-                        <el-select v-model="relativeForm.inner_type" size="small">
-                          <el-option label="Content-Desc" value="content_desc" />
-                          <el-option label="ID" value="id" />
-                          <el-option label="文本" value="text" />
-                        </el-select>
-                        <el-input v-model="relativeForm.inner_value" size="small" placeholder="区域内匹配值" />
-                      </div>
-                      <code v-if="relativePreview.region_locator" class="rc-preview">{{ relativePreview.region_locator }}</code>
-                      <el-button size="small" text type="primary" :disabled="!relativePreview.region_locator" @click="addRelativeToChain('region_locator')">加入链</el-button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="locatorChain.length" class="loc-chain-section">
-                <div class="section-head">
-                  <span class="section-title">定位链</span>
-                  <span class="section-sub">{{ enabledChainCount }}/{{ locatorChain.length }} 条启用 · 点击行切换主定位</span>
-                </div>
-                <div class="loc-list">
-                  <div
-                    v-for="(item, idx) in locatorChain"
-                    :key="item.type + item.value + idx"
-                    class="loc-item"
-                    :class="{ primary: item.primary, recommended: item.recommended, off: item.enabled === false }"
-                    @click="setChainPrimary(idx)"
-                  >
-                    <div class="loc-rank" :class="{ rec: item.recommended }">{{ idx + 1 }}</div>
-                    <div class="loc-main">
-                      <div class="loc-meta">
-                        <span class="loc-type">{{ formatLocatorType(item.type === 'resource_id' ? 'id' : item.type) }}</span>
-                        <el-tag v-if="item.recommended" size="small" type="success" effect="light" round>推荐</el-tag>
-                        <el-tag v-if="item.primary" size="small" type="primary" effect="dark" round>主</el-tag>
-                      </div>
-                      <code class="loc-value" :class="{ clamp: !isLocatorExpanded(idx) && item.value.length > 72 }">
-                        {{ item.value }}
-                      </code>
-                      <button
-                        v-if="item.value.length > 72"
-                        type="button"
-                        class="loc-expand"
-                        @click.stop="toggleLocatorExpand(idx)"
-                      >
-                        {{ isLocatorExpanded(idx) ? '收起' : '展开' }}
-                      </button>
-                    </div>
-                    <div class="loc-side" @click.stop>
-                      <el-switch v-model="item.enabled" size="small" @change="syncChainToPick" />
-                      <el-button-group class="loc-order">
-                        <el-button size="small" text :icon="ArrowUp" :disabled="idx === 0" @click="moveChainItem(idx, -1)" />
-                        <el-button size="small" text :icon="ArrowDown" :disabled="idx >= locatorChain.length - 1" @click="moveChainItem(idx, 1)" />
-                      </el-button-group>
-                      <el-button size="small" text :icon="CopyDocument" @click="copyText(item.value)" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="currentPick?.validate_result" class="validate-meta">
-                上次校验：{{ formatValidateMeta(currentPick.validate_result) }}
-              </div>
-              <div v-if="validateResult" class="validate-banner" :class="validateResult.valid ? 'ok' : 'fail'">
-                <el-icon><CircleCheck v-if="validateResult.valid" /><WarningFilled v-else /></el-icon>
-                <span>{{ validateResultText }}</span>
-                <el-button v-if="validateAttempts.length" text size="small" @click="showValidateDetail = !showValidateDetail">
-                  {{ showValidateDetail ? '收起' : '明细' }}
-                </el-button>
-              </div>
-              <div v-if="showValidateDetail && validateAttempts.length" class="validate-detail">
-                <div v-for="att in validateAttempts" :key="att.type + att.value" class="validate-line">
-                  <span class="dot" :class="{ ok: att.clickable, warn: att.found && !att.clickable }" />
-                  <span class="vt">{{ formatLocatorType(att.type) }}</span>
-                  <span class="validate-status">{{ validateAttemptLabel(att) }}</span>
-                  <code>{{ truncateLocator(att.value) }}</code>
-                </div>
-              </div>
-
-              <div class="pick-actions-bar">
-                <el-button size="small" type="primary" @click="openSavePool">保存至公共控件库</el-button>
-                <el-button size="small" @click="copyAllLocators">复制全部定位信息</el-button>
-                <el-button size="small" @click="clearCurrentPick">清空当前拾取数据</el-button>
-                <el-button size="small" :loading="validating" :disabled="!connected || !locatorChain.length" @click="validateCurrentLocator">
-                  验证定位
-                </el-button>
-                <el-button
-                  v-if="pickRecordId != null && pickStepIndex != null"
-                  size="small"
-                  type="success"
-                  :loading="applying"
-                  @click="applyToReviewStep"
-                >
-                  应用到审阅
-                </el-button>
-              </div>
-            </template>
-            <el-empty v-else description="切换到「识别控件」并单击画面拾取" :image-size="64" />
-          </AppCard>
-
-          <AppCard title="手动填写" :hover="false" class="panel-block">
-            <el-form label-width="88px" size="small">
-              <el-form-item label="显示名称">
-                <el-input v-model="manualForm.display_name" placeholder="如：登录按钮" />
-              </el-form-item>
-              <el-form-item label="元素名">
-                <el-input v-model="manualForm.element_name" placeholder="脚本变量名" />
-              </el-form-item>
-              <el-form-item label="定位方式">
-                <el-select v-model="manualForm.locator_type" style="width:100%">
-                  <el-option label="Resource ID" value="id" />
-                  <el-option label="文本" value="text" />
-                  <el-option label="Content-Desc" value="content_desc" />
-                  <el-option label="XPath" value="xpath" />
-                  <el-option label="OCR 文本" value="ocr" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="定位值">
-                <el-input v-model="manualForm.locator_value" placeholder="Resource ID / 文本 / XPath" />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :disabled="!manualForm.locator_value" @click="applyManualToCurrent">应用到当前</el-button>
-              </el-form-item>
-            </el-form>
-          </AppCard>
-
-          <AppCard title="本次拾取历史控件列表" :hover="false" class="panel-block">
-            <el-scrollbar max-height="260px">
-              <div
-                v-for="(item, idx) in pickHistory"
-                :key="item.id"
-                class="history-row"
-                :class="{ active: currentPick?.id === item.id }"
-                @click="selectHistory(item)"
-              >
-                <span class="hist-no">{{ pickHistory.length - idx }}</span>
-                <div class="hist-body">
-                  <span class="hist-name">{{ item.display_name || item.element_name || `控件 (${item.x},${item.y})` }}</span>
-                  <span class="hist-meta">所属设备：{{ item.device_label || device?.model || device?.name || '-' }}</span>
-                  <span class="hist-meta">拾取时间：{{ formatPickTime(item.picked_at) }}</span>
-                  <span v-if="formatStepLocator(item)" class="hist-loc">{{ formatStepLocator(item) }}</span>
-                </div>
-              </div>
-            </el-scrollbar>
-            <div class="history-footer">
-              <el-button v-if="pickHistory.length" size="small" link type="danger" @click="clearPickHistory">清空历史</el-button>
-              <el-button type="primary" link @click="$router.push('/controls')">查看全部公共控件库</el-button>
-            </div>
+          <AppCard :hover="false" class="pick-result-card">
+            <PickResultPanel
+              ref="pickResultPanelRef"
+              :current-pick="currentPick"
+              :locator-chain="locatorChain"
+              :relative-form="relativeForm"
+              :manual-form="manualForm"
+              :pick-history="pickHistory"
+              :inspecting="inspecting"
+              :validating="validating"
+              :applying="applying"
+              :connected="connected"
+              :validate-result="validateResult"
+              :validate-attempts="validateAttempts"
+              :pick-record-id="pickRecordId"
+              :pick-step-index="pickStepIndex"
+              :device-label="device?.model || device?.name || ''"
+              :format-validate-meta="formatValidateMeta"
+              @copy-all="copyAllLocators"
+              @validate="validateCurrentLocator"
+              @save-pool="openSavePool"
+              @create-case="goCreateCaseFromPick"
+              @apply-review="applyToReviewStep"
+              @copy-text="copyText"
+              @set-primary="setChainPrimary"
+              @move-chain="moveChainItem"
+              @toggle-enabled="toggleChainEnabled"
+              @add-relative="addRelativeToChain"
+              @apply-manual="applyManualToCurrent"
+              @select-history="selectHistory"
+              @clear-history="clearPickHistory"
+              @goto-pool="$router.push('/controls')"
+              @panel-mode-change="onResultPanelModeChange"
+            />
           </AppCard>
         </section>
       </div>
@@ -514,11 +282,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { deviceApi, recordApi, controlApi } from '@/api'
 import { useScreenStream, setScreenDeviceInfo } from '@/composables/useScreenStream'
 import { createScreenCanvasRenderer } from '@/composables/useScreenCanvas'
-import { fixedScreenFrameStyle, frameSizeFromDevice, frameMaxHeight, NAV_BAR_HEIGHT } from '@/composables/screenFrameStyle'
+import { fixedScreenFrameStyle, fixedScreenFrameStyleInBox, frameSizeFromDevice, frameMaxHeight, NAV_BAR_HEIGHT } from '@/composables/screenFrameStyle'
 import { formatStepLocator, formatLocatorType } from '@/utils/stepDisplay'
 import {
   buildLocatorChainFromPick, chainToLocators, primaryFromChain, isWeakPick,
-  riskLevelLabel, riskTagLabel, riskTagType, mapLocatorTypeForPool,
+  sortLocatorChainByPassRate,
+  riskLevelLabel, riskTagType, mapLocatorTypeForPool,
   ANCHOR_DIRECTIONS, parseLocatorKv,
   buildParentIndexValue, buildAnchorAdjacentValue, buildRegionLocatorValue,
   computeStabilityScore, stabilityScoreLabel, stabilityScoreType,
@@ -527,8 +296,11 @@ import {
 import { normalizeDevice } from '@/utils/device'
 import { useUserStore } from '@/stores/user'
 import ScreenNavBar from '@/components/ScreenNavBar.vue'
+import PickResultPanel from '@/components/element-picker/PickResultPanel.vue'
+import UiHierarchyTree from '@/components/element-picker/UiHierarchyTree.vue'
+import ScreenFpsTag from '@/components/ScreenFpsTag.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, Loading, CopyDocument, ArrowUp, ArrowDown, CircleCheck, WarningFilled } from '@element-plus/icons-vue'
+import { Monitor, Loading } from '@element-plus/icons-vue'
 
 defineOptions({ name: 'ElementPicker' })
 
@@ -539,6 +311,7 @@ const deviceId = computed(() => route.params.id ? String(route.params.id) : '')
 const device = ref(null)
 const canvasRef = ref(null)
 const screenWrapRef = ref(null)
+const screenBodyRef = ref(null)
 const hasFrame = ref(false)
 const frameW = ref(1080)
 const frameH = ref(1920)
@@ -552,9 +325,18 @@ const whitelistForm = reactive({ serial_number: '', platform: 'android', remark:
 
 const interactionMode = ref('pick')
 const inspecting = ref(false)
+const pickResultPanelRef = ref(null)
 const warming = ref(false)
 const uiTreeReady = ref(false)
+const hierarchyRoot = ref(null)
+const hierarchyLoading = ref(false)
+const hierarchyNodeCount = ref(0)
+const hierarchyTruncated = ref(false)
+const hierarchyCurrentId = ref('')
+const hierarchyTreeRef = ref(null)
 const pageContext = ref('native')
+const appProfile = ref(null)
+const dumpSource = ref('')
 const applying = ref(false)
 const validating = ref(false)
 const savingPool = ref(false)
@@ -572,17 +354,29 @@ function loadPersistedPickHistory() {
 
 function persistPickHistory(list) {
   try {
-    localStorage.setItem(PICK_HISTORY_KEY, JSON.stringify((list || []).slice(0, 30)))
+    const payload = JSON.stringify((list || []).slice(0, 30))
+    const save = () => {
+      try { localStorage.setItem(PICK_HISTORY_KEY, payload) } catch { /* ignore */ }
+    }
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(save, { timeout: 1500 })
+    else setTimeout(save, 0)
   } catch { /* ignore */ }
 }
 
 const pickHistory = ref(loadPersistedPickHistory())
 const lastPickMarker = ref(null)
+/** 仅在用户点击拾取/回看历史后展示高亮；清空后关闭 */
+const showPickHighlight = ref(false)
+/** 右侧面板：仅在「当前控件」页展示投屏高亮 */
+const resultPanelMode = ref('current')
+const highlightFlash = ref(false)
+const highlightFlashKey = ref(0)
+let highlightFlashTimer = null
+const PICK_TO_CASE_KEY = 'atp_pick_to_case'
 const locatorChain = ref([])
 const validateResult = ref(null)
 const validateAttempts = ref([])
 const showValidateDetail = ref(false)
-const expandedLocators = ref(new Set())
 const showSavePool = ref(false)
 let pickSeq = 0
 
@@ -626,7 +420,7 @@ const SWIPE_THRESHOLD = 12
 
 const {
   connected, connecting, statusText, nativeW, nativeH, streamW, streamH,
-  fps, latencyMs, lastFrame, startStream, stopStream, resumeIfAlive,
+  lastFrame, startStream, stopStream, resumeIfAlive,
   attachFrameListener, attachMetaListener
 } = useScreenStream(deviceId)
 
@@ -641,14 +435,130 @@ const deviceCoordW = computed(() => device.value?.screen_width || frameW.value |
 const deviceCoordH = computed(() => device.value?.screen_height || frameH.value || 1920)
 const resolutionLabel = computed(() => `${deviceCoordW.value} × ${deviceCoordH.value}`)
 
-const pickMarkerStyle = computed(() => {
-  if (!lastPickMarker.value) return {}
+function parseBoundsStyle(bounds, dw, dh) {
+  const m = String(bounds || '').match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/)
+  if (!m || !dw || !dh) return null
+  const x1 = Number(m[1])
+  const y1 = Number(m[2])
+  const x2 = Number(m[3])
+  const y2 = Number(m[4])
+  if (!(x2 > x1 && y2 > y1)) return null
+  return {
+    left: `${(x1 / dw) * 100}%`,
+    top: `${(y1 / dh) * 100}%`,
+    width: `${((x2 - x1) / dw) * 100}%`,
+    height: `${((y2 - y1) / dh) * 100}%`
+  }
+}
+
+function pointFallbackStyle(x, y, dw, dh) {
+  const px = Number(x)
+  const py = Number(y)
+  if (!Number.isFinite(px) || !Number.isFinite(py) || !dw || !dh) return null
+  const size = 28
+  return {
+    left: `${(px / dw) * 100}%`,
+    top: `${(py / dh) * 100}%`,
+    width: `${(size / dw) * 100}%`,
+    height: `${(size / dh) * 100}%`,
+    transform: 'translate(-50%, -50%)'
+  }
+}
+
+function triggerHighlightFlash() {
+  showPickHighlight.value = true
+  highlightFlash.value = false
+  highlightFlashKey.value += 1
+  nextTick(() => {
+    highlightFlash.value = true
+    if (highlightFlashTimer) clearTimeout(highlightFlashTimer)
+    highlightFlashTimer = setTimeout(() => {
+      highlightFlash.value = false
+    }, 900)
+  })
+}
+
+function clearPickHighlight() {
+  showPickHighlight.value = false
+  highlightFlash.value = false
+  lastPickMarker.value = null
+  darkFrameStreak = 0
+  if (highlightFlashTimer) {
+    clearTimeout(highlightFlashTimer)
+    highlightFlashTimer = null
+  }
+}
+
+/** 采样投屏亮度：锁屏/灭屏多为近黑画面，用于收起无效高亮 */
+let lastDarkCheckAt = 0
+let darkFrameStreak = 0
+let darkSampleCanvas = null
+
+function isCanvasMostlyDark(sourceCanvas) {
+  if (!sourceCanvas?.width || !sourceCanvas?.height) return false
+  try {
+    if (!darkSampleCanvas) darkSampleCanvas = document.createElement('canvas')
+    const sw = 24
+    const sh = 40
+    darkSampleCanvas.width = sw
+    darkSampleCanvas.height = sh
+    const sctx = darkSampleCanvas.getContext('2d', { willReadFrequently: true })
+    if (!sctx) return false
+    sctx.drawImage(sourceCanvas, 0, 0, sw, sh)
+    const { data } = sctx.getImageData(0, 0, sw, sh)
+    let sum = 0
+    let bright = 0
+    const n = sw * sh
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+      sum += lum
+      if (lum > 40) bright += 1
+    }
+    const avg = sum / n
+    // 锁屏黑屏 / AOD：整体极暗，亮点极少
+    return avg < 16 && bright / n < 0.06
+  } catch {
+    return false
+  }
+}
+
+function maybeClearHighlightOnDarkScreen() {
+  if (!showPickHighlight.value) {
+    darkFrameStreak = 0
+    return
+  }
+  const now = Date.now()
+  if (now - lastDarkCheckAt < 400) return
+  lastDarkCheckAt = now
+  const canvas = canvasRef.value
+  if (!canvas) return
+  if (isCanvasMostlyDark(canvas)) {
+    darkFrameStreak += 1
+    if (darkFrameStreak >= 2) clearPickHighlight()
+  } else {
+    darkFrameStreak = 0
+  }
+}
+
+function onResultPanelModeChange(mode) {
+  resultPanelMode.value = mode === 'history' ? 'history' : 'current'
+}
+
+watch(interactionMode, (mode) => {
+  // 切到操控设备通常会离开当前页，收起高亮
+  if (mode === 'operate') clearPickHighlight()
+})
+
+const currentHighlightBox = computed(() => {
+  if (!showPickHighlight.value) return null
+  const pick = currentPick.value
+  if (!pick) return null
   const dw = deviceCoordW.value || 1
   const dh = deviceCoordH.value || 1
-  return {
-    left: `${(lastPickMarker.value.x / dw) * 100}%`,
-    top: `${(lastPickMarker.value.y / dh) * 100}%`
-  }
+  const style = parseBoundsStyle(pick.bounds, dw, dh)
+    || pointFallbackStyle(pick.inspect_x ?? pick.x, pick.inspect_y ?? pick.y, dw, dh)
+  if (!style) return null
+  return { id: pick.id, style }
 })
 
 const savePoolPreview = computed(() => {
@@ -657,23 +567,39 @@ const savePoolPreview = computed(() => {
   return `${formatLocatorType(p.locator_type)} · ${p.locator_value}`
 })
 
-const primaryLocatorItem = computed(() => {
-  return locatorChain.value.find(i => i.primary && i.enabled !== false)
-    || locatorChain.value.find(i => i.enabled !== false)
-    || null
+const pickDisplayName = computed(() =>
+  currentPick.value?.display_name || currentPick.value?.element_name || '未命名控件'
+)
+
+const recognizeStatus = computed(() => {
+  const pick = currentPick.value
+  if (!pick) return { label: '未拾取', type: 'info' }
+  if (pick.valid && !isWeakPick(pick)) return { label: '已识别', type: 'success' }
+  if (isWeakPick(pick)) return { label: '高风险', type: 'danger' }
+  return { label: '需补充', type: 'warning' }
+})
+
+const hasScreenRatioLocator = computed(() => {
+  const pick = currentPick.value
+  if (!pick) return false
+  if (pick.locators?.screen_ratio) return true
+  return (locatorChain.value || []).some(i => i.type === 'screen_ratio' && i.value)
+})
+
+const pickWidgetTypeDisplay = computed(() => {
+  const pick = currentPick.value
+  if (!pick) return '-'
+  const step = String(pick.suggested_step_type || '').toLowerCase()
+  if (step === 'tap' || step === 'click' || pick.clickable === true) return 'click 点击控件'
+  if (step === 'input' || step === 'send_keys') return 'input 输入控件'
+  if (step === 'tap_ocr') return 'ocr 点击控件'
+  return widgetTypeLabel(pick.widget_type || pick.class)
 })
 
 const recommendedLocatorItem = computed(() => {
   return locatorChain.value.find(i => i.recommended)
     || locatorChain.value[0]
     || null
-})
-
-const isSelectedDifferentFromRecommended = computed(() => {
-  const rec = recommendedLocatorItem.value
-  const sel = primaryLocatorItem.value
-  if (!rec || !sel) return false
-  return rec.type !== sel.type || rec.value !== sel.value
 })
 
 const enabledChainCount = computed(() => locatorChain.value.filter(i => i.enabled !== false).length)
@@ -691,39 +617,83 @@ const pageContextLabel = computed(() => {
   return map[pageContext.value] || pageContext.value
 })
 
+const appProfileTagType = computed(() => {
+  const t = appProfile.value?.app_type
+  if (t === 'native' || t === 'compose') return 'success'
+  if (t === 'flutter' || t === 'webview' || t === 'hybrid' || t === 'react_native') return 'warning'
+  return 'danger'
+})
+
+const appProfileBannerClass = computed(() => {
+  if (!appProfile.value) return ''
+  if (appProfile.value.ui_tree_suitable) return 'is-ok'
+  if (appProfile.value.recommended_strategy === 'ocr') return 'is-ocr'
+  return 'is-warn'
+})
+
+const dumpSourceLabel = computed(() => {
+  const map = {
+    u2: 'uiautomator2 完整层级',
+    shell: '系统 shell dump（回退）',
+    cache: '缓存',
+    fail: '失败',
+    '': '未知'
+  }
+  return map[dumpSource.value] || dumpSource.value || '未知'
+})
+
+function applyDumpSource(src) {
+  if (src) dumpSource.value = src
+}
+
+function applyAppProfile(profile) {
+  if (!profile || typeof profile !== 'object') return
+  appProfile.value = profile
+  if (profile.app_type === 'webview') pageContext.value = 'webview'
+  else if (profile.app_type === 'hybrid') pageContext.value = 'hybrid'
+}
+
+const RECOMMEND_DESC = {
+  content_desc: '依托页面文本描述，适配多分辨率，抗页面布局变动，稳定性最优',
+  text: '依托可见文本，适配多分辨率，抗布局微调，稳定性较高',
+  id: '依托唯一 resource-id，跨版本稳定，优先推荐',
+  resource_id: '依托唯一 resource-id，跨版本稳定，优先推荐',
+  xpath: '通用路径定位，适配结构相似页面，稳定性中等',
+  xpath_desc: '基于描述的相对路径，兼顾语义与结构',
+  relative_xpath: '短结构路径，比绝对路径更耐布局微调',
+  absolute_xpath: '从根节点写死的完整路径，结构一变易失效',
+  class_name: '仅依赖类名，易受布局复用影响，稳定性偏低',
+  bounds: '固定坐标区域，分辨率变化时需校准',
+  screen_ratio: '屏幕比例坐标，适配多分辨率兜底',
+  ocr: 'OCR 文本识别，适合自绘/无障碍稀疏界面'
+}
+
 const recommendReasonText = computed(() => {
   const pick = currentPick.value
   if (pick?.recommend_reason) return pick.recommend_reason
   const rec = recommendedLocatorItem.value
   if (!rec) return ''
-  return rec.recommend_reason || recommendReasonLabel(rec.type)
+  return rec.recommend_reason || RECOMMEND_DESC[rec.type] || recommendReasonLabel(rec.type)
 })
 
-const locatorSchemes = computed(() => {
-  const pick = currentPick.value
-  const locs = pick?.locators || {}
+/** 备选方案：与定位链一致，按通过率从高到低 */
+const alternativeSchemes = computed(() => {
   const chain = locatorChain.value || []
-  const findVal = (...keys) => {
-    for (const k of keys) {
-      if (locs[k]) return String(locs[k])
-      const hit = chain.find(i => i.type === k || (k === 'id' && i.type === 'resource_id'))
-      if (hit?.value) return String(hit.value)
-    }
-    if (pick?.locator_type && keys.includes(pick.locator_type) && pick.locator_value) return String(pick.locator_value)
-    return ''
+  if (chain.length) {
+    return chain.map(item => ({
+      key: item.type,
+      label: formatLocatorType(item.type === 'resource_id' ? 'id' : item.type),
+      value: item.value || '',
+      pass_rate: item.pass_rate,
+      recommended: !!item.recommended
+    }))
   }
-  const idVal = findVal('id', 'resource_id')
-  const textVal = findVal('text')
-  const descVal = findVal('content_desc')
-  const xpathVal = findVal('xpath', 'xpath_desc', 'absolute_xpath', 'relative_xpath')
-  const recType = recommendedLocatorItem.value?.type
-  return [
-    { key: 'id', label: '资源 ID 定位', value: idVal, recommended: recType === 'id' || recType === 'resource_id' || (!recType && !!idVal) },
-    { key: 'text', label: '文本内容定位', value: textVal, recommended: recType === 'text' },
-    { key: 'content_desc', label: '内容描述定位', value: descVal, recommended: recType === 'content_desc' },
-    { key: 'xpath', label: '路径通用定位', value: xpathVal, recommended: ['xpath', 'xpath_desc', 'absolute_xpath', 'relative_xpath'].includes(recType) }
-  ]
+  return []
 })
+
+function normalizeLocatorType(type) {
+  return type === 'resource_id' ? 'id' : type
+}
 
 const onlineDeviceCount = computed(() => androidDevices.value.filter(d => isDeviceOnline(d)).length)
 const offlineDeviceCount = computed(() => androidDevices.value.filter(d => !isDeviceOnline(d)).length)
@@ -792,33 +762,62 @@ function hasDuplicateRisk(pick) {
   return (pick?.risk_tags || []).includes('duplicate')
 }
 
+function duplicateRiskDetail(pick) {
+  const reasons = (pick?.risk_reasons || []).filter(r => String(r).includes('匹配') || String(r).includes('重复'))
+  if (reasons.length) return reasons.join('；')
+  return '该定位在当前页面存在多处匹配，保存前请在定位链中改选更唯一的主定位（如带 resource-id / 更长 content-desc 的项）。'
+}
+
+async function focusLocatorChainPanel() {
+  await nextTick()
+  pickResultPanelRef.value?.focusChainSection?.()
+}
+
 async function confirmDuplicateIfNeeded(actionLabel = '继续') {
   if (!hasDuplicateRisk(currentPick.value)) return true
   try {
     await ElMessageBox.confirm(
-      '当前定位在当前页面匹配多处，可能误点。请确认主定位唯一，或在定位链中调整策略后再操作。',
+      duplicateRiskDetail(currentPick.value),
       '重复匹配预警',
-      { type: 'warning', confirmButtonText: actionLabel, cancelButtonText: '取消' }
+      {
+        type: 'warning',
+        confirmButtonText: actionLabel,
+        cancelButtonText: '去调整定位链',
+        distinguishCancelAndClose: true
+      }
     )
     return true
-  } catch {
+  } catch (action) {
+    if (action === 'cancel') {
+      await focusLocatorChainPanel()
+      ElMessage.info('已定位到定位链，请点选更唯一的方案设为主定位')
+    }
     return false
+  }
+}
+
+async function notifyDuplicateRisk(pick) {
+  if (!hasDuplicateRisk(pick)) return
+  try {
+    await ElMessageBox.confirm(
+      duplicateRiskDetail(pick),
+      '重复匹配预警',
+      {
+        type: 'warning',
+        confirmButtonText: '去调整定位链',
+        cancelButtonText: '我知道了',
+        distinguishCancelAndClose: true
+      }
+    )
+    await focusLocatorChainPanel()
+    ElMessage.info('请在定位链中点选更唯一的方案设为主定位，再保存或应用')
+  } catch {
+    // 我知道了 / 关闭
   }
 }
 
 function shortClass(clazz) {
   return String(clazz || '').split('.').pop() || clazz
-}
-
-function isLocatorExpanded(idx) {
-  return expandedLocators.value.has(idx)
-}
-
-function toggleLocatorExpand(idx) {
-  const next = new Set(expandedLocators.value)
-  if (next.has(idx)) next.delete(idx)
-  else next.add(idx)
-  expandedLocators.value = next
 }
 
 function truncateLocator(val, max = 48) {
@@ -887,11 +886,18 @@ function syncChainToPick() {
 
 function updateLayoutSize() {
   const { w, h } = frameSizeFromDevice(device.value || { screen_width: frameW.value, screen_height: frameH.value })
+  // 以投屏区高度驱动等比缩放，宽度跟随比例，避免左右大块留白
+  const body = screenBodyRef.value
+  const boxH = body?.clientHeight || 0
+  if (boxH > 40) {
+    layoutStyle.value = fixedScreenFrameStyleInBox(w, h, 10000, boxH - 2, NAV_BAR_HEIGHT)
+    return
+  }
   layoutStyle.value = fixedScreenFrameStyle(
     w,
     h,
-    frameMaxHeight('calc(100vh - 220px)', NAV_BAR_HEIGHT),
-    Math.min(window.innerWidth * 0.38, 420)
+    frameMaxHeight('calc(100vh - 160px)', NAV_BAR_HEIGHT),
+    Math.min(window.innerWidth * 0.42, 520)
   )
 }
 
@@ -921,6 +927,12 @@ function setChainPrimary(index) {
     ...item,
     primary: idx === index
   }))
+  syncChainToPick()
+}
+
+function toggleChainEnabled(index, enabled) {
+  if (index < 0 || index >= locatorChain.value.length) return
+  locatorChain.value[index].enabled = !!enabled
   syncChainToPick()
 }
 
@@ -961,6 +973,7 @@ function maybeFillControlForm(pick) {
 }
 
 function goHub() {
+  clearPickHighlight()
   router.push('/element-picker')
 }
 
@@ -969,7 +982,11 @@ function goReturn() {
 }
 
 function openPicker(id) {
-  router.push(`/element-picker/${id}`)
+  // 保留来源 query（如 return_fill），避免跳转设备页后丢上下文；路由名变化会重挂载一次工作台属预期
+  router.push({
+    path: `/element-picker/${id}`,
+    query: { ...route.query }
+  })
 }
 
 async function loadDevices() {
@@ -1034,10 +1051,28 @@ async function addWhitelistFromHub() {
   await loadDevices()
 }
 
+async function confirmEndPick() {
+  try {
+    await ElMessageBox.confirm(
+      '结束拾取将断开投屏并返回设备列表，当前画面上的高亮会消失。历史拾取记录仍保留在本机，可再次进入查看。',
+      '确认结束拾取？',
+      {
+        type: 'warning',
+        confirmButtonText: '结束拾取',
+        cancelButtonText: '继续拾取',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+  } catch {
+    return
+  }
+  endPickSession()
+}
+
 function endPickSession() {
   try { stopStream() } catch { /* ignore */ }
   currentPick.value = null
-  lastPickMarker.value = null
+  clearPickHighlight()
   goHub()
 }
 
@@ -1048,31 +1083,100 @@ function captureScreenshot() {
     return
   }
   try {
-    const url = canvas.toDataURL('image/png')
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `picker-${deviceId.value || 'screen'}-${Date.now()}.png`
-    a.click()
-    ElMessage.success('截图已下载')
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        ElMessage.error('截图失败')
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `picker-${deviceId.value || 'screen'}-${Date.now()}.png`
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      ElMessage.success('截图已下载')
+    }, 'image/png')
   } catch (e) {
     ElMessage.error('截图失败')
   }
 }
 
+async function confirmClearPickInfo() {
+  try {
+    await ElMessageBox.confirm(
+      '将清空当前已展示的控件定位信息与画面高亮。拾取历史仍可在「拾取历史」中回看。',
+      '确认清空拾取信息？',
+      {
+        type: 'warning',
+        confirmButtonText: '确认清空',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+  clearCurrentPick()
+}
+
 function clearCurrentPick() {
   currentPick.value = null
-  lastPickMarker.value = null
   locatorChain.value = []
   validateResult.value = null
   validateAttempts.value = []
+  hierarchyCurrentId.value = ''
+  clearPickHighlight()
   ElMessage.success('已清空当前拾取数据')
+}
+
+function goCreateCaseFromPick() {
+  if (!currentPick.value) {
+    ElMessage.warning('请先拾取控件')
+    return
+  }
+  const patch = buildPatchFromPick(currentPick.value)
+  if (!patch.locator_value && !Object.keys(patch.locators || {}).length) {
+    ElMessage.warning('当前控件缺少定位信息，请先识别或手动补充')
+    return
+  }
+  try {
+    sessionStorage.setItem(PICK_TO_CASE_KEY, JSON.stringify({
+      ...patch,
+      bounds: currentPick.value.bounds || '',
+      text: currentPick.value.text || '',
+      class: currentPick.value.class || '',
+      device_id: deviceId.value,
+      device_label: device.value?.model || device.value?.name || '',
+      picked_at: currentPick.value.picked_at || Date.now()
+    }))
+  } catch {
+    ElMessage.error('无法暂存拾取数据')
+    return
+  }
+  router.push({ path: '/cases/editor', query: { asset: '1', from_pick: '1' } })
 }
 
 function copyAllLocators() {
   if (!currentPick.value) return
-  const lines = locatorSchemes.value
-    .filter(s => s.value)
-    .map(s => `${s.label}: ${s.value}`)
+  const lines = []
+  const rec = recommendedLocatorItem.value
+  if (rec?.value) {
+    lines.push(`推荐·${formatLocatorType(normalizeLocatorType(rec.type))}: ${rec.value}`)
+  }
+  for (const s of alternativeSchemes.value) {
+    if (!s.value || s.recommended) continue
+    lines.push(`${s.label}: ${s.value}`)
+  }
+  for (const item of locatorChain.value) {
+    if (!item?.value || item.enabled === false) continue
+    const label = formatLocatorType(normalizeLocatorType(item.type))
+    const row = `${label}: ${item.value}`
+    if (!lines.includes(row) && !(rec?.value && item.value === rec.value)) {
+      lines.push(`链·${row}`)
+    }
+  }
   if (!lines.length) {
     copyJson()
     return
@@ -1113,7 +1217,8 @@ function bindCanvasPipeline() {
   if (renderer) renderer.destroy()
   renderer = createScreenCanvasRenderer(canvasRef, {
     onFrameDrawn: () => {
-      hasFrame.value = true
+      if (!hasFrame.value) hasFrame.value = true
+      maybeClearHighlightOnDarkScreen()
     }
   })
   if (detachFrame) detachFrame()
@@ -1143,16 +1248,63 @@ function mapCoords(event) {
   }
 }
 
+async function loadUiHierarchy({ force = false } = {}) {
+  if (!deviceId.value || !connected.value) return
+  hierarchyLoading.value = true
+  try {
+    const res = await deviceApi.screenUiHierarchy(deviceId.value, { force: !!force })
+    const data = res.data || {}
+    if (data.ok && data.root) {
+      hierarchyRoot.value = data.root
+      hierarchyNodeCount.value = Number(data.nodeCount || 0)
+      hierarchyTruncated.value = !!data.truncated
+      if (data.dump_source) applyDumpSource(data.dump_source)
+      uiTreeReady.value = true
+    } else {
+      hierarchyRoot.value = null
+      hierarchyNodeCount.value = 0
+      ElMessage.warning(data.error || data.message || '获取 UI 树失败')
+    }
+  } catch (e) {
+    hierarchyRoot.value = null
+    ElMessage.warning(apiErrorMessage(e, '获取 UI 树失败'))
+  } finally {
+    hierarchyLoading.value = false
+  }
+}
+
 async function refreshUiTree() {
   if (!connected.value) return
+  // 刷新 UI 树通常表示页面已变化，收起旧高亮
+  clearPickHighlight()
+  hierarchyCurrentId.value = ''
   warming.value = true
   uiTreeReady.value = false
   try {
-    const res = await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
-    uiTreeReady.value = true
-    pageContext.value = res.data?.page_context || 'native'
-    const ctxHint = pageContext.value !== 'native' ? `（${pageContextLabel.value}）` : ''
-    ElMessage.success(`UI 树已刷新${ctxHint}，可点击画面识别控件`)
+    // 优先 prepare：首次安装 ATX + u2 hierarchy 验证
+    let res
+    try {
+      res = await deviceApi.screenPrepareUi(deviceId.value)
+    } catch {
+      res = await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
+    }
+    const data = res.data || {}
+    uiTreeReady.value = !!data.ok
+    pageContext.value = data.page_context || data.warm?.page_context || 'native'
+    applyAppProfile(data.app_profile || data.warm?.app_profile)
+    applyDumpSource(data.dump_source || data.source || data.warm?.dump_source)
+    if (data.need_user_action) {
+      ElMessage.warning(data.message || '请在手机上确认安装/授权 ATX 组件后再次刷新')
+    } else if (data.ok) {
+      await loadUiHierarchy({ force: false })
+      const strategy = appProfile.value?.strategy_label
+      const src = dumpSourceLabel.value
+      const ctxHint = pageContext.value !== 'native' ? `（${pageContextLabel.value}）` : ''
+      const strategyHint = strategy ? `，推荐：${strategy}` : ''
+      ElMessage.success(`UI 树已刷新 · ${src}${ctxHint}${strategyHint}`)
+    } else {
+      ElMessage.warning(data.message || data.error || 'UI 树刷新失败')
+    }
   } catch (e) {
     ElMessage.warning(apiErrorMessage(e, 'UI 树刷新失败'))
   } finally {
@@ -1160,15 +1312,48 @@ async function refreshUiTree() {
   }
 }
 
+async function onHierarchyNodeSelect(node) {
+  if (!node?.bounds || !connected.value) return
+  if (inspecting.value) return
+  interactionMode.value = 'pick'
+  inspecting.value = true
+  hierarchyCurrentId.value = node.id || ''
+  try {
+    const res = await deviceApi.screenInspectBounds(deviceId.value, { bounds: node.bounds })
+    const data = res.data || {}
+    if (!data.bounds && node.bounds) data.bounds = node.bounds
+    if (node.contentDesc && !data.content_desc) data.content_desc = node.contentDesc
+    if (node.package && !data.package) data.package = node.package
+    if (node.index != null && data.index == null) data.index = node.index
+    applyPickResult(data)
+  } catch (e) {
+    ElMessage.error(apiErrorMessage(e, '选中控件失败'))
+  } finally {
+    inspecting.value = false
+  }
+}
+
 async function inspectAt(x, y) {
+  if (inspecting.value) return null
   inspecting.value = true
   lastPickMarker.value = { x, y }
   try {
+    // 仅在尚未预热时同步 dump；已就绪则直接用缓存，避免每次拾取都 uiautomator dump 导致画面闪烁
     if (!uiTreeReady.value) {
       warming.value = true
       try {
-        await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
-        uiTreeReady.value = true
+        let warmRes
+        try {
+          warmRes = await deviceApi.screenPrepareUi(deviceId.value)
+        } catch {
+          warmRes = await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
+        }
+        applyAppProfile(warmRes.data?.app_profile || warmRes.data?.warm?.app_profile)
+        applyDumpSource(warmRes.data?.dump_source || warmRes.data?.source || warmRes.data?.warm?.dump_source)
+        if (warmRes.data?.page_context || warmRes.data?.warm?.page_context) {
+          pageContext.value = warmRes.data.page_context || warmRes.data.warm.page_context
+        }
+        uiTreeReady.value = !!warmRes.data?.ok
       } finally {
         warming.value = false
       }
@@ -1180,23 +1365,33 @@ async function inspectAt(x, y) {
       x, y, display_width: dw, display_height: dh, blocking: true
     })
     let data = { ...(res.data || {}), x, y, id: ++pickSeq }
+    applyAppProfile(data.app_profile)
+    applyDumpSource(data.dump_source)
 
     if (data.inspect_error === 'cache_miss' || data.inspect_error === 'ui_dump_failed') {
-      await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
-      uiTreeReady.value = true
+      uiTreeReady.value = false
+      warming.value = true
+      try {
+        let warmRes
+        try {
+          warmRes = await deviceApi.screenPrepareUi(deviceId.value)
+        } catch {
+          warmRes = await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
+        }
+        applyAppProfile(warmRes.data?.app_profile || warmRes.data?.warm?.app_profile)
+        applyDumpSource(warmRes.data?.dump_source || warmRes.data?.source)
+        uiTreeReady.value = !!warmRes.data?.ok
+      } finally {
+        warming.value = false
+      }
       res = await deviceApi.screenInspect(deviceId.value, {
         x, y, display_width: dw, display_height: dh, blocking: true
       })
       data = { ...(res.data || {}), x, y, id: data.id }
+      applyAppProfile(data.app_profile)
     }
 
-    if (isWeakPick(data)) {
-      res = await deviceApi.screenInspect(deviceId.value, {
-        x, y, display_width: dw, display_height: dh, blocking: true
-      })
-      data = { ...(res.data || {}), x, y, id: data.id }
-    }
-
+    // 弱命中重试已在执行器端完成，前端不再二次 inspect，避免重复 dump 闪屏
     applyPickResult(data)
     return data
   } catch (e) {
@@ -1228,26 +1423,45 @@ function applyPickResult(data) {
   pickHistory.value.unshift(merged)
   if (pickHistory.value.length > 30) pickHistory.value.pop()
   persistPickHistory(pickHistory.value)
+  lastPickMarker.value = { x: merged.inspect_x ?? merged.x, y: merged.inspect_y ?? merged.y }
+  triggerHighlightFlash()
+  // 点屏结果同步到中间 UI 树
+  syncTreeSelectionByBounds(merged.bounds)
   maybeFillControlForm(merged)
   validateResult.value = null
   validateAttempts.value = []
   showValidateDetail.value = false
-  expandedLocators.value = new Set()
+  applyAppProfile(merged.app_profile)
   if (merged.auto_context_switched) {
     ElMessage.success(merged.context_hint || '已自动切换 WebView 上下文')
   } else if (merged.context) {
     pageContext.value = merged.context
   }
-  if (!merged.valid || isWeakPick(merged)) {
-    ElMessage.warning(isWeakPick(merged) ? '识别到高风险控件，请检查定位链或手动补充' : '未识别到稳定控件，可手动填写定位')
+  if (merged.source === 'ocr_screen' && merged.valid) {
+    ElMessage.success(merged.strategy_applied === 'ocr_first'
+      ? '已按 App 类型优先使用 OCR 识别'
+      : 'OCR 识别成功')
+  } else if (!merged.valid || isWeakPick(merged)) {
+    const preferOcr = merged.prefer_ocr || appProfile.value?.recommended_strategy === 'ocr'
+    ElMessage.warning(
+      preferOcr
+        ? (merged.strategy_hint || '当前 App 不适合纯 UI 树，请用 OCR 兜底或屏幕坐标')
+        : (isWeakPick(merged) ? '识别到高风险控件，请检查定位链或手动补充' : '未识别到稳定控件，可手动填写定位')
+    )
   }
   if (hasDuplicateRisk(merged)) {
-    ElMessageBox.alert(
-      '该定位在当前页面存在多处匹配，请从定位链中选择更唯一的主定位后再保存或应用。',
-      '重复匹配预警',
-      { type: 'warning' }
-    ).catch(() => {})
+    notifyDuplicateRisk(merged)
   }
+}
+
+function syncTreeSelectionByBounds(bounds) {
+  const b = String(bounds || '').trim()
+  if (!b || !hierarchyRoot.value) {
+    hierarchyCurrentId.value = ''
+    return
+  }
+  const hit = hierarchyTreeRef.value?.findByBounds?.(b)
+  hierarchyCurrentId.value = hit?.id || ''
 }
 
 async function validateCurrentLocator() {
@@ -1256,7 +1470,6 @@ async function validateCurrentLocator() {
   validateResult.value = null
   validateAttempts.value = []
   showValidateDetail.value = false
-  expandedLocators.value = new Set()
   try {
     const locators = chainToLocators(locatorChain.value)
     const res = await deviceApi.screenValidateLocator(deviceId.value, {
@@ -1265,6 +1478,12 @@ async function validateCurrentLocator() {
     })
     validateResult.value = res.data || {}
     validateAttempts.value = res.data?.attempts || []
+    // 校验后按实际命中结果重排优先级（可点击 > 存在 > 未命中）
+    locatorChain.value = sortLocatorChainByPassRate(
+      locatorChain.value,
+      currentPick.value?.platform || device.value?.platform || 'android',
+      validateAttempts.value
+    )
     const validatedAt = new Date().toISOString()
     const vr = {
       valid: !!res.data?.valid,
@@ -1274,7 +1493,12 @@ async function validateCurrentLocator() {
       validated_at: validatedAt
     }
     if (currentPick.value) {
-      currentPick.value = { ...currentPick.value, validate_result: vr, validated_at: validatedAt }
+      currentPick.value = {
+        ...currentPick.value,
+        validate_result: vr,
+        validated_at: validatedAt,
+        locator_chain: locatorChain.value
+      }
     }
     if (res.data?.valid) {
       ElMessage.success(`定位有效且可点击，命中 ${formatLocatorType(res.data.matched_by)}`)
@@ -1470,9 +1694,20 @@ function applyManualToCurrent() {
   ElMessage.success('已更新当前控件')
 }
 
-function clearPickHistory() {
+async function clearPickHistory() {
+  if (!pickHistory.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      `将清空本轮全部 ${pickHistory.value.length} 条拾取历史，清空后无法从本页回看。`,
+      '确认清空拾取历史？',
+      { type: 'warning', confirmButtonText: '确认清空', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
   pickHistory.value = []
   persistPickHistory([])
+  ElMessage.success('已清空拾取历史')
 }
 
 function selectHistory(item) {
@@ -1483,7 +1718,8 @@ function selectHistory(item) {
   validateResult.value = null
   validateAttempts.value = []
   showValidateDetail.value = false
-  expandedLocators.value = new Set()
+  triggerHighlightFlash()
+  pickResultPanelRef.value?.switchPanelMode?.('current')
 }
 
 function copyText(text) {
@@ -1500,10 +1736,15 @@ function onMouseDown(event) {
   if (!connected.value) return
   dragStart = mapCoords(event)
   dragStartClient = { x: event.clientX, y: event.clientY }
+  window.addEventListener('mouseup', onMouseUp, { once: true })
 }
 
 async function onMouseUp(event) {
-  if (!dragStart || !dragStartClient || !connected.value) return
+  if (!dragStart || !dragStartClient || !connected.value) {
+    dragStart = null
+    dragStartClient = null
+    return
+  }
   const start = dragStart
   const startClient = dragStartClient
   const end = mapCoords(event)
@@ -1512,7 +1753,10 @@ async function onMouseUp(event) {
   dragStart = null
   dragStartClient = null
 
+  // 操控模式：拖拽=滑动，点击=点击；识别模式：点击=拾取，拖拽仍滑动设备以便翻页
   if (dx > SWIPE_THRESHOLD || dy > SWIPE_THRESHOLD) {
+    clearPickHighlight()
+    uiTreeReady.value = false
     try {
       await deviceApi.screenSwipe(deviceId.value, {
         x1: start.x, y1: start.y, x2: end.x, y2: end.y, duration_ms: 300
@@ -1529,6 +1773,7 @@ async function onMouseUp(event) {
   }
 
   try {
+    clearPickHighlight()
     await deviceApi.screenTap(deviceId.value, { x: end.x, y: end.y })
     uiTreeReady.value = false
   } catch (e) {
@@ -1538,6 +1783,8 @@ async function onMouseUp(event) {
 
 async function pressNavKey(key) {
   if (!connected.value) return
+  clearPickHighlight()
+  uiTreeReady.value = false
   try {
     await deviceApi.screenKey(deviceId.value, { key })
   } catch {
@@ -1546,8 +1793,8 @@ async function pressNavKey(key) {
 }
 
 async function connectStream() {
-  updateLayoutSize()
   await nextTick()
+  updateLayoutSize()
   bindCanvasPipeline()
   await startStream()
   redrawLastFrame()
@@ -1557,6 +1804,29 @@ async function connectStream() {
 function onWindowResize() {
   updateLayoutSize()
   redrawLastFrame()
+}
+
+let screenWrapObserver = null
+
+function bindScreenWrapObserver() {
+  if (screenWrapObserver || typeof ResizeObserver === 'undefined') return
+  nextTick(() => {
+    const target = screenBodyRef.value || screenWrapRef.value
+    if (!target) return
+    screenWrapObserver = new ResizeObserver(() => {
+      updateLayoutSize()
+      redrawLastFrame()
+    })
+    screenWrapObserver.observe(target)
+    updateLayoutSize()
+  })
+}
+
+function unbindScreenWrapObserver() {
+  if (screenWrapObserver) {
+    screenWrapObserver.disconnect()
+    screenWrapObserver = null
+  }
 }
 
 watch(deviceId, async (id) => {
@@ -1585,6 +1855,7 @@ onMounted(async () => {
   window.addEventListener('resize', onWindowResize)
   nextTick(() => {
     bindCanvasPipeline()
+    bindScreenWrapObserver()
     resumeIfAlive()
     redrawLastFrame()
   })
@@ -1596,6 +1867,7 @@ onActivated(() => {
     resumeIfAlive()
     nextTick(() => {
       bindCanvasPipeline()
+      bindScreenWrapObserver()
       redrawLastFrame()
     })
   }
@@ -1603,6 +1875,7 @@ onActivated(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', onWindowResize)
+  unbindScreenWrapObserver()
   if (detachFrame) detachFrame()
   if (detachMeta) detachMeta()
   if (renderer) renderer.destroy()
@@ -1612,6 +1885,13 @@ onUnmounted(() => {
 <style scoped>
 .picker-page {
   max-width: none;
+}
+.picker-page :deep(.picker-workbench-header) {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+}
+.picker-page :deep(.picker-workbench-header .page-header__title) {
+  font-size: 18px;
 }
 
 .status-banner {
@@ -1677,60 +1957,76 @@ onUnmounted(() => {
 .hub-empty p { margin: 0 0 16px; }
 .hub-empty__actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
 
-.screen-card-head {
+.screen-card-title {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+  line-height: 1.2;
   width: 100%;
-  font-weight: 600;
 }
-.screen-card-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.basic-info-block { margin-bottom: 12px; }
-.basic-info-title {
+.screen-title-text {
+  font-weight: 700;
   font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--atp-text);
+  color: #0f172a;
+  white-space: nowrap;
 }
-.locator-schemes { margin: 12px 0; }
-.locator-scheme-card {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  background: var(--el-fill-color-blank);
-}
-.locator-scheme-card.recommend {
-  border-color: color-mix(in srgb, var(--el-color-success) 40%, #fff);
-  background: color-mix(in srgb, var(--el-color-success) 8%, #fff);
-}
-.scheme-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.scheme-head em {
-  font-style: normal;
-  color: var(--el-color-success);
-  font-weight: 500;
-  margin-left: 4px;
-}
-.scheme-value {
-  display: block;
+.screen-device-name {
   font-size: 12px;
-  word-break: break-all;
-  color: var(--atp-text-secondary);
+  font-weight: 600;
+  color: #64748b;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-body {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  width: fit-content;
+  max-width: 100%;
+}
+.screen-wrap {
+  line-height: 0;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+.screen-device {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--atp-radius-md, 12px);
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.15);
+}
+.screen-side-toolbar {
+  flex: 0 0 76px;
+  width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 2px 0;
+  overflow: auto;
+}
+.screen-side-toolbar .toolbar-sep {
+  height: 1px;
+  width: 100%;
+  background: #e2e8f0;
+  margin: 2px 0;
+}
+.screen-side-toolbar :deep(.el-button) {
+  width: 100%;
+  margin: 0;
+  padding: 7px 4px;
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .hist-name { font-weight: 600; color: var(--atp-text); }
@@ -1748,33 +2044,102 @@ onUnmounted(() => {
 
 .picker-workbench {
   display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(360px, 1fr);
-  gap: 20px;
-  align-items: start;
+  /* 投屏列随内容收缩，减少左右留白 */
+  grid-template-columns: max-content minmax(200px, 260px) minmax(300px, 1fr);
+  gap: 12px;
+  align-items: stretch;
 }
-@media (max-width: 960px) {
+.picker-workbench.inspector-3pane {
+  height: calc(100vh - 128px);
+  min-height: 560px;
+}
+@media (max-width: 1440px) {
   .picker-workbench {
-    grid-template-columns: 1fr;
+    grid-template-columns: max-content minmax(190px, 240px) minmax(280px, 1fr);
   }
 }
-.screen-panel {
-  position: sticky;
-  top: 12px;
+@media (max-width: 1280px) {
+  .picker-workbench {
+    grid-template-columns: max-content minmax(180px, 220px) minmax(260px, 1fr);
+  }
 }
-.screen-card :deep(.el-card__body) {
-  padding-bottom: 12px;
+@media (max-width: 1100px) {
+  .picker-workbench {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+  .screen-panel, .tree-panel, .detail-panel {
+    height: auto;
+    max-height: none;
+  }
+  .screen-panel {
+    min-height: 70vh;
+  }
+  .screen-body {
+    width: 100%;
+  }
+  .tree-panel {
+    max-height: 360px;
+  }
 }
-.screen-wrap {
-  line-height: 0;
-  width: fit-content;
-  margin: 0 auto;
-}
-.screen-device {
+.screen-panel,
+.tree-panel,
+.detail-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border-radius: var(--atp-radius-md, 12px);
+}
+.screen-panel {
+  width: max-content;
+  max-width: 100%;
+}
+.screen-panel > .screen-card,
+.tree-panel :deep(.ui-hierarchy-tree),
+.detail-panel > .pick-result-card {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.screen-card,
+.pick-result-card {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.15);
+  height: 100%;
+}
+.screen-card {
+  width: max-content;
+  max-width: 100%;
+}
+.screen-card :deep(.el-card__header),
+.pick-result-card :deep(.el-card__header) {
+  flex-shrink: 0;
+  padding: 8px 10px;
+}
+.screen-card :deep(.el-card__body),
+.pick-result-card :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px 8px;
+}
+.screen-card :deep(.el-card__body) {
+  padding-top: 4px;
+  overflow: hidden;
+}
+.detail-panel {
+  gap: 0;
+}
+.resolution-tag {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .screen-frame {
   position: relative;
@@ -1796,16 +2161,68 @@ onUnmounted(() => {
 .screen-canvas.picking {
   cursor: crosshair;
 }
-.pick-marker {
+.screen-canvas.operating {
+  cursor: grab;
+}
+.screen-canvas.operating:active {
+  cursor: grabbing;
+}
+.pick-highlight {
   position: absolute;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
-  border: 2px solid #f59e0b;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+  box-sizing: border-box;
   pointer-events: none;
-  z-index: 3;
+  border-radius: 3px;
+  z-index: 4;
+}
+.pick-highlight--current {
+  border: 2px solid #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+}
+.pick-highlight--current.is-flashing {
+  animation: pick-flash 0.85s ease-out 1;
+}
+@keyframes pick-flash {
+  0% {
+    background: rgba(37, 99, 235, 0.42);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.55), 0 0 18px rgba(59, 130, 246, 0.65);
+    border-color: #60a5fa;
+  }
+  55% {
+    background: rgba(37, 99, 235, 0.18);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+  }
+  100% {
+    background: rgba(37, 99, 235, 0.12);
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+    border-color: #2563eb;
+  }
+}
+.btn-end-pick {
+  --el-button-bg-color: #ef4444;
+  --el-button-border-color: #ef4444;
+  --el-button-text-color: #fff;
+  --el-button-hover-bg-color: #dc2626;
+  --el-button-hover-border-color: #dc2626;
+  --el-button-hover-text-color: #fff;
+}
+.btn-outline-blue {
+  --el-button-bg-color: #fff;
+  --el-button-border-color: #3b82f6;
+  --el-button-text-color: #2563eb;
+  --el-button-hover-bg-color: #eff6ff;
+  --el-button-hover-border-color: #2563eb;
+  --el-button-hover-text-color: #1d4ed8;
+  --el-button-disabled-bg-color: #fff;
+  --el-button-disabled-border-color: #bfdbfe;
+  --el-button-disabled-text-color: #93c5fd;
+}
+.btn-record-case {
+  --el-button-bg-color: #2563eb;
+  --el-button-border-color: #2563eb;
+  --el-button-hover-bg-color: #1d4ed8;
+  --el-button-hover-border-color: #1d4ed8;
+  font-weight: 600;
 }
 .screen-placeholder {
   position: absolute;
@@ -1824,29 +2241,11 @@ onUnmounted(() => {
   font-size: 12px;
   opacity: 0.85;
 }
-.detail-panel {
-  min-width: 0;
-}
-.pick-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.pick-toolbar :deep(.el-divider--vertical) {
-  height: 1.2em;
-  margin: 0 2px;
-}
 .pick-mode-row {
   margin-top: 12px;
 }
-.resolution-tag {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-left: auto;
-}
 .panel-block {
-  margin-top: 10px;
+  margin-top: 0;
 }
 .review-banner {
   padding: 10px 14px;
@@ -1866,66 +2265,113 @@ onUnmounted(() => {
   margin: 8px 0 0;
   line-height: 1.5;
 }
-.inspecting-tip {
+.app-profile-banner {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.app-profile-banner.is-ok {
+  border-color: color-mix(in srgb, var(--el-color-success) 35%, var(--el-border-color-lighter));
+  background: color-mix(in srgb, var(--el-color-success) 8%, var(--el-fill-color-blank));
+}
+.app-profile-banner.is-warn {
+  border-color: color-mix(in srgb, var(--el-color-warning) 40%, var(--el-border-color-lighter));
+  background: color-mix(in srgb, var(--el-color-warning) 10%, var(--el-fill-color-blank));
+}
+.app-profile-banner.is-ocr {
+  border-color: color-mix(in srgb, var(--el-color-danger) 30%, var(--el-border-color-lighter));
+  background: color-mix(in srgb, var(--el-color-danger) 8%, var(--el-fill-color-blank));
+}
+.app-profile-title {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.app-profile-pkg {
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+}
+.app-profile-reason {
+  margin-top: 4px;
+  color: var(--el-text-color-regular);
+}
+.app-profile-meta {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+}
+.app-profile-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--el-color-warning-dark-2, #b45309);
+}
+.inspecting-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  background: rgba(255, 255, 255, 0.72);
   color: var(--el-color-primary);
   font-size: 13px;
+  border-radius: inherit;
+  pointer-events: none;
 }
 .spin {
-  animation: spin 1s linear infinite;
+  animation: spin 0.9s linear infinite;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-.pick-result-card :deep(.el-card__body) {
-  padding-top: 10px;
-}
 .pick-result-card {
-  --pick-card-gap: 6px;
-  --pick-card-pad: 8px 10px;
-  --pick-card-radius: 8px;
-  --pick-row-gap: 5px;
-  --pick-surface: var(--el-fill-color-blank);
-  --pick-surface-muted: var(--el-fill-color-light);
-  --pick-border: var(--el-border-color-lighter);
-  --pick-rec-bg: color-mix(in srgb, var(--el-color-success) 10%, var(--el-fill-color-blank));
-  --pick-rec-border: color-mix(in srgb, var(--el-color-success) 24%, var(--el-border-color-lighter));
-  --pick-sel-bg: color-mix(in srgb, var(--el-color-primary) 10%, var(--el-fill-color-blank));
-  --pick-sel-border: color-mix(in srgb, var(--el-color-primary) 24%, var(--el-border-color-lighter));
-  --pick-primary-row: color-mix(in srgb, var(--el-color-primary) 8%, var(--el-fill-color-blank));
-  --pick-hover-shadow: 0 1px 6px color-mix(in srgb, var(--el-text-color-primary) 7%, transparent);
-  --pick-badge-rec-bg: color-mix(in srgb, var(--el-color-success) 18%, var(--el-fill-color-light));
-  --pick-badge-bg: color-mix(in srgb, var(--el-color-primary) 18%, var(--el-fill-color-light));
-  --pick-rank-rec-bg: color-mix(in srgb, var(--el-color-success) 16%, var(--el-fill-color-light));
-  --pick-validate-ok: color-mix(in srgb, var(--el-color-success) 12%, var(--el-fill-color-blank));
-  --pick-validate-fail: color-mix(in srgb, var(--el-color-danger) 12%, var(--el-fill-color-blank));
-  --pick-detail-bg: var(--el-fill-color-lighter);
+  position: relative;
+  min-height: 0;
 }
-.pick-summary {
+.pick-result-card :deep(.pick-result-panel) {
+  flex: 1;
+  min-height: 0;
+}
+.pick-result-body {
   display: flex;
   flex-direction: column;
   gap: var(--pick-card-gap);
 }
-.pick-title-row {
+.pick-result-body.dimmed {
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+.pick-result-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
 }
-.pick-title {
+.pick-result-title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
   color: var(--el-text-color-primary);
 }
-.pick-badges {
+.pick-result-title-sep {
+  margin: 0 6px;
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
+}
+.pick-result-title-name {
+  color: var(--el-color-primary);
+}
+.pick-status-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  justify-content: flex-end;
 }
 .pick-alert {
   margin: 0;
@@ -1933,250 +2379,251 @@ onUnmounted(() => {
 .pick-alert :deep(.el-alert) {
   padding: 6px 10px;
 }
-.primary-loc-card.recommended {
-  background: var(--pick-rec-bg);
-  border-color: var(--pick-rec-border);
-}
-.primary-loc-card.selected {
-  background: var(--pick-sel-bg);
-  border-color: var(--pick-sel-border);
-}
-.plc-badge.rec {
-  color: var(--el-color-success);
-  background: var(--pick-badge-rec-bg);
-}
-.primary-loc-card {
-  padding: var(--pick-card-pad);
-  border-radius: var(--pick-card-radius);
+.result-block {
   border: 1px solid var(--pick-border);
+  border-radius: var(--pick-card-radius);
+  background: var(--pick-surface-muted);
+  padding: var(--pick-card-pad);
 }
-.plc-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-.plc-reason {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.4;
-}
-.plc-badge {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--el-color-primary);
-  background: var(--pick-badge-bg);
-  padding: 1px 7px;
-  border-radius: 999px;
-}
-.plc-type {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.plc-value-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-}
-.plc-value {
-  flex: 1;
-  font-size: 12px;
-  line-height: 1.5;
-  word-break: break-all;
-  color: var(--el-text-color-primary);
-  background: transparent;
-}
-.pick-desc {
-  margin-top: 0;
-}
-.pick-desc :deep(.el-descriptions__cell) {
-  padding: 4px 8px !important;
-}
-.pick-desc :deep(.el-descriptions__label) {
-  width: 72px;
-}
-.loc-chain-section {
-  margin-top: 2px;
-}
-.section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 5px;
-}
-.section-title {
+.result-block-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--el-text-color-primary);
-}
-.section-sub {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-}
-.loc-list {
+  margin-bottom: 10px;
   display: flex;
-  flex-direction: column;
-  gap: var(--pick-row-gap);
-}
-.loc-item {
-  display: grid;
-  grid-template-columns: 24px 1fr auto;
+  align-items: baseline;
   gap: 8px;
-  align-items: start;
-  padding: 7px 9px;
-  border-radius: var(--pick-card-radius);
-  border: 1px solid var(--pick-border);
-  background: var(--pick-surface);
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s, background 0.15s;
+  flex-wrap: wrap;
 }
-.loc-item:hover {
-  border-color: color-mix(in srgb, var(--el-color-primary) 35%, var(--pick-border));
-  box-shadow: var(--pick-hover-shadow);
-}
-.loc-item.primary {
-  border-color: color-mix(in srgb, var(--el-color-primary) 35%, var(--pick-border));
-  background: var(--pick-primary-row);
-}
-.loc-item.off {
-  opacity: 0.55;
-}
-.loc-rank {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  background: var(--pick-surface-muted);
+.result-block-sub {
+  font-size: 12px;
+  font-weight: 400;
   color: var(--el-text-color-secondary);
-  font-size: 10px;
-  font-weight: 600;
+}
+.basic-info-card {
+  background: color-mix(in srgb, var(--el-fill-color-light) 70%, var(--el-fill-color-blank));
+}
+.info-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+}
+.info-table th,
+.info-table td {
+  border: 1px solid var(--pick-border);
+  padding: 8px 10px;
+  vertical-align: middle;
+  word-break: break-all;
+}
+.info-table th {
+  width: 18%;
+  background: color-mix(in srgb, var(--el-fill-color) 80%, transparent);
+  color: var(--el-text-color-secondary);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+.info-table td {
+  width: 32%;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-primary);
+}
+.recommend-card {
+  background: var(--pick-rec-bg);
+  border-color: var(--pick-rec-border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--el-color-success) 12%, transparent);
+}
+.recommend-card-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-top: 1px;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
 }
-.loc-item.primary .loc-rank {
-  background: var(--el-color-primary);
-  color: #fff;
-}
-.loc-item.recommended:not(.primary) {
-  border-left: 2px solid color-mix(in srgb, var(--el-color-success) 55%, var(--pick-border));
-}
-.loc-rank.rec {
-  background: var(--pick-rank-rec-bg);
+.recommend-card-title {
+  font-size: 14px;
+  font-weight: 650;
   color: var(--el-color-success);
 }
-.loc-item.primary .loc-rank.rec {
-  background: var(--el-color-primary);
-  color: #fff;
+.recommend-card-value {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--el-fill-color-blank) 88%, var(--el-color-success));
+  border: 1px solid color-mix(in srgb, var(--el-color-success) 18%, var(--el-border-color-lighter));
+  color: var(--el-text-color-primary);
 }
-.loc-main {
+.recommend-card-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+.alt-schemes-card {
+  background: var(--el-fill-color-blank);
+}
+.alt-scheme-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+}
+.alt-scheme-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.alt-scheme-row:first-of-type {
+  padding-top: 0;
+}
+.alt-scheme-row.empty {
+  opacity: 0.45;
+}
+.alt-scheme-name {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+.alt-scheme-value {
+  font-size: 12px;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alt-scheme-row.empty .alt-scheme-value {
+  color: var(--el-text-color-placeholder);
+  font-style: italic;
+}
+.relative-config-card {
+  background: var(--el-fill-color-blank);
+}
+.relative-cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.relative-col {
+  border: 1px solid var(--pick-border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--pick-surface-muted);
   min-width: 0;
 }
-.loc-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 2px;
-}
-.loc-type {
+.relative-col-title {
   font-size: 12px;
-  font-weight: 500;
-  color: var(--el-text-color-regular);
-}
-.loc-value {
-  display: block;
-  font-size: 11px;
-  line-height: 1.45;
-  word-break: break-all;
+  font-weight: 600;
+  margin-bottom: 8px;
   color: var(--el-text-color-primary);
-  background: transparent;
 }
-.loc-value.clamp {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.loc-expand {
-  margin-top: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--el-color-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-.loc-side {
+.relative-col-body {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  gap: 8px;
 }
-.loc-order {
+.region-inner {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 6px;
+}
+.chain-manage-card {
+  background: var(--el-fill-color-blank);
+}
+.chain-table {
+  border: 1px solid var(--pick-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.chain-table-head,
+.chain-table-row {
+  display: grid;
+  grid-template-columns: 64px 150px minmax(0, 1fr) 64px 72px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.chain-table-head {
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  border-bottom: 1px solid var(--pick-border);
+}
+.chain-table-row {
+  font-size: 12px;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.chain-table-row:last-child {
+  border-bottom: none;
+}
+.chain-table-row:hover {
+  background: var(--el-fill-color-lighter);
+}
+.chain-table-row.recommend {
+  background: color-mix(in srgb, var(--el-color-success) 8%, var(--el-fill-color-blank));
+}
+.chain-table-row.off {
+  opacity: 0.5;
+}
+.chain-table-row .col-pri {
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  text-align: center;
+}
+.chain-table-row .col-name {
+  color: var(--el-text-color-primary);
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.chain-table-row .col-name em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--el-color-success);
+  background: color-mix(in srgb, var(--el-color-success) 14%, transparent);
+  padding: 0 6px;
+  border-radius: 999px;
+}
+.chain-table-row .col-expr {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-regular);
+}
+.chain-table-row .col-enable,
+.chain-table-row .col-sort {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+@media (max-width: 1100px) {
+  .relative-cols {
+    grid-template-columns: 1fr;
+  }
+  .alt-scheme-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .chain-table-head,
+  .chain-table-row {
+    grid-template-columns: 48px minmax(0, 1fr) 56px 64px;
+  }
+  .chain-table-head .col-name,
+  .chain-table-row .col-name {
+    display: none;
+  }
 }
 .validate-meta {
   font-size: 11px;
   color: var(--el-text-color-secondary);
-  margin-top: 6px;
-}
-.relative-section {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--pick-border);
-}
-.section-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-.section-sub {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-}
-.relative-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.relative-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--pick-border);
-  border-radius: 6px;
-  background: var(--pick-surface-muted);
-}
-.rc-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--el-text-color-regular);
-}
-.rc-preview {
-  font-size: 10px;
-  line-height: 1.4;
-  word-break: break-all;
-  color: var(--el-text-color-secondary);
-  background: transparent;
-}
-.region-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-@media (max-width: 1200px) {
-  .relative-grid {
-    grid-template-columns: 1fr;
-  }
 }
 .validate-banner {
   display: flex;
@@ -2282,23 +2729,16 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+
 @media (prefers-color-scheme: dark) {
   .pick-result-card {
     --pick-surface: #161b22;
     --pick-surface-muted: #1c2430;
     --pick-border: #2f3a4a;
-    --pick-detail-bg: #1c2430;
     --pick-rec-bg: color-mix(in srgb, var(--el-color-success) 14%, #161b22);
     --pick-rec-border: color-mix(in srgb, var(--el-color-success) 32%, #2f3a4a);
-    --pick-sel-bg: color-mix(in srgb, var(--el-color-primary) 14%, #161b22);
-    --pick-sel-border: color-mix(in srgb, var(--el-color-primary) 32%, #2f3a4a);
-    --pick-primary-row: color-mix(in srgb, var(--el-color-primary) 12%, #161b22);
-    --pick-badge-rec-bg: color-mix(in srgb, var(--el-color-success) 22%, #1c2430);
-    --pick-badge-bg: color-mix(in srgb, var(--el-color-primary) 22%, #1c2430);
-    --pick-rank-rec-bg: color-mix(in srgb, var(--el-color-success) 20%, #1c2430);
     --pick-validate-ok: color-mix(in srgb, var(--el-color-success) 16%, #161b22);
     --pick-validate-fail: color-mix(in srgb, var(--el-color-danger) 16%, #161b22);
-    --pick-hover-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
   }
 }
 
@@ -2306,17 +2746,10 @@ onUnmounted(() => {
   --pick-surface: var(--el-bg-color-overlay, #1d1e1f);
   --pick-surface-muted: var(--el-fill-color-light, #262727);
   --pick-border: var(--el-border-color-lighter, #414243);
-  --pick-detail-bg: var(--el-fill-color-lighter, #2b2b2c);
   --pick-rec-bg: color-mix(in srgb, var(--el-color-success) 14%, var(--el-bg-color, #141414));
   --pick-rec-border: color-mix(in srgb, var(--el-color-success) 30%, var(--el-border-color-lighter, #414243));
-  --pick-sel-bg: color-mix(in srgb, var(--el-color-primary) 14%, var(--el-bg-color, #141414));
-  --pick-sel-border: color-mix(in srgb, var(--el-color-primary) 30%, var(--el-border-color-lighter, #414243));
-  --pick-primary-row: color-mix(in srgb, var(--el-color-primary) 12%, var(--el-bg-color, #141414));
-  --pick-badge-rec-bg: color-mix(in srgb, var(--el-color-success) 20%, var(--el-fill-color-light, #262727));
-  --pick-badge-bg: color-mix(in srgb, var(--el-color-primary) 20%, var(--el-fill-color-light, #262727));
-  --pick-rank-rec-bg: color-mix(in srgb, var(--el-color-success) 18%, var(--el-fill-color-light, #262727));
-  --pick-validate-ok: color-mix(in srgb, var(--el-color-success) 15%, var(--el-bg-color, #141414));
-  --pick-validate-fail: color-mix(in srgb, var(--el-color-danger) 15%, var(--el-bg-color, #141414));
-  --pick-hover-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  --pick-validate-ok: color-mix(in srgb, var(--el-color-success) 16%, var(--el-bg-color, #141414));
+  --pick-validate-fail: color-mix(in srgb, var(--el-color-danger) 16%, var(--el-bg-color, #141414));
 }
+
 </style>

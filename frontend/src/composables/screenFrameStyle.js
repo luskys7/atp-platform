@@ -19,6 +19,28 @@ export function parseCssMaxHeight(maxHeight, extraPx = 0) {
   return Math.max(160, window.innerHeight - 220 - extraPx)
 }
 
+/**
+ * 将设备画面等比放入给定像素盒内（完整展示、不裁切、不超出）。
+ * @param {number} navBarPx 底部导航条预留高度
+ */
+export function computeFrameLayoutInBox(streamW, streamH, boxW, boxH, navBarPx = 0) {
+  const w = Math.max(1, streamW || 9)
+  const h = Math.max(1, streamH || 16)
+  const ratio = w / h
+  const availW = Math.max(64, Number(boxW) || 0)
+  const availH = Math.max(64, (Number(boxH) || 0) - Math.max(0, navBarPx))
+  let height = availH
+  let width = height * ratio
+  if (width > availW) {
+    width = availW
+    height = width / ratio
+  }
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height))
+  }
+}
+
 /** 根据设备比例与视口上限，计算固定布局像素尺寸 */
 export function computeFrameLayoutPixels(streamW, streamH, maxHeight = 'calc(100vh - 200px)', maxWidthPx = null) {
   const w = Math.max(1, streamW || 9)
@@ -38,6 +60,16 @@ export function computeFrameLayoutPixels(streamW, streamH, maxHeight = 'calc(100
 /** 固定宽高样式 — 连接/断开时不随流分辨率变化 */
 export function fixedScreenFrameStyle(streamW, streamH, maxHeight = 'calc(100vh - 200px)', maxWidthPx = null) {
   const { width, height } = computeFrameLayoutPixels(streamW, streamH, maxHeight, maxWidthPx)
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+    flexShrink: 0
+  }
+}
+
+/** 按容器像素盒生成固定宽高样式 */
+export function fixedScreenFrameStyleInBox(streamW, streamH, boxW, boxH, navBarPx = 0) {
+  const { width, height } = computeFrameLayoutInBox(streamW, streamH, boxW, boxH, navBarPx)
   return {
     width: `${width}px`,
     height: `${height}px`,

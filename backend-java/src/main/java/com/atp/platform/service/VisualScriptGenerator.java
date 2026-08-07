@@ -1,7 +1,9 @@
 package com.atp.platform.service;
 
 import com.atp.platform.entity.CommonStep;
+import com.atp.platform.entity.TestCase;
 import com.atp.platform.repository.CommonStepRepository;
+import com.atp.platform.repository.TestCaseRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -9,7 +11,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.Base64;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +21,7 @@ public class VisualScriptGenerator {
 
     private final ObjectMapper objectMapper;
     private final CommonStepRepository commonStepRepository;
+    private final TestCaseRepository testCaseRepository;
     private final DataFactoryService dataFactoryService;
 
     private static final String RUNTIME_HEADER = """
@@ -105,6 +110,23 @@ public class VisualScriptGenerator {
             def set_var(name, value):
                 _VARS[str(name)] = str(value)
                 print(f"ATP_VAR_OUT:{name}={value}")
+            
+            
+            def set_relative_time(offset_minutes=5, confirm=False):
+                from time_picker_helper import set_relative_time as _srt
+                result = _srt(serial, offset_minutes=int(offset_minutes), confirm=bool(confirm))
+                if result:
+                    set_var("TIME_HH", f"{int(result.get('hour', 0)):02d}")
+                    set_var("TIME_MM", f"{int(result.get('minute', 0)):02d}")
+                    set_var("TIME_HM", str(result.get("time") or ""))
+                return result
+            
+            
+            def run_custom_script(lang, code_or_b64, *, b64=True, timeout=120):
+                from custom_script_helper import run_custom_script as _rcs, run_custom_script_b64 as _rcs_b64
+                if b64:
+                    return _rcs_b64(lang, code_or_b64, serial=serial, vars_dict=_VARS, timeout=timeout)
+                return _rcs(lang, code_or_b64, serial=serial, vars_dict=_VARS, timeout=timeout)
             
             
             def calibrate_xy(x, y):
@@ -355,6 +377,66 @@ public class VisualScriptGenerator {
                         print(f"Assert exists OK (AI): {name}")
                         return True
                     raise AssertionError(f"Element not found: {name}")
+
+
+            def assert_element_not_exists(name, timeout=3):
+                deadline = time.time() + max(1, int(timeout))
+                while time.time() < deadline:
+                    try:
+                        assert_element_exists(name)
+                        time.sleep(0.4)
+                    except AssertionError:
+                        print(f"Assert not exists OK: {name}")
+                        return True
+                    except Exception:
+                        print(f"Assert not exists OK: {name}")
+                        return True
+                raise AssertionError(f"Element still present: {name}")
+
+
+            def wait_element(name, timeout=10):
+                deadline = time.time() + max(1, int(timeout))
+                last_err = None
+                while time.time() < deadline:
+                    try:
+                        assert_element_exists(name)
+                        print(f"Wait appear OK: {name}")
+                        return True
+                    except Exception as e:
+                        last_err = e
+                        time.sleep(0.5)
+                raise TimeoutError(f"Wait appear timeout: {name} ({last_err})")
+
+
+            def wait_element_gone(name, timeout=10):
+                deadline = time.time() + max(1, int(timeout))
+                while time.time() < deadline:
+                    try:
+                        assert_element_exists(name)
+                        time.sleep(0.5)
+                    except Exception:
+                        print(f"Wait disappear OK: {name}")
+                        return True
+                raise TimeoutError(f"Wait disappear timeout: {name}")
+
+
+            def clear_input_field(element_name=""):
+                if element_name:
+                    tap_element(element_name, display_name=element_name)
+                    time.sleep(0.2)
+                try:
+                    import uiautomator2 as u2
+                    d = u2.connect(serial)
+                    focused = d(focused=True)
+                    if focused.exists:
+                        focused.clear_text()
+                        print(f"Cleared input: {element_name or '(focused)'}")
+                        return
+                except Exception:
+                    pass
+                for _ in range(30):
+                    adb_shell("input", "keyevent", "67")
+                print(f"Cleared input (keyevent): {element_name or '(focused)'}")
             
             
             def assert_text_on_screen(expected):
@@ -715,24 +797,56 @@ public class VisualScriptGenerator {
         sb.append("            break\n");
         sb.append("        except Exception as _step_e:\n");
         sb.append("            if _attempt >= ").append(retries).append(":\n");
-        if ("skip".equals(onFail)) {
-            sb.append("                emit_step_end(").append(index).append(", 'skip', str(_step_e))\n");
-            sb.append("                print('STEP_SKIPPED:step=").append(index).append(" reason=', _step_e)\n");
-            sb.append("                break\n");
-        } else {
-            if ("restart_app".equals(onFail)) {
-                sb.append("                if _attempt < ").append(retries).append(" and app_package:\n");
-                sb.append("                    launch_app(app_package); time.sleep(2); continue\n");
-            }
-            sb.append("                emit_step_end(").append(index).append(", 'fail', str(_step_e))\n");
-            sb.append("                print('CHECKPOINT_FAILED:step=").append(index).append("')\n");
-            sb.append("                raise\n");
-        }
-        if (retries > 0 && !"skip".equals(onFail)) {
+        appendOnFailHandler(sb, index, onFail);
+        if (retries > 0 && !continuesOnFail(onFail)) {
             sb.append("            human_pause(1)\n");
         }
         sb.append("except Exception:\n");
         sb.append("    raise\n");
+    }
+
+    /** 失败/异常时的脚本分支：fail 终止；skip/exception/ignore 继续；interrupt 立即中断 */
+    private void appendOnFailHandler(StringBuilder sb, int index, String onFail) {
+        String policy = normalizeOnFail(onFail);
+        switch (policy) {
+            case "skip" -> {
+                sb.append("                emit_step_end(").append(index).append(", 'skip', str(_step_e))\n");
+                sb.append("                print('STEP_SKIPPED:step=").append(index).append(" reason=', _step_e)\n");
+                sb.append("                break\n");
+            }
+            case "ignore" -> {
+                sb.append("                emit_step_end(").append(index).append(", 'ignore', str(_step_e))\n");
+                sb.append("                print('STEP_IGNORED:step=").append(index).append(" reason=', _step_e)\n");
+                sb.append("                break\n");
+            }
+            case "exception" -> {
+                sb.append("                emit_step_end(").append(index).append(", 'exception', str(_step_e))\n");
+                sb.append("                print('STEP_EXCEPTION:step=").append(index).append(" reason=', _step_e)\n");
+                sb.append("                break\n");
+            }
+            case "interrupt" -> {
+                sb.append("                emit_step_end(").append(index).append(", 'interrupt', str(_step_e))\n");
+                sb.append("                print('STEP_INTERRUPT:step=").append(index).append("')\n");
+                sb.append("                raise RuntimeError('STEP_INTERRUPT:step=").append(index).append("')\n");
+            }
+            default -> {
+                sb.append("                emit_step_end(").append(index).append(", 'fail', str(_step_e))\n");
+                sb.append("                print('CHECKPOINT_FAILED:step=").append(index).append("')\n");
+                sb.append("                raise\n");
+            }
+        }
+    }
+
+    private static String normalizeOnFail(String onFail) {
+        if (onFail == null || onFail.isBlank() || "restart_app".equals(onFail)) {
+            return "fail";
+        }
+        return onFail;
+    }
+
+    private static boolean continuesOnFail(String onFail) {
+        String p = normalizeOnFail(onFail);
+        return "skip".equals(p) || "ignore".equals(p) || "exception".equals(p);
     }
 
     private void appendManualWaitStep(StringBuilder sb, int index, JsonNode step) {
@@ -778,16 +892,8 @@ public class VisualScriptGenerator {
         sb.append("            break\n");
         sb.append("        except Exception as _step_e:\n");
         sb.append("            if _attempt >= ").append(retries).append(":\n");
-        if ("skip".equals(onFail)) {
-            sb.append("                emit_step_end(").append(index).append(", 'skip', str(_step_e))\n");
-            sb.append("                print('STEP_SKIPPED:step=").append(index).append(" reason=', _step_e)\n");
-            sb.append("                break\n");
-        } else {
-            sb.append("                emit_step_end(").append(index).append(", 'fail', str(_step_e))\n");
-            sb.append("                print('CHECKPOINT_FAILED:step=").append(index).append("')\n");
-            sb.append("                raise\n");
-        }
-        if (retries > 0 && !"skip".equals(onFail)) {
+        appendOnFailHandler(sb, index, onFail);
+        if (retries > 0 && !continuesOnFail(onFail)) {
             sb.append("            human_pause(1)\n");
         }
         sb.append("except Exception:\n");
@@ -826,6 +932,39 @@ public class VisualScriptGenerator {
                     throw new RuntimeException("展开公共步骤失败 [" + name + "]: " + e.getMessage(), e);
                 } finally {
                     stack.remove(name);
+                }
+            } else if ("invoke_case".equals(type)) {
+                long caseId = step.path("case_id").asLong(0);
+                if (caseId <= 0) {
+                    throw new RuntimeException("invoke_case 缺少 case_id");
+                }
+                String stackKey = "case:" + caseId;
+                if (stack.contains(stackKey)) {
+                    throw new RuntimeException("用例嵌套循环引用: #" + caseId);
+                }
+                TestCase nested = testCaseRepository.findById(caseId)
+                        .orElseThrow(() -> new RuntimeException("被调用例不存在: #" + caseId));
+                if (nested.getDeletedAt() != null) {
+                    throw new RuntimeException("被调用例已删除: #" + caseId);
+                }
+                String content = nested.getStepsContent();
+                if (content == null || content.isBlank()) {
+                    continue;
+                }
+                stack.add(stackKey);
+                try {
+                    JsonNode caseRoot = objectMapper.readTree(content);
+                    JsonNode innerSteps = caseRoot.has("steps") ? caseRoot.get("steps") : caseRoot;
+                    ArrayNode expandedInner = expandSteps(innerSteps, stack, inheritedParams);
+                    for (JsonNode inner : expandedInner) {
+                        result.add(applyParamsToStep(inner, inheritedParams));
+                    }
+                } catch (RuntimeException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new RuntimeException("展开用例失败 [#" + caseId + "]: " + e.getMessage(), e);
+                } finally {
+                    stack.remove(stackKey);
                 }
             } else {
                 result.add(applyParamsToStep(step, inheritedParams));
@@ -958,7 +1097,19 @@ public class VisualScriptGenerator {
 
     private String buildStepBody(String type, JsonNode step) {
         return switch (type) {
-            case "wait" -> "time.sleep(" + step.path("seconds").asInt(1) + ")";
+            case "wait" -> {
+                String waitMode = step.path("wait_mode").asText("fixed");
+                int secs = step.path("seconds").asInt(1);
+                String el = step.path("element_name").asText("");
+                if ("appear".equals(waitMode) || "wait_appear".equals(waitMode)) {
+                    yield "wait_element(" + q(el) + ", timeout=" + Math.max(secs, 1) + ")";
+                } else if ("disappear".equals(waitMode) || "wait_gone".equals(waitMode)) {
+                    yield "wait_element_gone(" + q(el) + ", timeout=" + Math.max(secs, 1) + ")";
+                } else {
+                    yield "time.sleep(" + Math.max(secs, 1) + ")";
+                }
+            }
+            case "clear_input" -> "clear_input_field(" + q(step.path("element_name").asText("")) + ")";
             case "click" -> buildClickStepBody(step);
             case "select" -> {
                 String el = step.path("element_name").asText("");
@@ -1026,6 +1177,8 @@ public class VisualScriptGenerator {
             case "force_stop" -> "clear_app_cache(\"memory\")";
             case "assert_text" -> "assert_text_on_screen(" + q(step.path("expected").asText("")) + ")";
             case "assert_exists" -> "assert_element_exists(" + q(step.path("element_name").asText("")) + ")";
+            case "assert_not_exists" -> "assert_element_not_exists(" + q(step.path("element_name").asText(""))
+                    + ", timeout=" + step.path("seconds").asInt(3) + ")";
             case "check_anomaly" -> {
                 String types = step.path("check_types").asText("all");
                 yield "check_page_anomaly(" + q(types) + ")";
@@ -1081,9 +1234,76 @@ public class VisualScriptGenerator {
                 }
                 yield "set_var(" + q(name) + ", " + q(val) + ")";
             }
+            case "set_relative_time" -> {
+                int offset = step.path("offset_minutes").asInt(5);
+                boolean confirmBtn = step.path("confirm").asBoolean(false);
+                yield "set_relative_time(" + offset + ", confirm=" + (confirmBtn ? "True" : "False") + ")";
+            }
+            case "custom_script" -> buildCustomScriptStep(step);
             case "invoke_common" -> "pass  # expanded at compile time";
+            case "invoke_case" -> "pass  # expanded at compile time";
+            case "end_block" -> "pass  # control block end marker";
+            case "branch", "loop" -> "pass  # control marker (body steps follow)";
+            case "screenshot" -> """
+                    try:
+                        from record_helper import capture_screen
+                        capture_screen(serial)
+                        print('screenshot saved')
+                    except Exception as _ss_err:
+                        print('screenshot failed:', _ss_err)
+                    """;
+            case "rotate_screen" -> {
+                String dir = step.path("direction").asText("left");
+                String rot = "right".equals(dir) ? "1" : "3";
+                yield "adb_shell(\"settings\", \"put\", \"system\", \"user_rotation\", \"" + rot + "\")";
+            }
+            case "set_auto_rotate" -> "adb_shell(\"settings\", \"put\", \"system\", \"accelerometer_rotation\", \""
+                    + (step.path("enabled").asBoolean(false) ? "1" : "0") + "\")";
+            case "swipe_from_center" -> {
+                String dir = step.path("direction").asText("up");
+                int dist = step.path("distance").asInt(400);
+                int dur = step.path("duration_ms").asInt(300);
+                yield "print('swipe_from_center', " + q(dir) + ", " + dist + ", " + dur + ")\\n"
+                        + "adb_shell(\"input\", \"swipe\", \"540\", \"960\", \"540\", str(960 - " + dist + "), \"" + dur + "\")";
+            }
+            case "uninstall_app" -> "adb_shell(\"uninstall\", " + q(step.path("app_package").asText("")) + ")";
+            case "assert_compare" -> {
+                String op = step.path("op").asText("eq");
+                yield "assert_compare(" + q(step.path("actual").asText("")) + ", " + q(op) + ", "
+                        + q(step.path("expected").asText("")) + ")";
+            }
+            case "assert_element_count" -> "print('assert_element_count', " + q(step.path("element_name").asText(""))
+                    + ", " + step.path("expected_count").asInt(1) + ")";
+            case "assert_attribute" -> "print('assert_attr', " + q(step.path("element_name").asText("")) + ", "
+                    + q(step.path("attr_name").asText("")) + ", " + q(step.path("expected").asText("")) + ")";
+            case "get_text" -> "print('get_text', " + q(step.path("element_name").asText("")) + ", ->, "
+                    + q(step.path("var_name").asText("TEXT")) + ")";
+            case "log_element" -> "print('element:', " + q(step.path("element_name").asText("")) + ")";
+            case "drag_element" -> "print('drag_element', " + q(step.path("element_name").asText("")) + ", "
+                    + step.path("x2").asInt(500) + ", " + step.path("y2").asInt(800) + ")";
+            case "scroll_to_element" -> "print('scroll_to_element', " + q(step.path("element_name").asText("")) + ")";
+            case "set_find_strategy" -> "print('find_strategy=', " + q(step.path("strategy").asText("default")) + ")";
+            case "switch_handle" -> "print('switch_handle=', " + q(step.path("handle").asText("")) + ")";
+            case "random_event" -> "print('random_event count=', " + step.path("event_count").asInt(10) + ")";
+            case "set_step_interval" -> "print('step_interval_ms=', " + step.path("interval_ms").asInt(0) + ")";
+            case "set_touch_mode" -> "print('touch_mode=', " + q(step.path("touch_mode").asText("default")) + ")";
+            case "robot_firmware_upgrade" -> "print('robot firmware:', " + q(step.path("firmware_path").asText("")) + ")";
+            case "robot_log_assert" -> "print('robot log assert:', " + q(step.path("expected").asText("")) + ")";
+            case "robot_send_command" -> "print('robot cmd:', " + q(step.path("command").asText("")) + ")";
             default -> "print(\"Unknown step type: " + type + "\")";
         };
+    }
+
+    private String buildCustomScriptStep(JsonNode step) {
+        String lang = step.path("script_lang").asText(step.path("language").asText("python"));
+        if (lang == null || lang.isBlank()) lang = "python";
+        String code = step.path("script_code").asText(step.path("text").asText(""));
+        if (code == null || code.isBlank()) {
+            return "raise RuntimeError('custom_script: 脚本内容为空')";
+        }
+        String b64 = Base64.getEncoder().encodeToString(code.getBytes(StandardCharsets.UTF_8));
+        int timeout = Math.max(5, step.path("script_timeout").asInt(step.path("timeout").asInt(120)));
+        return "run_custom_script(" + q(lang) + ", " + q(b64) + ", b64=True, timeout=" + timeout + ")";
     }
 
     private String buildDataFactoryStep(JsonNode step) {
@@ -1123,14 +1343,28 @@ public class VisualScriptGenerator {
     }
 
     private String displayLabel(JsonNode step) {
-        String label = step.path("display_name").asText("");
-        if (label.isBlank()) label = step.path("element_name").asText("");
+        // 与前端一致：用户填写的 element_name（控件名）优先于录制识别的 display_name
+        String label = step.path("element_name").asText("");
+        if (label.isBlank()) label = step.path("display_name").asText("");
         if (label.isBlank()) label = step.path("expected").asText("");
         if (label.isBlank()) label = step.path("type").asText("step");
+        // 控件 content-desc 常含换行（如「今天\n24」「16:27\n…」），压成单行避免脚本语法错误与报告刷屏
+        label = label.replace('\u0000', ' ').replaceAll("[\\r\\n\\t]+", " ").trim();
+        if (label.length() > 80) {
+            label = label.substring(0, 80);
+        }
         return q(label);
     }
 
+    /** 生成合法的 Python 双引号字符串字面量 */
     private String q(String s) {
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        if (s == null) s = "";
+        return "\"" + s
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t")
+                + "\"";
     }
 }

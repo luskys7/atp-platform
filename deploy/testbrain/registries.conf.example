@@ -1,0 +1,14 @@
+# Podman 镜像加速（可选）：复制到 %USERPROFILE%\.config\containers\registries.conf
+# 若 compose/Dockerfile 已写死 DaoCloud 前缀，可不配本文件。
+
+unqualified-search-registries = ["docker.io"]
+
+[[registry]]
+prefix = "docker.io"
+location = "docker.io"
+
+[[registry.mirror]]
+location = "docker.m.daocloud.io"
+
+[[registry.mirror]]
+location = "docker.1ms.run"

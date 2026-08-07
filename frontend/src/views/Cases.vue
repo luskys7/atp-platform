@@ -96,14 +96,20 @@
             <el-select v-model="filters.platform" placeholder="平台" clearable style="width:110px" @change="onFilterChange">
               <el-option label="安卓" value="android" />
               <el-option label="iOS" value="ios" />
+              <el-option label="Chrome" value="chrome" />
+              <el-option label="双端" value="both" />
             </el-select>
             <el-select v-model="filters.version" placeholder="版本" clearable style="width:120px" @change="onFilterChange">
               <el-option v-for="v in versionOptions" :key="v" :label="`v${v}`" :value="String(v)" />
             </el-select>
             <el-select v-model="filters.priority" placeholder="优先级" clearable style="width:110px" @change="onFilterChange">
-              <el-option label="高" value="high" />
-              <el-option label="中" value="medium" />
-              <el-option label="低" value="low" />
+              <el-option label="P0" value="p0" />
+              <el-option label="P1" value="p1" />
+              <el-option label="P2" value="p2" />
+              <el-option label="P3" value="p3" />
+            </el-select>
+            <el-select v-model="filters.module" placeholder="模块" clearable filterable style="width:120px" @change="onFilterChange">
+              <el-option v-for="m in moduleOptions" :key="m" :label="m" :value="m" />
             </el-select>
             <el-select v-model="filters.tag" placeholder="标签" clearable filterable style="width:140px" @change="onFilterChange">
               <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
@@ -149,6 +155,9 @@
             </el-table-column>
             <el-table-column prop="platform" label="平台" width="90">
               <template #default="{ row }">{{ platformLabel(row.platform) }}</template>
+            </el-table-column>
+            <el-table-column prop="module_name" label="模块" width="100" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.module_name || '-' }}</template>
             </el-table-column>
             <el-table-column prop="version_num" label="版本" width="80" align="center">
               <template #default="{ row }">{{ row.version_num != null ? `v${row.version_num}` : '-' }}</template>
@@ -393,7 +402,7 @@ const CASE_TEMPLATES = [
       platform: 'android',
       script_type: 'visual',
       case_status: 'draft',
-      priority: 'high',
+      priority: 1,
       tags: '模板,登录',
       steps_content: JSON.stringify({
         version: 1,
@@ -416,7 +425,7 @@ const CASE_TEMPLATES = [
       platform: 'android',
       script_type: 'visual',
       case_status: 'draft',
-      priority: 'medium',
+      priority: 2,
       tags: '模板,首页',
       steps_content: JSON.stringify({
         version: 1,
@@ -450,6 +459,7 @@ const filters = reactive({
   platform: '',
   version: '',
   priority: '',
+  module: '',
   tag: ''
 })
 const showFolderDialog = ref(false)
@@ -485,6 +495,7 @@ const filteredCases = computed(() => {
   if (filters.platform) list = list.filter(c => c.platform === filters.platform)
   if (filters.version) list = list.filter(c => String(c.version_num) === String(filters.version))
   if (filters.priority) list = list.filter(c => normalizePriority(c.priority) === filters.priority)
+  if (filters.module) list = list.filter(c => (c.module_name || '') === filters.module)
   if (filters.tag) {
     list = list.filter(c => String(c.tags || '').split(/[,，]/).map(s => s.trim()).includes(filters.tag))
   }
@@ -511,7 +522,15 @@ const tagOptions = computed(() => {
   for (const c of allCasesCache.value) {
     String(c.tags || '').split(/[,，]/).map(s => s.trim()).filter(Boolean).forEach(t => set.add(t))
   }
-  return [...set].sort()
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh'))
+})
+
+const moduleOptions = computed(() => {
+  const set = new Set()
+  for (const c of allCasesCache.value) {
+    if (c.module_name) set.add(c.module_name)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh'))
 })
 
 const folderStats = computed(() => {
@@ -538,21 +557,23 @@ function statusClass(s) {
 function platformLabel(p) {
   if (p === 'android') return '安卓'
   if (p === 'ios') return 'iOS'
+  if (p === 'chrome') return 'Chrome'
   if (p === 'both') return '双端'
   return p || '-'
 }
 
 function normalizePriority(p) {
-  const v = String(p || '').toLowerCase()
-  if (['high', '高', '1', 'p0', 'p1'].includes(v)) return 'high'
-  if (['low', '低', '3', 'p3'].includes(v)) return 'low'
-  if (['medium', 'mid', '中', '2', 'p2'].includes(v)) return 'medium'
+  const v = String(p ?? '').toLowerCase()
+  if (['0', 'p0', 'critical'].includes(v)) return 'p0'
+  if (['1', 'p1', 'high', '高'].includes(v)) return 'p1'
+  if (['2', 'p2', 'medium', 'mid', '中'].includes(v)) return 'p2'
+  if (['3', 'p3', 'low', '低'].includes(v)) return 'p3'
   return v || ''
 }
 
 function priorityLabel(p) {
   const n = normalizePriority(p)
-  return { high: '高', medium: '中', low: '低' }[n] || p || '-'
+  return { p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3' }[n] || (p != null && p !== '' ? `P${p}` : '-')
 }
 
 function folderCaseCount(data) {
@@ -683,6 +704,7 @@ function resetFilters() {
   filters.platform = ''
   filters.version = ''
   filters.priority = ''
+  filters.module = ''
   filters.tag = ''
   page.value = 1
   loadCases()
@@ -820,8 +842,11 @@ async function copyCase(row, { openAfter = true } = {}) {
       steps_content: detail.steps_content || detail.script_content || JSON.stringify({ version: 1, steps: [] }),
       script_content: detail.script_content || '',
       app_package: detail.app_package || '',
+      module_name: detail.module_name || '',
+      preconditions: detail.preconditions || '',
+      expected_result: detail.expected_result || '',
       case_status: 'draft',
-      priority: detail.priority || 'medium',
+      priority: detail.priority ?? 1,
       tags: detail.tags || '',
       folder_id: detail.folder_id || filters.folder_id || null,
       timeout_seconds: detail.timeout_seconds || 3600,

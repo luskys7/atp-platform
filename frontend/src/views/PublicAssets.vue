@@ -123,8 +123,7 @@
       </div>
     </el-drawer>
 
-    <!-- 快捷：新建步骤 -->
-    <CommonStepEditorDialog v-model="showStepDialog" :edit-row="null" @saved="onStepSaved" />
+    <!-- 快捷：新建步骤 → /common-steps/new -->
 
     <!-- 快捷：新增参数 -->
     <GlobalParamEditorDialog v-model="showParamDialog" :edit-row="null" @saved="loadStats" />
@@ -169,7 +168,6 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { commonStepApi, globalParamApi, controlApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import CommonStepEditorDialog from '@/components/CommonStepEditorDialog.vue'
 import GlobalParamEditorDialog from '@/components/GlobalParamEditorDialog.vue'
 
 const PICK_HISTORY_KEY = 'atp_element_pick_history'
@@ -186,7 +184,6 @@ const importInput = ref(null)
 const stats = reactive({ steps: 0, params: 0, controls: 0, picks: 0 })
 const cache = reactive({ steps: [], params: [], controls: [] })
 
-const showStepDialog = ref(false)
 const showParamDialog = ref(false)
 const showControlDialog = ref(false)
 
@@ -294,7 +291,7 @@ async function loadStats() {
 }
 
 function openCreateStep() {
-  showStepDialog.value = true
+  router.push('/common-steps/new')
 }
 
 function onStepSaved() {

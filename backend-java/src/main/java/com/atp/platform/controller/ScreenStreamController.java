@@ -153,8 +153,61 @@ public class ScreenStreamController {
             throw new AppException("INVALID", "设备序列号缺失", HttpStatus.BAD_REQUEST);
         }
         boolean blocking = body != null && Boolean.parseBoolean(String.valueOf(body.getOrDefault("blocking", false)));
-        executorClient.warmUiCache(device, blocking);
-        return ApiResponse.ok(Map.of("ok", true, "blocking", blocking));
+        Map<String, Object> warm = executorClient.warmUiCache(device, blocking);
+        java.util.LinkedHashMap<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("ok", warm.getOrDefault("ok", true));
+        resp.put("blocking", blocking);
+        if (warm.get("page_context") != null) resp.put("page_context", warm.get("page_context"));
+        if (warm.get("needs_context_switch") != null) resp.put("needs_context_switch", warm.get("needs_context_switch"));
+        if (warm.get("app_profile") != null) resp.put("app_profile", warm.get("app_profile"));
+        if (warm.get("reused_cache") != null) resp.put("reused_cache", warm.get("reused_cache"));
+        if (warm.get("dump_source") != null) resp.put("dump_source", warm.get("dump_source"));
+        if (warm.get("error") != null) resp.put("error", warm.get("error"));
+        if (warm.get("message") != null) resp.put("message", warm.get("message"));
+        return ApiResponse.ok(resp);
+    }
+
+    @PostMapping("/api/v1/devices/{id}/screen/ui-hierarchy")
+    public ApiResponse<Map<String, Object>> uiHierarchy(@PathVariable Long id,
+                                                        @RequestBody(required = false) Map<String, Object> body) {
+        Device device = deviceService.getById(id);
+        if (device.getPlatform() != Device.Platform.android) {
+            throw new AppException("INVALID", "当前仅支持 Android 控件树", HttpStatus.BAD_REQUEST);
+        }
+        if (device.getSerialNumber() == null || device.getSerialNumber().isBlank()) {
+            throw new AppException("INVALID", "设备序列号缺失", HttpStatus.BAD_REQUEST);
+        }
+        boolean force = body != null && Boolean.parseBoolean(String.valueOf(body.getOrDefault("force", false)));
+        return ApiResponse.ok(executorClient.uiHierarchy(device, force));
+    }
+
+    @PostMapping("/api/v1/devices/{id}/screen/inspect-bounds")
+    public ApiResponse<Map<String, Object>> inspectBounds(@PathVariable Long id,
+                                                          @RequestBody Map<String, Object> body) {
+        Device device = deviceService.getById(id);
+        if (device.getPlatform() != Device.Platform.android) {
+            throw new AppException("INVALID", "当前仅支持 Android 控件识别", HttpStatus.BAD_REQUEST);
+        }
+        if (device.getSerialNumber() == null || device.getSerialNumber().isBlank()) {
+            throw new AppException("INVALID", "设备序列号缺失", HttpStatus.BAD_REQUEST);
+        }
+        if (body == null || body.get("bounds") == null || body.get("bounds").toString().isBlank()) {
+            throw new AppException("INVALID", "缺少 bounds", HttpStatus.BAD_REQUEST);
+        }
+        Map<String, Object> inspect = executorClient.inspectByBounds(device, body.get("bounds").toString());
+        return ApiResponse.ok(enrichInspectResult(inspect));
+    }
+
+    @PostMapping("/api/v1/devices/{id}/screen/prepare-ui")
+    public ApiResponse<Map<String, Object>> prepareUi(@PathVariable Long id) {
+        Device device = deviceService.getById(id);
+        if (device.getPlatform() != Device.Platform.android) {
+            throw new AppException("INVALID", "当前仅支持 Android 控件识别", HttpStatus.BAD_REQUEST);
+        }
+        if (device.getSerialNumber() == null || device.getSerialNumber().isBlank()) {
+            throw new AppException("INVALID", "设备序列号缺失", HttpStatus.BAD_REQUEST);
+        }
+        return ApiResponse.ok(executorClient.prepareUi(device));
     }
 
     @PostMapping("/api/v1/devices/{id}/screen/validate-locator")

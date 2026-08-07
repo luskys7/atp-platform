@@ -124,6 +124,18 @@ export const authApi = {
   profile: () => request.get('/auth/profile'),
   updateProfile: (data) => request.put('/auth/profile', data),
   changePassword: (data) => request.put('/auth/password', data),
+  uploadAvatar: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request.post('/auth/avatar', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  sessions: () => request.get('/auth/sessions'),
+  revokeSession: (id) => request.delete(`/auth/sessions/${id}`),
+  revokeOtherSessions: () => request.post('/auth/sessions/revoke-others'),
+  loginLogs: () => request.get('/auth/login-logs'),
+  apiKeys: () => request.get('/auth/api-keys'),
+  createApiKey: (data) => request.post('/auth/api-keys', data || {}),
+  revokeApiKey: (id) => request.post(`/auth/api-keys/${id}/revoke`),
   listUsers: () => request.get('/auth/users')
 }
 
@@ -144,7 +156,14 @@ export const deviceApi = {
   screenValidateLocator: (id, data) => request.post(`/devices/${id}/screen/validate-locator`, data, { timeout: 15000 }),
   screenWarmUi: (id, data = {}) => request.post(`/devices/${id}/screen/warm-ui`, data, {
     silent: !data.blocking,
-    timeout: data.blocking ? 15000 : 6000
+    timeout: data.blocking ? 20000 : 6000
+  }),
+  screenUiHierarchy: (id, data = {}) => request.post(`/devices/${id}/screen/ui-hierarchy`, data, {
+    timeout: data.force ? 25000 : 15000
+  }),
+  screenInspectBounds: (id, data) => request.post(`/devices/${id}/screen/inspect-bounds`, data, { timeout: 20000 }),
+  screenPrepareUi: (id) => request.post(`/devices/${id}/screen/prepare-ui`, {}, {
+    timeout: 45000
   }),
   screenSwitchContext: (id, data) => request.post(`/devices/${id}/screen/switch-context`, data),
   updateCalibration: (id, data) => request.put(`/devices/${id}/calibration`, data),
@@ -377,6 +396,7 @@ export const ciApi = {
   getConfig: () => request.get('/ci/config'),
   updateConfig: (data) => request.put('/ci/config', data),
   recentJobs: () => request.get('/ci/jobs/recent'),
+  exportJobs: () => request.get('/ci/jobs/export', { responseType: 'blob' }),
   taskStatus: (taskId) => request.get(`/ci/tasks/${taskId}/status`)
 }
 
@@ -403,6 +423,22 @@ export const caseApi = {
   approve: (id) => request.post(`/cases/${id}/approve`),
   reject: (id, reason) => request.post(`/cases/${id}/reject`, { reason }),
   offlinePackage: (id) => request.post(`/cases/${id}/offline-package`)
+}
+
+/** AI 用例生成（TestBrain/LLM 外挂） */
+export const aiCaseApi = {
+  status: () => request.get('/ai-cases/status'),
+  generate: (data) => request.post('/ai-cases/generate', data, { timeout: 180000 }),
+  importDrafts: (data) => request.post('/ai-cases/import', data),
+  parseDocument: (file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request.post('/ai-cases/parse-document', fd, { timeout: 120000 })
+  },
+  fetchConfluence: (data) => request.post('/ai-cases/fetch-confluence', data, { timeout: 60000 }),
+  ingestPrd: (data) => request.post('/ai-cases/knowledge/ingest-prd', data, { timeout: 120000 }),
+  ingestKnowledge: (data) => request.post('/ai-cases/knowledge/ingest', data, { timeout: 120000 }),
+  listKnowledge: () => request.get('/ai-cases/knowledge/list')
 }
 
 export const commonStepApi = {
@@ -488,14 +524,14 @@ export const recordApi = {
       ...(displayWidth ? { display_width: displayWidth } : {}),
       ...(displayHeight ? { display_height: displayHeight } : {})
     },
-    { silent: true, timeout: blocking ? 15000 : 600 }
+    { silent: true, timeout: blocking ? 15000 : 3500 }
   ),
   patchLastClick: (id, patch) => request.post(`/operation-records/${id}/last-click`, patch, { silent: true }),
   patchStepLocator: (id, stepIndex, patch) => request.post(
     `/operation-records/${id}/steps/${stepIndex}/locator`,
     patch
   ),
-  warmInspect: (id) => request.post(`/operation-records/${id}/warm-inspect`, {}, { silent: true }),
+  warmInspect: (id) => request.post(`/operation-records/${id}/warm-inspect`, {}, { silent: true, timeout: 20000 }),
   uploadVideo: (id, blob, durationSeconds, operatorLabel, thumbnailBlob, tags = {}) => {
     const form = new FormData()
     form.append('file', blob, `session_${id}.webm`)

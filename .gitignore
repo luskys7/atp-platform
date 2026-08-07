@@ -43,3 +43,7 @@ executor/build/
 executor/dist/
 **/TestFlow-Executor.exe
 
+
+# Local build artifacts
+build/
+

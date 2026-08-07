@@ -32,14 +32,8 @@ def dismiss_android_popups(serial: str, max_rounds: int = 3) -> list[str]:
 
 
 def _dump_ui(serial: str) -> str:
-    import tempfile
-    from pathlib import Path
-    from adb_client import adb_dump_ui
-    remote = "/sdcard/atp_ui_dump.xml"
-    local = Path(tempfile.gettempdir()) / f"atp_popup_{serial}.xml"
-    if not adb_dump_ui(serial, str(local), remote=remote, timeout=8):
-        return ""
-    return local.read_text(encoding="utf-8", errors="ignore")
+    from ui_dump_helper import dump_ui_text
+    return dump_ui_text(serial, prefer_u2=True, force=False)
 
 
 def _find_bounds_by_text(xml: str, text: str) -> str:

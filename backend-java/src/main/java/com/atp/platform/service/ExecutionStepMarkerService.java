@@ -34,7 +34,7 @@ public class ExecutionStepMarkerService {
     private static final Pattern STEP_BEGIN = Pattern.compile(
             "ATP_STEP_BEGIN step=(\\d+) type=(\\w+) offset_ms=(\\d+)(?: display=([^\\s]+))?");
     private static final Pattern STEP_END = Pattern.compile(
-            "ATP_STEP_END step=(\\d+) status=(ok|fail|skip) offset_ms=(\\d+)(?: error=(.+))?");
+            "ATP_STEP_END step=(\\d+) status=(ok|fail|skip|interrupt|exception|ignore) offset_ms=(\\d+)(?: error=(.+))?");
     private static final Pattern LEGACY_STEP_START = Pattern.compile("ATP_STEP_START:step=(\\d+):type=(\\w+)");
     private static final Pattern CHECKPOINT_FAILED = Pattern.compile("CHECKPOINT_FAILED:step=(\\d+)");
 
@@ -103,7 +103,7 @@ public class ExecutionStepMarkerService {
                 if (end.group(4) != null) {
                     marker.setErrorMessage(truncate(end.group(4).replace('_', ' '), 512));
                 }
-                if ("fail".equals(end.group(2))) {
+                if ("fail".equals(end.group(2)) || "interrupt".equals(end.group(2))) {
                     failedStep = step;
                     failureMessage = marker.getErrorMessage();
                 }
@@ -184,7 +184,7 @@ public class ExecutionStepMarkerService {
             }
         }
         return markerRepository.findByTaskIdOrderByStepIndexAscVideoOffsetMsAsc(task.getId()).stream()
-                .filter(m -> "fail".equals(m.getStatus()))
+                .filter(m -> "fail".equals(m.getStatus()) || "interrupt".equals(m.getStatus()))
                 .map(ExecutionStepMarker::getStepIndex)
                 .max(Integer::compareTo)
                 .orElse(null);

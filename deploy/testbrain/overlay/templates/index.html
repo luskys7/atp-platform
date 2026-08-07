@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block title %}TestBrain - 首页{% endblock %}
+
+{% block extra_css %}
+<style>
+.home-page {
+  --atp-primary: #0284C7;
+  --atp-brand-50: #F0F9FF;
+  --atp-brand-100: #E0F2FE;
+  --atp-brand-200: #BAE6FD;
+  --atp-brand-600: #0369A1;
+  --atp-success: #10B981;
+  --atp-warning: #F59E0B;
+  --atp-danger: #EF4444;
+  --atp-text: #0F172A;
+  --atp-text-secondary: #475569;
+  --atp-text-muted: #94A3B8;
+  --atp-border: #E2E8F0;
+  --atp-radius: 10px;
+  --atp-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(2, 132, 199, 0.06);
+}
+.home-welcome {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 20px; margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--atp-brand-50) 0%, #fff 70%);
+  border: 1px solid var(--atp-brand-100);
+  border-radius: var(--atp-radius);
+  box-shadow: var(--atp-shadow);
+}
+.home-welcome h1 {
+  margin: 0; font-size: 18px; font-weight: 700; color: var(--atp-text);
+}
+.home-welcome .project-wrap {
+  display: flex; align-items: center; gap: 8px; min-width: 220px;
+}
+.home-welcome .project-wrap label {
+  margin: 0; font-size: 13px; color: var(--atp-text-secondary); white-space: nowrap;
+}
+.home-welcome select {
+  min-width: 180px; border-radius: 8px; border: 1px solid var(--atp-border);
+  height: 36px; padding: 0 10px; color: var(--atp-text); background: #fff;
+}
+.home-welcome select:focus {
+  outline: none; border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(2,132,199,.15);
+}
+
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+@media (max-width: 992px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+.stat-card {
+  display: block; text-decoration: none !important; color: inherit;
+  background: #fff; border: 1px solid var(--atp-border); border-radius: var(--atp-radius);
+  padding: 16px 18px; box-shadow: var(--atp-shadow);
+  transition: transform .15s, box-shadow .15s, border-color .15s; cursor: pointer;
+}
+.stat-card:hover {
+  transform: translateY(-2px); box-shadow: 0 8px 24px rgba(2,132,199,.12);
+  border-color: var(--atp-brand-200);
+}
+.stat-card .stat-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.stat-card .stat-icon {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.stat-card .stat-value { font-size: 28px; font-weight: 700; line-height: 1.2; margin: 8px 0 4px; }
+.stat-card .stat-label { font-size: 13px; color: var(--atp-text-secondary); margin: 0; }
+.stat-card.is-total .stat-icon { background: var(--atp-brand-100); color: var(--atp-primary); }
+.stat-card.is-total .stat-value { color: var(--atp-primary); }
+.stat-card.is-pending .stat-icon { background: #FFFBEB; color: var(--atp-warning); }
+.stat-card.is-pending .stat-value { color: #D97706; }
+.stat-card.is-approved .stat-icon { background: #ECFDF5; color: var(--atp-success); }
+.stat-card.is-approved .stat-value { color: #059669; }
+.stat-card.is-rejected .stat-icon { background: #FEF2F2; color: var(--atp-danger); }
+.stat-card.is-rejected .stat-value { color: #DC2626; }
+
+.quick-panel {
+  background: #fff; border: 1px solid var(--atp-border); border-radius: var(--atp-radius);
+  padding: 16px 18px; margin-bottom: 16px; box-shadow: var(--atp-shadow);
+}
+.quick-panel h2, .dual-card h2 {
+  margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--atp-text);
+}
+.quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 992px) { .quick-grid { grid-template-columns: repeat(2, 1fr); } }
+.quick-btn {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border: 1px solid var(--atp-brand-100); border-radius: 8px;
+  background: var(--atp-brand-50); color: var(--atp-brand-600) !important;
+  text-decoration: none !important; font-size: 13px; font-weight: 600;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.quick-btn:hover {
+  background: #fff; border-color: var(--atp-primary); color: var(--atp-primary) !important;
+}
+.quick-btn .qi {
+  width: 32px; height: 32px; border-radius: 8px; background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--atp-primary); border: 1px solid var(--atp-brand-100);
+}
+
+.dual-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+@media (max-width: 992px) { .dual-row { grid-template-columns: 1fr; } }
+.dual-card {
+  background: #fff; border: 1px solid var(--atp-border); border-radius: var(--atp-radius);
+  padding: 16px 18px; box-shadow: var(--atp-shadow); min-height: 280px;
+}
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-item {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 0; border-bottom: 1px solid var(--atp-brand-50);
+}
+.activity-item:last-child { border-bottom: none; }
+.activity-badge {
+  flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  margin-top: 2px;
+}
+.activity-badge.generate { background: var(--atp-brand-100); color: var(--atp-primary); }
+.activity-badge.review { background: #EEF2FF; color: #4F46E5; }
+.activity-badge.upload { background: #ECFDF5; color: #059669; }
+.activity-body { flex: 1; min-width: 0; }
+.activity-time { font-size: 12px; color: var(--atp-text-muted); margin-bottom: 2px; }
+.activity-content { font-size: 13px; color: var(--atp-text-secondary); line-height: 1.45; }
+.activity-actions { flex-shrink: 0; }
+.activity-empty { text-align: center; padding: 36px 12px; color: var(--atp-text-muted); font-size: 13px; }
+
+.guide-list { margin: 0; padding-left: 18px; color: var(--atp-text-secondary); font-size: 13px; line-height: 1.7; }
+.guide-list li { margin-bottom: 10px; }
+.guide-list strong { color: var(--atp-primary); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="home-page">
+  <!-- 模块1：欢迎 + 项目选择 -->
+  <div class="home-welcome">
+    <h1>欢迎使用 TestBrain 测试用例管理平台</h1>
+    <div class="project-wrap">
+      <label for="project-select">当前项目</label>
+      <select id="project-select" aria-label="选择项目">
+        <option value="">全部项目</option>
+        {% for key, name in projects %}
+        <option value="{{ key }}" {% if current_project == key %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <!-- 模块2：统计卡片 -->
+  <div class="stat-grid" id="stat-grid">
+    <a class="stat-card is-total" href="/test_case_reviewer/" data-stat="total">
+      <div class="stat-top">
+        <p class="stat-label mb-0">总测试用例数</p>
+        <div class="stat-icon"><i class="fas fa-folder-open"></i></div>
+      </div>
+      <div class="stat-value" id="stat-total">{{ total_test_cases }}</div>
+    </a>
+    <a class="stat-card is-pending" href="/test_case_reviewer/?tab=pending" data-stat="pending">
+      <div class="stat-top">
+        <p class="stat-label mb-0">待评审</p>
+        <div class="stat-icon"><i class="fas fa-clock"></i></div>
+      </div>
+      <div class="stat-value" id="stat-pending">{{ pending_count }}</div>
+    </a>
+    <a class="stat-card is-approved" href="/test_case_reviewer/?tab=approved" data-stat="approved">
+      <div class="stat-top">
+        <p class="stat-label mb-0">评审通过</p>
+        <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+      </div>
+      <div class="stat-value" id="stat-approved">{{ approved_count }}</div>
+    </a>
+    <a class="stat-card is-rejected" href="/test_case_reviewer/?tab=rejected" data-stat="rejected">
+      <div class="stat-top">
+        <p class="stat-label mb-0">评审未通过</p>
+        <div class="stat-icon"><i class="fas fa-times-circle"></i></div>
+      </div>
+      <div class="stat-value" id="stat-rejected">{{ rejected_count }}</div>
+    </a>
+  </div>
+
+  <!-- 模块3：快捷入口 -->
+  <div class="quick-panel">
+    <h2>快捷功能入口</h2>
+    <div class="quick-grid">
+      <a class="quick-btn" href="/test_case_generator/">
+        <span class="qi"><i class="fas fa-magic"></i></span>
+        <span>AI 生成测试用例</span>
+      </a>
+      <a class="quick-btn" href="/test_case_reviewer/">
+        <span class="qi"><i class="fas fa-clipboard-check"></i></span>
+        <span>用例评审处理</span>
+      </a>
+      <a class="quick-btn" href="/upload/">
+        <span class="qi"><i class="fas fa-cloud-upload-alt"></i></span>
+        <span>上传项目文档</span>
+      </a>
+      <a class="quick-btn" href="/iface_case_generator/">
+        <span class="qi"><i class="fas fa-code"></i></span>
+        <span>接口用例生成</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- 模块4：双栏 -->
+  <div class="dual-row">
+    <div class="dual-card">
+      <h2>最近动态</h2>
+      <ul class="activity-list" id="activity-list">
+        {% for item in activities %}
+        <li class="activity-item">
+          <span class="activity-badge {{ item.kind }}">{{ item.kind_label }}</span>
+          <div class="activity-body">
+            <div class="activity-time">{{ item.time }}</div>
+            <div class="activity-content">{{ item.content }}</div>
+          </div>
+          <div class="activity-actions">
+            <a class="btn btn-outline-primary btn-sm" href="{{ item.detail_url }}">查看详情</a>
+          </div>
+        </li>
+        {% empty %}
+        <li class="activity-empty">暂无最近操作记录</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="dual-card">
+      <h2>新手指引</h2>
+      <ol class="guide-list">
+        <li>想要 AI 生成贴合业务的用例，先<strong>上传项目文档到知识库</strong>。</li>
+        <li>生成用例后，可以进入<strong>用例评审</strong>进行审核。</li>
+        <li>评审通过的用例可<strong>导出</strong>使用。</li>
+      </ol>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  function tbUrl(path) {
+    var p = window.__ATP_TB_PREFIX__ || '';
+    if (!path || path.charAt(0) !== '/') return path;
+    if (path === p || path.indexOf(p + '/') === 0) return path;
+    return p + path;
+  }
+
+  function withProject(url, project) {
+    if (!project) return url;
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'project=' + encodeURIComponent(project);
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderActivities(list) {
+    var ul = document.getElementById('activity-list');
+    if (!ul) return;
+    if (!list || !list.length) {
+      ul.innerHTML = '<li class="activity-empty">暂无最近操作记录</li>';
+      return;
+    }
+    ul.innerHTML = list.map(function (item) {
+      return '<li class="activity-item">' +
+        '<span class="activity-badge ' + escapeHtml(item.kind) + '">' + escapeHtml(item.kind_label) + '</span>' +
+        '<div class="activity-body">' +
+          '<div class="activity-time">' + escapeHtml(item.time) + '</div>' +
+          '<div class="activity-content">' + escapeHtml(item.content) + '</div>' +
+        '</div>' +
+        '<div class="activity-actions">' +
+          '<a class="btn btn-outline-primary btn-sm" href="' + escapeHtml(tbUrl(item.detail_url)) + '">查看详情</a>' +
+        '</div></li>';
+    }).join('');
+  }
+
+  function syncStatLinks(project) {
+    document.querySelectorAll('.stat-card').forEach(function (a) {
+      var stat = a.getAttribute('data-stat');
+      var href = '/test_case_reviewer/';
+      if (stat === 'pending') href = '/test_case_reviewer/?tab=pending';
+      if (stat === 'approved') href = '/test_case_reviewer/?tab=approved';
+      if (stat === 'rejected') href = '/test_case_reviewer/?tab=rejected';
+      a.setAttribute('href', tbUrl(withProject(href, project)));
+    });
+    document.querySelectorAll('.quick-btn, .home-page a.btn').forEach(function (a) {
+      var href = a.getAttribute('href');
+      if (href && href.charAt(0) === '/') a.setAttribute('href', tbUrl(href));
+    });
+  }
+
+  var select = document.getElementById('project-select');
+  var PROJECT_KEY = 'tb_current_project';
+  if (select) {
+    var saved = localStorage.getItem(PROJECT_KEY);
+    if (saved && !select.value) {
+      for (var i = 0; i < select.options.length; i++) {
+        if (select.options[i].value === saved) {
+          select.value = saved;
+          break;
+        }
+      }
+    }
+  }
+  function refresh() {
+    var project = select ? select.value : '';
+    localStorage.setItem(PROJECT_KEY, project || '');
+    syncStatLinks(project);
+    fetch(tbUrl('/api/dashboard-stats/?project=' + encodeURIComponent(project)), {
+      credentials: 'same-origin'
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.success) return;
+        var s = data.stats || {};
+        var el = function (id) { return document.getElementById(id); };
+        if (el('stat-total')) el('stat-total').textContent = s.total_test_cases || 0;
+        if (el('stat-pending')) el('stat-pending').textContent = s.pending_count || 0;
+        if (el('stat-approved')) el('stat-approved').textContent = s.approved_count || 0;
+        if (el('stat-rejected')) el('stat-rejected').textContent = s.rejected_count || 0;
+        renderActivities(data.activities || []);
+      })
+      .catch(function () {});
+  }
+
+  if (select) select.addEventListener('change', refresh);
+  syncStatLinks(select ? select.value : '');
+})();
+</script>
+{% endblock %}

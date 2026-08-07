@@ -24,6 +24,8 @@ public class AtpProperties {
     private Recording recording = new Recording();
     /** 访客启动器等静态下载目录 */
     private Downloads downloads = new Downloads();
+    /** AI 用例生成（TestBrain / LLM 外挂，零底层侵入） */
+    private AiCase aiCase = new AiCase();
     /** 全局变量，执行时注入变量链最低优先级层 */
     private java.util.Map<String, String> variables = new java.util.LinkedHashMap<>();
 
@@ -153,5 +155,29 @@ public class AtpProperties {
     public static class Downloads {
         /** 相对后端工作目录，默认 data/downloads */
         private String dir = "./data/downloads";
+    }
+
+    @Data
+    public static class AiCase {
+        /** 总开关：关闭后前端隐藏入口、接口直接拒绝 */
+        private boolean enabled = true;
+        /** llm | testbrain | offline（无 Key 时的规则草案，便于联调） */
+        private String provider = "llm";
+        /** TestBrain 服务根地址，如 http://10.0.98.20:8000 */
+        private String testbrainUrl = "http://10.0.98.20:8000";
+        /** OpenAI 兼容网关（DeepSeek/Qwen/自建） */
+        private String llmBaseUrl = "https://api.deepseek.com";
+        private String llmApiKey = "";
+        private String llmModel = "deepseek-chat";
+        private int timeoutSeconds = 120;
+        private int maxCases = 8;
+        /** Confluence 站点根，如 https://xxx.atlassian.net/wiki 或 https://confluence.company.com */
+        private String confluenceBaseUrl = "";
+        /** 默认 Token（也可由前端单次请求传入，不落库） */
+        private String confluenceToken = "";
+        /** cloud=Atlassian Cloud(Bearer)；server=Data Center(Bearer 或 Basic) */
+        private String confluenceAuthType = "cloud";
+        private String confluenceEmail = "";
+        private int maxDocChars = 80000;
     }
 }

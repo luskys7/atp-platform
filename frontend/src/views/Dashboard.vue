@@ -275,6 +275,7 @@
           <el-select v-model="caseForm.platform" style="width:100%">
             <el-option label="Android" value="android" />
             <el-option label="iOS" value="ios" />
+            <el-option label="Chrome 浏览器" value="chrome" />
             <el-option label="双端" value="both" />
           </el-select>
         </el-form-item>

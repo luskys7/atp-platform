@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}TestBrain - 上传知识库{% endblock %}
+
+{% block extra_css %}
+<style>
+.up-page {
+  --atp-primary: #0284C7;
+  --atp-brand-50: #F0F9FF;
+  --atp-brand-100: #E0F2FE;
+  --atp-brand-200: #BAE6FD;
+  --atp-brand-600: #0369A1;
+  --atp-success: #10B981;
+  --atp-text: #0F172A;
+  --atp-text-secondary: #475569;
+  --atp-border: #E2E8F0;
+  --atp-radius: 10px;
+  max-width: 880px;
+}
+.tip-card {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 14px 18px; margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--atp-brand-50), #fff);
+  border: 1px solid var(--atp-brand-200);
+  border-radius: var(--atp-radius);
+  color: var(--atp-text-secondary);
+  font-size: 14px; line-height: 1.55;
+}
+.tip-card strong { color: var(--atp-primary); }
+
+.cfg-card, .drop-card, .file-card {
+  background: #fff; border: 1px solid var(--atp-border); border-radius: var(--atp-radius);
+  padding: 18px 20px; margin-bottom: 14px;
+  box-shadow: 0 1px 3px rgba(15,23,42,.05);
+}
+.cfg-card h2, .file-card h2 {
+  margin: 0 0 14px; font-size: 15px; font-weight: 600; color: var(--atp-text);
+}
+.cfg-card label { font-size: 13px; font-weight: 600; color: var(--atp-text-secondary); }
+.cfg-card .form-control {
+  border-radius: 8px; border-color: var(--atp-border);
+}
+.cfg-card .form-control:focus {
+  border-color: #38BDF8; box-shadow: 0 0 0 3px rgba(2,132,199,.15);
+}
+.req { color: #EF4444; }
+
+.drop-zone {
+  border: 2px dashed var(--atp-brand-200);
+  border-radius: 12px;
+  padding: 36px 20px;
+  text-align: center;
+  background: var(--atp-brand-50);
+  transition: background .2s, border-color .2s, transform .15s;
+  cursor: pointer;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  background: #E0F2FE;
+  border-color: var(--atp-primary);
+}
+.drop-zone.disabled {
+  opacity: .55; cursor: not-allowed; pointer-events: none;
+}
+.drop-icon {
+  width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 50%;
+  background: #fff; border: 1px solid var(--atp-brand-100);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--atp-primary); font-size: 22px;
+}
+.drop-title { font-size: 15px; font-weight: 600; color: var(--atp-text); margin-bottom: 6px; }
+.drop-sub { font-size: 13px; color: var(--atp-text-secondary); margin-bottom: 10px; }
+.drop-rules { font-size: 12px; color: #94A3B8; margin: 0; }
+
+.file-list { list-style: none; margin: 0; padding: 0; }
+.file-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--atp-border); border-radius: 8px; margin-bottom: 8px;
+  background: var(--atp-brand-50);
+}
+.file-meta { min-width: 0; }
+.file-name { font-size: 13px; font-weight: 600; color: var(--atp-text); word-break: break-all; }
+.file-size { font-size: 12px; color: #94A3B8; }
+.btn-remove {
+  border: 1px solid #FECACA; background: #FEF2F2; color: #DC2626;
+  border-radius: 6px; font-size: 12px; padding: 4px 10px; white-space: nowrap;
+}
+.btn-remove:hover { background: #FEE2E2; }
+
+.actions {
+  display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px;
+}
+.btn-cancel {
+  background: #fff; border: 1px solid var(--atp-border); color: var(--atp-text-secondary);
+  border-radius: 8px; padding: 8px 18px; font-weight: 500;
+}
+.btn-cancel:hover { background: var(--atp-brand-50); color: var(--atp-primary); }
+.btn-upload-main {
+  background: var(--atp-success) !important; border: none !important; color: #fff !important;
+  border-radius: 8px; padding: 8px 18px; font-weight: 600;
+  min-width: 180px;
+}
+.btn-upload-main:disabled {
+  background: #A7F3D0 !important; cursor: not-allowed; opacity: 1;
+}
+.progress-wrap { display: none; margin-top: 14px; }
+.progress-wrap.show { display: block; }
+.progress {
+  height: 10px; border-radius: 999px; background: var(--atp-brand-100); overflow: hidden;
+}
+.progress-bar {
+  height: 100%; width: 0; background: linear-gradient(90deg, #38BDF8, var(--atp-primary));
+  transition: width .2s;
+}
+.progress-text { font-size: 12px; color: var(--atp-text-secondary); margin-top: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="up-page">
+  <!-- 模块1 -->
+  <div class="tip-card">
+    <div>💡</div>
+    <div>
+      <strong>业务提示：</strong>将项目 PRD、需求文档、接口规范等文件上传至知识库，AI 生成测试用例时会关联文档内容，生成更加贴合业务场景的用例。文档上传后需要一段时间完成文本解析。
+    </div>
+  </div>
+
+  <!-- 模块2 -->
+  <div class="cfg-card">
+    <h2>基础信息配置</h2>
+    <div class="form-group">
+      <label for="project-select">项目归属 <span class="req">*</span></label>
+      <select id="project-select" class="form-control">
+        <option value="">请选择项目</option>
+        {% for key, name in projects %}
+        <option value="{{ key }}" {% if current_project == key %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="doc-name">文档名称</label>
+      <input type="text" id="doc-name" class="form-control" placeholder="默认回填原始文件名，可手动修改" />
+    </div>
+    <div class="form-group mb-0">
+      <label for="doc-remark">文档备注（选填）</label>
+      <textarea id="doc-remark" class="form-control" rows="2" placeholder="示例：V2.1 迭代需求、登录模块接口文档"></textarea>
+    </div>
+  </div>
+
+  <!-- 模块3 -->
+  <div class="drop-card">
+    <div class="drop-zone disabled" id="drop-zone">
+      <div class="drop-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+      <div class="drop-title">点击选择或拖拽文件到此处</div>
+      <div class="drop-sub">支持多选；请先选择项目归属</div>
+      <p class="drop-rules">支持文件：.pdf / .docx / .doc / .txt / .md ｜ 单文件上限 20MB</p>
+      <input type="file" id="file-input" multiple accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" style="display:none" />
+    </div>
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+      <div class="progress-text" id="progress-text">准备上传…</div>
+    </div>
+  </div>
+
+  <!-- 模块4 -->
+  <div class="file-card" id="file-list-card" style="display:none;">
+    <h2>已选文件 <span id="file-count" style="color:#94A3B8;font-weight:500;font-size:13px;"></span></h2>
+    <ul class="file-list" id="file-list"></ul>
+  </div>
+
+  <!-- 模块5 -->
+  <div class="actions">
+    <button type="button" class="btn btn-cancel" id="btn-cancel">取消</button>
+    <button type="button" class="btn btn-upload-main" id="btn-upload" disabled>上传并存储到知识库</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'upload_page.js' %}?v=atp-up2"></script>
+{% endblock %}

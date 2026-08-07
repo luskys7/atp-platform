@@ -46,9 +46,6 @@ public class ControlPoolService {
     private static final Pattern ELEMENT_NAME_JSON = Pattern.compile("\"element_name\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern ELEMENT_NAME_PY = Pattern.compile("(?:get_locator|tap_element|find)\\([\"']([^\"']+)[\"']");
 
-    private static final Pattern ELEMENT_NAME_PATTERN = Pattern.compile(
-            "^[\\u4e00-\\u9fff][\\u4e00-\\u9fffA-Za-z0-9_\\-]{0,47}$|^[a-z][a-z0-9_]{2,47}$");
-
     public record ResolvedControl(String key, String elementName, String locatorType,
                                   String locatorValue, String source, Integer stepIndex,
                                   Map<String, Object> locators, List<Map<String, Object>> locatorChain,
@@ -86,6 +83,7 @@ public class ControlPoolService {
         }
         pool.setLocatorType(req.getLocatorType());
         pool.setLocatorValue(req.getLocatorValue());
+        applyDeviceBindings(pool, req.getDeviceElementBindings(), req.getDeviceElementValue());
         pool.setVersionTag(normalizeDim(req.getVersionTag()));
         pool.setEnvTag(normalizeDim(req.getEnvTag()));
         pool.setIsCore(Boolean.TRUE.equals(req.getIsCore()));
@@ -138,6 +136,16 @@ public class ControlPoolService {
         }
         if (body.containsKey("locator_value") && body.get("locator_value") != null) {
             pool.setLocatorValue(body.get("locator_value").toString());
+        }
+        if (body.containsKey("device_element_value") || body.containsKey("device_element_bindings")) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, String>> bindings = body.get("device_element_bindings") instanceof List
+                    ? (List<Map<String, String>>) body.get("device_element_bindings")
+                    : null;
+            String fallback = body.containsKey("device_element_value")
+                    ? strVal(body.get("device_element_value"))
+                    : pool.getDeviceElementValue();
+            applyDeviceBindings(pool, bindings, fallback);
         }
         if (body.containsKey("page_name")) pool.setPageName(strVal(body.get("page_name")));
         if (body.containsKey("status") && body.get("status") != null) {
@@ -196,6 +204,14 @@ public class ControlPoolService {
             JsonNode snap = objectMapper.readTree(ver.getSnapshotJson());
             if (snap.has("locator_type")) pool.setLocatorType(snap.get("locator_type").asText());
             if (snap.has("locator_value")) pool.setLocatorValue(snap.get("locator_value").asText());
+            if (snap.hasNonNull("device_element_value")) {
+                pool.setDeviceElementValue(blankToNull(snap.get("device_element_value").asText()));
+            }
+            if (snap.has("device_element_bindings")) {
+                pool.setDeviceElementBindings(snap.get("device_element_bindings").isNull()
+                        ? null
+                        : snap.get("device_element_bindings").toString());
+            }
             if (snap.has("page_name")) pool.setPageName(snap.get("page_name").asText());
             if (snap.has("status")) pool.setStatus(snap.get("status").asText());
             if (snap.has("element_name")) pool.setElementName(snap.get("element_name").asText());
@@ -302,6 +318,52 @@ public class ControlPoolService {
 
     private String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s;
+    }
+
+    /** 写入按型号映射，并同步默认 device_element_value（优先 *，否则首条） */
+    private void applyDeviceBindings(ControlPool pool,
+                                     List<Map<String, String>> bindings,
+                                     String fallbackValue) {
+        List<Map<String, String>> cleaned = new ArrayList<>();
+        if (bindings != null) {
+            for (Map<String, String> row : bindings) {
+                if (row == null) continue;
+                String model = row.get("device_model");
+                if (model == null) model = row.get("deviceModel");
+                String val = row.get("element_value");
+                if (val == null) val = row.get("elementValue");
+                model = model == null ? "" : model.trim();
+                val = val == null ? "" : val.trim();
+                if (model.isBlank() && val.isBlank()) continue;
+                if (model.isBlank()) model = "*";
+                Map<String, String> item = new LinkedHashMap<>();
+                item.put("device_model", model);
+                item.put("element_value", val);
+                cleaned.add(item);
+            }
+        }
+        if (cleaned.isEmpty()) {
+            pool.setDeviceElementBindings(null);
+            pool.setDeviceElementValue(blankToNull(fallbackValue));
+            return;
+        }
+        try {
+            pool.setDeviceElementBindings(objectMapper.writeValueAsString(cleaned));
+        } catch (Exception e) {
+            pool.setDeviceElementBindings(null);
+        }
+        String def = blankToNull(fallbackValue);
+        for (Map<String, String> item : cleaned) {
+            if ("*".equals(item.get("device_model")) && item.get("element_value") != null
+                    && !item.get("element_value").isBlank()) {
+                def = item.get("element_value");
+                break;
+            }
+        }
+        if (def == null || def.isBlank()) {
+            def = cleaned.get(0).get("element_value");
+        }
+        pool.setDeviceElementValue(blankToNull(def));
     }
 
     public Optional<ControlPool> lookup(String appPackage, String elementName) {
@@ -461,17 +523,8 @@ public class ControlPoolService {
         if (elementName == null || elementName.isBlank()) {
             throw new AppException("INVALID", "请填写控件名称", HttpStatus.BAD_REQUEST);
         }
-        String n = elementName.trim();
-        boolean hasChinese = n.codePoints().anyMatch(cp -> cp >= 0x4E00 && cp <= 0x9FFF);
-        boolean legacySnake = n.matches("^[a-z][a-z0-9_]{2,47}$");
-        if (hasChinese) {
-            if (!ELEMENT_NAME_PATTERN.matcher(n).matches()) {
-                throw new AppException("INVALID", "控件名称格式不正确（建议 1-48 字，以中文开头）", HttpStatus.BAD_REQUEST);
-            }
-            return;
-        }
-        if (!legacySnake) {
-            throw new AppException("INVALID", "请使用中文标识控件用途", HttpStatus.BAD_REQUEST);
+        if (elementName.trim().length() > 256) {
+            throw new AppException("INVALID", "控件名称不能超过 256 字", HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -818,6 +871,14 @@ public class ControlPoolService {
             snap.put("element_name", p.getElementName());
             snap.put("locator_type", p.getLocatorType());
             snap.put("locator_value", p.getLocatorValue());
+            snap.put("device_element_value", p.getDeviceElementValue() != null ? p.getDeviceElementValue() : "");
+            if (p.getDeviceElementBindings() != null && !p.getDeviceElementBindings().isBlank()) {
+                try {
+                    snap.put("device_element_bindings", objectMapper.readTree(p.getDeviceElementBindings()));
+                } catch (Exception ignore) {
+                    snap.put("device_element_bindings", p.getDeviceElementBindings());
+                }
+            }
             snap.put("version_tag", p.getVersionTag() != null ? p.getVersionTag() : "");
             snap.put("env_tag", p.getEnvTag() != null ? p.getEnvTag() : "");
             snap.put("team_id", p.getTeamId());
@@ -889,6 +950,8 @@ public class ControlPoolService {
                     "page_name", p.getPageName() != null ? p.getPageName() : "",
                     "locator_type", p.getLocatorType() != null ? p.getLocatorType() : "",
                     "locator_value", p.getLocatorValue() != null ? p.getLocatorValue() : "",
+                    "device_element_value", p.getDeviceElementValue() != null ? p.getDeviceElementValue() : "",
+                    "device_element_bindings", p.getDeviceElementBindings() != null ? p.getDeviceElementBindings() : "[]",
                     "status", p.getStatus() != null ? p.getStatus() : "active",
                     "platform", p.getPlatform() != null ? p.getPlatform().name() : "android"
             ));

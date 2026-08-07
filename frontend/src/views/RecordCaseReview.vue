@@ -261,7 +261,9 @@ const STEP_TYPE_LABELS = {
   input: '输入',
   launch: '启动应用',
   long_press: '长按',
-  switch_context: '切换上下文'
+  switch_context: '切换上下文',
+  set_relative_time: '设置相对时间',
+  custom_script: '自定义脚本'
 }
 
 const KEY_LABELS = { home: '主屏幕', back: '返回', recent: '多任务', menu: '菜单' }

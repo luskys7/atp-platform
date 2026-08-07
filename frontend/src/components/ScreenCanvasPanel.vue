@@ -17,8 +17,10 @@
           <canvas
             ref="canvasRef"
             class="screen-canvas"
+            :class="{ controllable: controllable && connected }"
             @mousedown.prevent="onMouseDown"
             @mouseup.prevent="onMouseUp"
+            @mouseleave="onMouseLeave"
           />
           <div v-if="!hasFrame" class="screen-placeholder" :class="{ connected: connected }">
             <el-icon :size="compact ? 32 : 48"><Monitor /></el-icon>
@@ -60,8 +62,12 @@ const props = defineProps({
   autoConnect: { type: Boolean, default: false },
   showToolbar: { type: Boolean, default: true },
   showNavBar: { type: Boolean, default: true },
+  /** 为 true 时允许在画面上点击/滑动控机，并向外 emit 操作事件 */
+  controllable: { type: Boolean, default: true },
   maxHeight: { type: String, default: 'calc(100vh - 160px)' }
 })
+
+const emit = defineEmits(['control-tap', 'control-swipe', 'control-longpress', 'control-nav'])
 
 const canvasRef = ref(null)
 const hasFrame = ref(false)
@@ -69,11 +75,23 @@ const frameW = ref(1080)
 const frameH = ref(1920)
 const layoutStyle = ref(fixedScreenFrameStyle(1080, 1920))
 let dragStart = null
+let longPressTimer = null
+let longPressFired = false
 let detachFrame = null
 let detachMeta = null
 let renderer = null
 let noFrameTimer = null
 let triedJpegFallback = false
+let scrcpyRetryCount = 0
+const LONG_PRESS_MS = 550
+const SWIPE_THRESHOLD = 20
+
+function clearLongPressTimer() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
 
 function clearNoFrameTimer() {
   if (noFrameTimer) {
@@ -87,17 +105,25 @@ function scheduleNoFrameCheck() {
   if (!connected.value || hasFrame.value) return
   noFrameTimer = setTimeout(async () => {
     if (hasFrame.value || !connected.value) return
-    if (!triedJpegFallback && streamMode.value === 'scrcpy') {
+    if (scrcpyRetryCount < 2) {
+      scrcpyRetryCount += 1
+      stopStream()
+      await startStream()
+      scheduleNoFrameCheck()
+      return
+    }
+    if (!triedJpegFallback) {
       triedJpegFallback = true
       stopStream()
       await startStream({ forceJpeg: true })
       scheduleNoFrameCheck()
     }
-  }, 5000)
+  }, 6000)
 }
 
 async function connectStream() {
   triedJpegFallback = false
+  scrcpyRetryCount = 0
   hasFrame.value = false
   await startStream()
   scheduleNoFrameCheck()
@@ -201,30 +227,69 @@ function mapCoords(event) {
 }
 
 function onMouseDown(event) {
-  if (!connected.value) return
+  if (!props.controllable || !connected.value) return
   dragStart = mapCoords(event)
+  longPressFired = false
+  clearLongPressTimer()
+  longPressTimer = setTimeout(async () => {
+    if (!dragStart || !connected.value || !props.controllable) return
+    longPressFired = true
+    const point = { ...dragStart }
+    try {
+      // 长按：先短点一次近似；多数 Android 用 swipe 同点长 duration
+      await deviceApi.screenSwipe(props.deviceId, {
+        x1: point.x, y1: point.y, x2: point.x, y2: point.y, duration_ms: 800
+      })
+      emit('control-longpress', { x: point.x, y: point.y, duration_ms: 800 })
+    } catch (e) {
+      ElMessage.error(e?.message || '长按发送失败')
+    }
+  }, LONG_PRESS_MS)
 }
 
 async function onMouseUp(event) {
-  if (!dragStart || !connected.value) return
+  clearLongPressTimer()
+  if (!dragStart || !connected.value || !props.controllable) {
+    dragStart = null
+    return
+  }
   const start = dragStart
   const end = mapCoords(event)
   dragStart = null
+  if (longPressFired) {
+    longPressFired = false
+    return
+  }
   const dx = Math.abs(end.x - start.x)
   const dy = Math.abs(end.y - start.y)
-  if (dx > 20 || dy > 20) {
-    await deviceApi.screenSwipe(props.deviceId, {
-      x1: start.x, y1: start.y, x2: end.x, y2: end.y, duration_ms: 300
-    })
-  } else {
-    await deviceApi.screenTap(props.deviceId, { x: end.x, y: end.y })
+  try {
+    if (dx > SWIPE_THRESHOLD || dy > SWIPE_THRESHOLD) {
+      await deviceApi.screenSwipe(props.deviceId, {
+        x1: start.x, y1: start.y, x2: end.x, y2: end.y, duration_ms: 300
+      })
+      emit('control-swipe', {
+        x1: start.x, y1: start.y, x2: end.x, y2: end.y, duration_ms: 300
+      })
+    } else {
+      await deviceApi.screenTap(props.deviceId, { x: end.x, y: end.y })
+      emit('control-tap', { x: end.x, y: end.y })
+    }
+  } catch (e) {
+    ElMessage.error(e?.message || '操作发送失败')
   }
+}
+
+function onMouseLeave() {
+  clearLongPressTimer()
+  if (!longPressFired) dragStart = null
+  longPressFired = false
 }
 
 async function pressNavKey(key) {
   if (!connected.value) return
   try {
     await deviceApi.screenKey(props.deviceId, { key })
+    emit('control-nav', { key })
   } catch {
     ElMessage.error('按键发送失败')
   }
@@ -240,6 +305,7 @@ watch(connected, (v) => {
   if (!v) {
     hasFrame.value = false
     triedJpegFallback = false
+    scrcpyRetryCount = 0
     clearNoFrameTimer()
     if (renderer) {
       renderer.destroy()
@@ -273,7 +339,7 @@ onUnmounted(() => {
   if (renderer) renderer.destroy()
 })
 
-defineExpose({ connected, startStream, stopStream })
+defineExpose({ connected, startStream, stopStream, nativeW, nativeH })
 </script>
 
 <style scoped lang="scss">
@@ -323,10 +389,13 @@ defineExpose({ connected, startStream, stopStream })
   display: block;
   width: 100%;
   height: 100%;
-  cursor: crosshair;
+  cursor: default;
   user-select: none;
   touch-action: none;
   vertical-align: top;
+}
+.screen-canvas.controllable {
+  cursor: crosshair;
 }
 
 .screen-placeholder {

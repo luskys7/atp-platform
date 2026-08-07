@@ -9,7 +9,7 @@ const sessionLabels = new Map()
 export const activeScreenSessions = ref([])
 
 function refreshActiveSessions() {
-  activeScreenSessions.value = [...sessions.entries()]
+  const next = [...sessions.entries()]
     .filter(([, s]) => {
       const wsOpen = s.ws?.readyState === WebSocket.OPEN
       const wsConnecting = s.ws?.readyState === WebSocket.CONNECTING
@@ -23,6 +23,20 @@ function refreshActiveSessions() {
       streamMode: s.streamMode.value,
       fps: s.fps.value
     }))
+  const prev = activeScreenSessions.value
+  if (
+    prev.length === next.length
+    && prev.every((p, i) =>
+      p.deviceId === next[i].deviceId
+      && p.connected === next[i].connected
+      && p.connecting === next[i].connecting
+      && p.streamMode === next[i].streamMode
+      && p.fps === next[i].fps
+    )
+  ) {
+    return
+  }
+  activeScreenSessions.value = next
 }
 
 export function syncActiveScreenSessions() {
@@ -97,6 +111,8 @@ function getSession(deviceId) {
       connected: ref(false),
       connecting: ref(false),
       lastFrame: shallowRef(null),
+      lastFrameBuffer: null,
+      _lastStatsAt: 0,
       lastMeta: null,
       nativeW: ref(1080),
       nativeH: ref(1920),
@@ -138,13 +154,19 @@ export function useScreenStream(deviceIdInput) {
     const session = activeSession()
     if (!session) return
     const now = performance.now()
+    // 帧回调与绘制走非响应式路径；fps/延迟仅低频刷新，避免每帧触发整页重渲染
     if (lastFrameAt > 0) {
-      session.latencyMs.value = Math.round(now - lastFrameAt)
-      session.fps.value = Math.min(60, Math.round(1000 / Math.max(session.latencyMs.value, 1)))
+      const interval = now - lastFrameAt
+      if (!session._lastStatsAt || now - session._lastStatsAt >= 500) {
+        session.latencyMs.value = Math.round(interval)
+        session.fps.value = Math.min(60, Math.round(1000 / Math.max(interval, 1)))
+        session._lastStatsAt = now
+        // 仅在统计刷新时同步 dock，禁止每帧 refresh
+        if (session.connected.value) refreshActiveSessions()
+      }
     }
     lastFrameAt = now
-    session.lastFrame.value = buffer
-    if (session.connected.value) refreshActiveSessions()
+    session.lastFrameBuffer = buffer
     session.onFrameCallbacks.forEach(fn => fn(buffer))
   }
 
@@ -259,6 +281,8 @@ export function useScreenStream(deviceIdInput) {
     session.connected.value = false
     session.connecting.value = false
     session.lastFrame.value = null
+    session.lastFrameBuffer = null
+    session._lastStatsAt = 0
     session.hasSnapshot = false
     session.fps.value = 0
     session.latencyMs.value = 0
@@ -275,8 +299,9 @@ export function useScreenStream(deviceIdInput) {
     if (!session) return () => {}
     session.onFrameCallbacks.add(fn)
     const fmt = session.streamFormat.value
-    if (session.lastFrame.value && fmt && fmt !== 'h264') {
-      fn(session.lastFrame.value)
+    const cached = session.lastFrameBuffer || session.lastFrame.value
+    if (cached && fmt && fmt !== 'h264') {
+      fn(cached)
     }
     return () => session.onFrameCallbacks.delete(fn)
   }
@@ -329,7 +354,7 @@ export function useScreenStream(deviceIdInput) {
     streamMode: computed(() => activeSession()?.streamMode.value ?? ''),
     fps: computed(() => activeSession()?.fps.value ?? 0),
     latencyMs: computed(() => activeSession()?.latencyMs.value ?? 0),
-    lastFrame: computed(() => activeSession()?.lastFrame.value ?? null),
+    lastFrame: computed(() => activeSession()?.lastFrameBuffer ?? activeSession()?.lastFrame.value ?? null),
     startStream,
     stopStream: () => stopStream(false),
     attachFrameListener,

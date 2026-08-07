@@ -25,20 +25,6 @@
 
         <div class="field-block">
           <div class="field-label">
-            <span class="req">*</span>
-            <span class="tip-label" title="区分不同 App 应用，用于筛选控件资源">应用包名</span>
-          </div>
-          <el-input
-            v-model="form.app_package"
-            placeholder="填写应用完整包名，例：com.xxx.app"
-            :class="{ 'is-field-error': errors.app_package }"
-            @input="errors.app_package = ''"
-          />
-          <div v-if="errors.app_package" class="field-error">{{ errors.app_package }}</div>
-        </div>
-
-        <div class="field-block">
-          <div class="field-label">
             <span class="tip-label" title="控件所在业务页面，建议使用中文页面名">页面名称</span>
           </div>
           <el-input
@@ -50,18 +36,17 @@
         <div class="field-block">
           <div class="field-label">
             <span class="req">*</span>
-            <span class="tip-label" title="使用中文业务名称，便于识别控件用途">控件名称</span>
+            <span class="tip-label" title="业务可读名称即可，无格式限制">控件名称</span>
           </div>
           <el-input
             v-model="form.element_name"
-            placeholder="填写业务化控件名称，例：登录按钮、确认弹窗"
-            maxlength="48"
+            placeholder="填写控件名称，例：定时任务，列表页右下角加号"
+            maxlength="256"
             show-word-limit
             :class="{ 'is-field-error': errors.element_name }"
             @input="onNameInput"
           />
           <div v-if="errors.element_name" class="field-error">{{ errors.element_name }}</div>
-          <div v-else-if="nameHint" class="field-warn">{{ nameHint }}</div>
         </div>
 
         <div class="field-block">
@@ -91,10 +76,10 @@
             :class="{ 'is-field-error': errors.locator_type }"
             @change="onLocatorTypeChange"
           >
-            <el-option label="资源 ID 定位" value="id" />
-            <el-option label="文本描述定位" value="accessibility" />
-            <el-option label="文本内容定位" value="text" />
-            <el-option label="路径通用定位" value="xpath" />
+            <el-option label="ID 定位" value="id" />
+            <el-option label="文案定位" value="accessibility" />
+            <el-option label="文本定位" value="text" />
+            <el-option label="xpath" value="xpath" />
           </el-select>
           <div v-if="errors.locator_type" class="field-error">{{ errors.locator_type }}</div>
         </div>
@@ -117,6 +102,60 @@
           </div>
           <div v-if="errors.locator_value" class="field-error">{{ errors.locator_value }}</div>
           <div v-else-if="locatorWarn" class="field-warn">{{ locatorWarn }}</div>
+        </div>
+
+        <div class="field-block">
+          <div class="field-label">
+            <span class="tip-label" title="按手机型号配置设备侧控件原始值（content-desc / text 等）；可多行，* 表示通用默认">设备关联元素值</span>
+          </div>
+          <el-table :data="form.device_bindings" border size="small" class="device-bind-table">
+            <el-table-column label="关联设备" min-width="180">
+              <template #default="{ row }">
+                <el-select
+                  v-model="row.device_model"
+                  filterable
+                  allow-create
+                  default-first-option
+                  clearable
+                  placeholder="选择或输入手机型号"
+                  style="width:100%"
+                >
+                  <el-option label="通用默认 (*)" value="*" />
+                  <el-option
+                    v-for="m in deviceModelOptions"
+                    :key="m"
+                    :label="m"
+                    :value="m"
+                  />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="控件元素值" min-width="160">
+              <template #default="{ row }">
+                <el-input
+                  v-model="row.element_value"
+                  placeholder="例：定时"
+                  maxlength="128"
+                  clearable
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="88" align="center">
+              <template #default="{ $index }">
+                <el-button
+                  link
+                  type="danger"
+                  size="small"
+                  :disabled="form.device_bindings.length <= 1"
+                  @click="removeDeviceBinding($index)"
+                >删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="bind-actions">
+            <el-button size="small" @click="addDeviceBinding">添加一行</el-button>
+            <span class="bind-hint">可从设备列表选择型号，也可手动输入；保存后按型号匹配元素值</span>
+          </div>
         </div>
       </section>
 
@@ -200,10 +239,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { controlApi } from '@/api'
+import { controlApi, deviceApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Close } from '@element-plus/icons-vue'
 import { validateControlDisplayName } from '@/utils/locatorAssist'
 
 const FILL_FLAG = 'atp_fill_control_form'
@@ -230,6 +270,7 @@ const saving = ref(false)
 const snapshot = ref('')
 const nameHint = ref('')
 const locatorWarn = ref('')
+const deviceModelOptions = ref([])
 
 const form = reactive(blankForm())
 const errors = reactive({
@@ -241,6 +282,10 @@ const errors = reactive({
 
 const isEdit = computed(() => !!(props.editRow?.id || form.id))
 
+function emptyBinding(model = '', value = '') {
+  return { device_model: model, element_value: value }
+}
+
 function blankForm() {
   return {
     id: null,
@@ -250,6 +295,7 @@ function blankForm() {
     platform: 'android',
     locator_type: 'id',
     locator_value: '',
+    device_bindings: [emptyBinding('*', '')],
     version_tag: '',
     env_tag: '',
     control_tag: 'static',
@@ -274,6 +320,53 @@ function isDirty() {
   return takeSnapshot() !== snapshot.value
 }
 
+function parseDeviceBindings(row) {
+  const list = []
+  let raw = row?.device_element_bindings
+  if (typeof raw === 'string' && raw.trim()) {
+    try { raw = JSON.parse(raw) } catch { raw = null }
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item) continue
+      list.push(emptyBinding(
+        item.device_model || item.deviceModel || '*',
+        item.element_value || item.elementValue || ''
+      ))
+    }
+  }
+  if (!list.length && row?.device_element_value) {
+    list.push(emptyBinding('*', row.device_element_value))
+  }
+  if (!list.length) list.push(emptyBinding('*', ''))
+  return list
+}
+
+function addDeviceBinding() {
+  form.device_bindings.push(emptyBinding('', ''))
+}
+
+function removeDeviceBinding(idx) {
+  if (form.device_bindings.length <= 1) return
+  form.device_bindings.splice(idx, 1)
+}
+
+function serializeBindings() {
+  return form.device_bindings
+    .map(r => ({
+      device_model: (r.device_model || '').trim() || '*',
+      element_value: (r.element_value || '').trim()
+    }))
+    .filter(r => r.element_value || r.device_model === '*')
+}
+
+function defaultElementValueFromBindings(bindings) {
+  const star = bindings.find(b => b.device_model === '*' && b.element_value)
+  if (star) return star.element_value
+  const first = bindings.find(b => b.element_value)
+  return first?.element_value || ''
+}
+
 function applyRow(row) {
   Object.assign(form, blankForm(), {
     id: row.id,
@@ -283,6 +376,7 @@ function applyRow(row) {
     platform: row.platform || 'android',
     locator_type: normalizeLocatorType(row.locator_type),
     locator_value: row.locator_value || '',
+    device_bindings: parseDeviceBindings(row),
     version_tag: row.version_tag || '',
     env_tag: toChineseEnv(row.env_tag || ''),
     control_tag: normalizeGrade(row.control_tag),
@@ -343,23 +437,14 @@ function toggleEnvTag(t) {
 
 function onNameInput() {
   errors.element_name = ''
-  const n = form.element_name.trim()
-  if (!n) {
-    nameHint.value = ''
-    return
-  }
-  if (!/[\u4e00-\u9fff]/.test(n) || /^[a-zA-Z0-9_\-.]+$/.test(n)) {
-    nameHint.value = '请使用中文标识控件用途'
-  } else {
-    nameHint.value = ''
-  }
+  nameHint.value = ''
 }
 
 function validateLocatorExpr(type, value, { soft = false } = {}) {
   const v = String(value || '').trim()
   if (!v) return soft ? '' : '请填写定位表达式'
   if ((type === 'id') && (v.startsWith('//') || v.startsWith('/hierarchy') || v.startsWith('xpath='))) {
-    return '资源 ID 定位表达式格式异常，请勿填写路径'
+    return 'ID 定位表达式格式异常，请勿填写路径'
   }
   if (type === 'xpath') {
     if (!(v.startsWith('/') || v.startsWith('(') || v.startsWith('./') || v.startsWith('.//'))) {
@@ -367,7 +452,7 @@ function validateLocatorExpr(type, value, { soft = false } = {}) {
     }
   }
   if (type === 'text' && v.length > 200) {
-    return '文本内容定位过长，请检查是否粘贴错误'
+    return '文本定位过长，请检查是否粘贴错误'
   }
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(v)) {
     return '定位表达式包含非法控制字符'
@@ -378,6 +463,36 @@ function validateLocatorExpr(type, value, { soft = false } = {}) {
 function onLocatorInput() {
   errors.locator_value = ''
   locatorWarn.value = validateLocatorExpr(form.locator_type, form.locator_value, { soft: true })
+  const guessed = guessDeviceElementValue(form.locator_type, form.locator_value)
+  if (!guessed) return
+  // 仅填充空的通用行，避免覆盖已配置的多型号值
+  const star = form.device_bindings.find(r => (r.device_model || '*') === '*' && !(r.element_value || '').trim())
+  if (star) star.element_value = guessed
+  else if (form.device_bindings.length === 1 && !(form.device_bindings[0].element_value || '').trim()) {
+    form.device_bindings[0].device_model = form.device_bindings[0].device_model || '*'
+    form.device_bindings[0].element_value = guessed
+  }
+}
+
+function guessDeviceElementValue(type, expr) {
+  const raw = String(expr || '').trim()
+  if (!raw) return ''
+  const patterns = [
+    /@content-desc=["']([^"']+)["']/,
+    /content-desc=["']([^"']+)["']/,
+    /@text=["']([^"']+)["']/,
+    /text=["']([^"']+)["']/,
+    /description\(["']([^"']+)["']\)/,
+    /resource-id=["'][^"']*?\/([^/"']+)["']/i,
+    /:id\/([A-Za-z0-9_.-]+)/
+  ]
+  for (const re of patterns) {
+    const m = raw.match(re)
+    if (m?.[1]) return m[1].trim()
+  }
+  if (type === 'text' || type === 'accessibility') return raw.slice(0, 64)
+  if (type === 'id' && !raw.includes('/') && !raw.includes('[')) return raw.slice(0, 64)
+  return ''
 }
 
 function onLocatorTypeChange() {
@@ -388,10 +503,6 @@ function onLocatorTypeChange() {
 function validateAll() {
   clearErrors()
   let ok = true
-  if (!form.app_package?.trim()) {
-    errors.app_package = '应用包名不能为空'
-    ok = false
-  }
   const nameErr = validateControlDisplayName(form.element_name)
   if (nameErr) {
     errors.element_name = nameErr
@@ -409,18 +520,41 @@ function validateAll() {
   return ok
 }
 
+async function loadDeviceModels() {
+  try {
+    const res = await deviceApi.list({ page: 1, page_size: 200 })
+    const list = res.data?.list || res.data?.items || res.data || []
+    const set = new Set()
+    for (const d of list) {
+      const m = (d.model || d.name || '').trim()
+      if (m) set.add(m)
+    }
+    deviceModelOptions.value = [...set].sort((a, b) => a.localeCompare(b, 'zh'))
+  } catch {
+    deviceModelOptions.value = []
+  }
+}
+
 async function initDialog() {
   clearErrors()
+  await loadDeviceModels()
   if (props.editRow?.id) {
     applyRow(props.editRow)
   } else {
     Object.assign(form, blankForm())
-    // 拾取回填
     tryConsumeFillPayload()
   }
   await nextTick()
   snapshot.value = takeSnapshot()
 }
+
+watch(() => props.modelValue, (v) => {
+  if (v) initDialog()
+})
+
+onMounted(() => {
+  if (props.modelValue) initDialog()
+})
 
 function tryConsumeFillPayload() {
   try {
@@ -442,6 +576,10 @@ function tryConsumeFillPayload() {
       platform: data.platform || 'android',
       locator_type: normalizeLocatorType(data.locator_type || 'id'),
       locator_value: data.locator_value || '',
+      device_bindings: parseDeviceBindings({
+        device_element_bindings: data.device_element_bindings,
+        device_element_value: data.device_element_value || data.display_name || data.element_name || ''
+      }),
       version_tag: data.version_tag || '',
       env_tag: toChineseEnv(data.env_tag || ''),
       control_tag: normalizeGrade(data.control_tag),
@@ -452,10 +590,6 @@ function tryConsumeFillPayload() {
     onLocatorInput()
   } catch { /* ignore */ }
 }
-
-watch(() => props.modelValue, (v) => {
-  if (v) initDialog()
-})
 
 async function handleBeforeClose(done) {
   if (!isDirty()) {
@@ -511,13 +645,16 @@ async function submit() {
   }
   saving.value = true
   try {
+    const bindings = serializeBindings()
     const payload = {
-      app_package: form.app_package.trim(),
+      app_package: (form.app_package || '').trim(),
       page_name: form.page_name.trim(),
       element_name: form.element_name.trim(),
       platform: form.platform,
       locator_type: form.locator_type,
       locator_value: form.locator_value.trim(),
+      device_element_value: defaultElementValueFromBindings(bindings),
+      device_element_bindings: bindings,
       version_tag: form.version_tag.trim(),
       env_tag: form.env_tag.trim(),
       control_tag: form.control_tag,
@@ -528,6 +665,8 @@ async function submit() {
       await controlApi.updatePool(form.id, {
         locator_type: payload.locator_type,
         locator_value: payload.locator_value,
+        device_element_value: payload.device_element_value || null,
+        device_element_bindings: payload.device_element_bindings,
         page_name: payload.page_name || null,
         version_tag: payload.version_tag,
         env_tag: payload.env_tag,
@@ -624,6 +763,26 @@ async function submit() {
 }
 .locator-row .el-textarea { flex: 1; }
 .btn-pick { flex-shrink: 0; margin-top: 2px; }
+
+.device-bind-table {
+  width: 100%;
+}
+.device-bind-table :deep(.el-table__cell) {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+.bind-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.bind-hint {
+  font-size: 12px;
+  color: var(--atp-text-secondary, #64748b);
+  line-height: 1.4;
+}
 
 .tag-quick {
   display: flex;

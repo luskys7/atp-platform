@@ -1,10 +1,11 @@
 package com.atp.platform.security;
 
+import com.atp.platform.service.AuthService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -15,10 +16,15 @@ import java.io.IOException;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final AuthService authService;
+
+    public JwtAuthFilter(JwtTokenProvider jwtTokenProvider, @Lazy AuthService authService) {
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.authService = authService;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
@@ -30,10 +36,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 Long userId = claims.get("user_id", Long.class);
                 String role = claims.get("role", String.class);
                 Long teamId = claims.get("team_id", Long.class);
-                var auth = new UsernamePasswordAuthenticationToken(
-                        new AuthUser(userId, role, teamId), null,
-                        List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                String jti = claims.get("jti", String.class);
+                if (jti == null) {
+                    jti = claims.getId();
+                }
+                Integer tv = claims.get("tv", Integer.class);
+                if (!authService.isTokenVersionValid(userId, tv) || !authService.isSessionActive(jti)) {
+                    SecurityContextHolder.clearContext();
+                } else {
+                    var auth = new UsernamePasswordAuthenticationToken(
+                            new AuthUser(userId, role, teamId, jti), null,
+                            List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                }
             } catch (Exception ignored) {
                 SecurityContextHolder.clearContext();
             }

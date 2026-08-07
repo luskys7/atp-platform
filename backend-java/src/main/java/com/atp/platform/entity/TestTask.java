@@ -127,7 +127,7 @@ public class TestTask {
     private LocalDateTime updatedAt;
 
     public enum TaskPlatform {
-        android, ios, both
+        android, ios, both, chrome
     }
 
     public enum TaskStatus {
