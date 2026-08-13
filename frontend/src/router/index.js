@@ -162,6 +162,18 @@ const routes = [
         meta: { title: '任务执行' }
       },
       {
+        path: 'machine-adaptation',
+        name: 'MachineAdaptationTask',
+        component: () => import('@/views/MachineAdaptationTask.vue'),
+        meta: { title: '机型适配' }
+      },
+      {
+        path: 'machine-adaptation/config',
+        name: 'MachineAdaptationConfig',
+        component: () => import('@/views/MachineAdaptationConfig.vue'),
+        meta: { title: '机型适配配置' }
+      },
+      {
         path: 'tasks/:id',
         name: 'TaskDetail',
         component: () => import('@/views/TaskDetail.vue'),

@@ -137,6 +137,17 @@ public class ControlPoolService {
         if (body.containsKey("locator_value") && body.get("locator_value") != null) {
             pool.setLocatorValue(body.get("locator_value").toString());
         }
+        String oldElementName = pool.getElementName();
+        String newElementName = null;
+        if (body.containsKey("element_name") && body.get("element_name") != null) {
+            newElementName = body.get("element_name").toString().trim();
+            validateElementName(newElementName);
+            if (!newElementName.equals(oldElementName)) {
+                pool.setElementName(newElementName);
+            } else {
+                newElementName = null;
+            }
+        }
         if (body.containsKey("device_element_value") || body.containsKey("device_element_bindings")) {
             @SuppressWarnings("unchecked")
             List<Map<String, String>> bindings = body.get("device_element_bindings") instanceof List
@@ -178,12 +189,44 @@ public class ControlPoolService {
             for (PrivateControlBinding b : bindingRepository.findByPoolId(id)) {
                 b.setLocatorType(pool.getLocatorType());
                 b.setLocatorValue(pool.getLocatorValue());
+                if (newElementName != null) {
+                    b.setElementName(newElementName);
+                }
                 bindingRepository.save(b);
             }
+        }
+        // 控件改名时，同步用例 / 公共步骤中的 element_name 引用
+        if (newElementName != null && oldElementName != null && !oldElementName.isBlank()) {
+            renameElementNameRefs(oldElementName, newElementName);
         }
         archiveVersion(pool, body.getOrDefault("reason", "更新控件池").toString(), operatorId,
                 strVal(body.get("env_tag")), strVal(body.get("requirement_id")), strVal(body.get("screenshot_path")));
         return pool;
+    }
+
+    private void renameElementNameRefs(String oldName, String newName) {
+        for (TestCase c : caseRepository.findByDeletedAtIsNull()) {
+            if (c.getStepsContent() == null || !c.getStepsContent().contains(oldName)) continue;
+            String updated = replaceElementNameInJson(c.getStepsContent(), oldName, newName);
+            if (!updated.equals(c.getStepsContent())) {
+                c.setStepsContent(updated);
+                caseRepository.save(c);
+            }
+        }
+        for (CommonStep s : commonStepRepository.findByDeletedAtIsNullOrderByNameAsc()) {
+            if (s.getStepsContent() == null || !s.getStepsContent().contains(oldName)) continue;
+            String updated = replaceElementNameInJson(s.getStepsContent(), oldName, newName);
+            if (!updated.equals(s.getStepsContent())) {
+                s.setStepsContent(updated);
+                commonStepRepository.save(s);
+            }
+        }
+    }
+
+    private String replaceElementNameInJson(String json, String oldName, String newName) {
+        return json
+                .replace("\"element_name\":\"" + oldName + "\"", "\"element_name\":\"" + newName + "\"")
+                .replace("\"element_name\": \"" + oldName + "\"", "\"element_name\": \"" + newName + "\"");
     }
 
     public List<ControlPoolVersion> listVersions(Long poolId) {

@@ -42,7 +42,7 @@ def _ocr_text(image_path: Path) -> str:
 
 
 def ocr_pick_at_point(serial: str, x: int, y: int, radius: int = 180) -> dict:
-    """截图 OCR，返回点击附近文本（按 bbox 近点匹配，而非全屏首行）。"""
+    """截图 OCR，返回点击附近文本（按 bbox 近点匹配，合并同行完整短句）。"""
     shot = _capture_screen(serial)
     try:
         import pytesseract  # type: ignore
@@ -57,9 +57,7 @@ def ocr_pick_at_point(serial: str, x: int, y: int, radius: int = 180) -> dict:
         return {"text": lines[0], "source": "ocr_fallback_line", "all_lines": lines[:8]}
 
     n = len(data.get("text") or [])
-    best_text = ""
-    best_dist = 10**9
-    near_lines: list[str] = []
+    tokens: list[dict] = []
     for i in range(n):
         raw = (data["text"][i] or "").strip()
         if not raw or len(raw) < 1:
@@ -82,25 +80,69 @@ def ocr_pick_at_point(serial: str, x: int, y: int, radius: int = 180) -> dict:
             dist = abs(cx - x) + abs(cy - y) // 4
         else:
             dist = abs(cx - x) + abs(cy - y)
-        if dist > radius:
-            continue
-        near_lines.append(raw)
-        # 短中文标签（定时/教程）优先
-        bonus = 0
-        if 1 <= len(raw) <= 8:
-            bonus = -20
-        key_dist = dist + bonus
-        if key_dist < best_dist:
-            best_dist = key_dist
-            best_text = raw
+        tokens.append({
+            "text": raw,
+            "dist": dist,
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+            "cx": cx, "cy": cy,
+            "h": h,
+            "line_num": int(data.get("line_num", [0])[i] or 0),
+            "block_num": int(data.get("block_num", [0])[i] or 0),
+            "par_num": int(data.get("par_num", [0])[i] or 0),
+        })
+
+    if not tokens:
+        return {"text": "", "source": "ocr_empty", "all_lines": []}
+
+    near = [t for t in tokens if t["dist"] <= radius]
+    if not near:
+        return {"text": "", "source": "ocr_empty", "all_lines": []}
+
+    # 选距离最近的 token，再合并同一视觉行的词，得到完整短句 + 并集 bounds
+    seed = min(near, key=lambda t: (t["dist"], len(t["text"])))
+    same_line = []
+    for t in tokens:
+        same_block = (
+            t["block_num"] == seed["block_num"]
+            and t["par_num"] == seed["par_num"]
+            and t["line_num"] == seed["line_num"]
+        )
+        # tesseract 行号不准时，用垂直重叠兜底
+        vert_close = abs(t["cy"] - seed["cy"]) <= max(12, int(0.6 * max(seed["h"], t["h"])))
+        if same_block or vert_close:
+            # 同行且水平不要太远（避免并到整屏无关字）
+            if abs(t["cx"] - seed["cx"]) <= max(radius * 3, 420):
+                same_line.append(t)
+    if not same_line:
+        same_line = [seed]
+    same_line.sort(key=lambda t: (t["x1"], t["y1"]))
+
+    # 去重拼接
+    parts = []
+    for t in same_line:
+        if not parts or parts[-1] != t["text"]:
+            parts.append(t["text"])
+    best_text = "".join(parts) if any("\u4e00" <= ch <= "\u9fff" for ch in "".join(parts)) else " ".join(parts)
+    x1 = min(t["x1"] for t in same_line)
+    y1 = min(t["y1"] for t in same_line)
+    x2 = max(t["x2"] for t in same_line)
+    y2 = max(t["y2"] for t in same_line)
+    bounds = f"[{x1},{y1}][{x2},{y2}]"
+    near_lines = []
+    for t in sorted(near, key=lambda z: z["dist"])[:8]:
+        if t["text"] not in near_lines:
+            near_lines.append(t["text"])
     if best_text:
         return {
-            "text": best_text,
+            "text": best_text.strip(),
             "source": "ocr_near",
-            "distance": best_dist,
-            "all_lines": near_lines[:8],
+            "distance": seed["dist"],
+            "bounds": bounds,
+            "image_width": int(img.width),
+            "image_height": int(img.height),
+            "all_lines": near_lines,
         }
-    # 近点无命中时不回退全屏首行，避免误用远处文本
+    # unreachable — kept for clarity
     return {"text": "", "source": "ocr_empty", "all_lines": []}
 
 

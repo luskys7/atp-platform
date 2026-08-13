@@ -22,16 +22,23 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
   let pendingRaster = false
   let latestRaster = null
   let pendingFrames = []
+  let paused = false
 
   const h264 = createH264Decoder(canvasRef, (w, h, painted = true) => {
+    if (paused) return
     if (painted !== false) onFrameDrawn?.(w, h)
   })
 
   async function drawRaster(buffer) {
+    if (paused) return false
     const canvas = canvasRef.value
     if (!canvas || !buffer) return false
     const blob = new Blob([buffer], { type: frameMime(buffer) })
     const bitmap = await createImageBitmap(blob)
+    if (paused) {
+      bitmap.close()
+      return false
+    }
     const painted = paintCanvasSource(canvas, bitmap, bitmap.width, bitmap.height)
     bitmap.close()
     if (painted) onFrameDrawn?.(painted.nativeW, painted.nativeH)
@@ -39,6 +46,7 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
   }
 
   function scheduleRasterDraw(buffer) {
+    if (paused) return
     latestRaster = buffer
     if (pendingRaster) return
     pendingRaster = true
@@ -46,7 +54,7 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
       pendingRaster = false
       const buf = latestRaster
       latestRaster = null
-      if (!buf) return
+      if (!buf || paused) return
       try {
         await drawRaster(buf)
       } catch (e) {
@@ -57,6 +65,7 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
   }
 
   function feedH264(buffer) {
+    if (paused) return false
     if (h264.feedChunk(buffer)) {
       h264Active = true
       return true
@@ -67,7 +76,7 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
   }
 
   function flushPendingFrames() {
-    if (!pendingFrames.length || !h264Active) return
+    if (paused || !pendingFrames.length || !h264Active) return
     const queued = pendingFrames.splice(0)
     for (const buffer of queued) feedH264(buffer)
   }
@@ -87,7 +96,7 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
   }
 
   function onFrame(buffer) {
-    if (!buffer || !canvasRef.value) return
+    if (paused || !buffer || !canvasRef.value) return
 
     if (streamMode === 'h264' || h264Active) {
       feedH264(buffer)
@@ -106,7 +115,16 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
     onDecodeError?.('h264_decode_failed')
   }
 
+  function setPaused(next) {
+    paused = !!next
+    if (paused) {
+      pendingFrames = []
+      latestRaster = null
+    }
+  }
+
   function destroy() {
+    paused = false
     streamMode = ''
     h264Active = false
     pendingFrames = []
@@ -114,5 +132,5 @@ export function createScreenCanvasRenderer(canvasRef, { onFrameDrawn, onDecodeEr
     h264.destroy()
   }
 
-  return { onMeta, onFrame, destroy }
+  return { onMeta, onFrame, setPaused, destroy }
 }

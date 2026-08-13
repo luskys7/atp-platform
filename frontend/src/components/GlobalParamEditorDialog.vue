@@ -30,12 +30,14 @@
           </div>
           <el-input
             v-model="form.param_key"
-            placeholder="仅大写英文、数字、下划线，例：API_REQUEST_HOST"
+            placeholder="例：API_REQUEST_HOST、InternalNewestAppVersion"
             :disabled="isEdit"
             :class="{ 'is-error-input': !!errors.param_key }"
+            maxlength="128"
+            show-word-limit
             @input="onKeyInput"
           />
-          <div class="field-hint">命名仅支持大写字母、数字、下划线，不可使用中文 / 小写 / 特殊符号</div>
+          <div class="field-hint">建议使用英文、数字、下划线；大小写与常见符号均可。勿含空格与 &#123;&#123; &#125;&#125; 花括号</div>
           <div v-if="errors.param_key" class="field-error">{{ errors.param_key }}</div>
         </div>
 
@@ -150,7 +152,7 @@ import { Close, ArrowDown } from '@element-plus/icons-vue'
 import { globalParamApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const KEY_RE = /^[A-Z][A-Z0-9_]*$/
+const KEY_RE = /^[^\s{}]{1,128}$/
 
 const TEMPLATES = {
   host: {
@@ -229,22 +231,20 @@ function isDirty() {
 
 function sanitizeKey(raw) {
   return String(raw || '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9_]/g, '')
+    .replace(/[\s{}]/g, '')
+    .slice(0, 128)
 }
 
 function onKeyInput(val) {
   if (isEdit.value) return
   const raw = String(val ?? '')
-  const hadIllegal = /[^A-Z0-9_]/.test(raw) || /[a-z]/.test(raw) || /[\u4e00-\u9fff]/.test(raw)
   const cleaned = sanitizeKey(raw)
+  const hadBlocked = cleaned !== raw
   form.param_key = cleaned
   if (!cleaned) {
-    errors.param_key = hadIllegal ? '仅允许大写字母、数字与下划线，已拦截违规字符' : '请填写参数键'
-  } else if (hadIllegal) {
-    errors.param_key = '仅允许大写字母、数字与下划线，已拦截违规字符'
+    errors.param_key = hadBlocked ? '参数键不能包含空格或花括号 { }' : '请填写参数键'
   } else if (!KEY_RE.test(cleaned)) {
-    errors.param_key = '参数键需以大写字母开头，仅含大写字母、数字、下划线'
+    errors.param_key = '参数键长度需在 1~128，且不能包含空格或花括号'
   } else {
     errors.param_key = ''
   }
@@ -332,7 +332,7 @@ function validateAll() {
     return false
   }
   if (!KEY_RE.test(form.param_key)) {
-    errors.param_key = '参数键不符合命名规范：仅大写字母、数字、下划线，且需以字母开头'
+    errors.param_key = '参数键不能为空或包含空格、花括号，长度不超过 128'
     return false
   }
   return true

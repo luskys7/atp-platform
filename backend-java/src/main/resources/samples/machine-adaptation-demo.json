@@ -1,0 +1,97 @@
+{
+  "machines": [
+    {
+      "machine_name": "AX17",
+      "hard_version": "HW-A",
+      "firm_version": "1.2.0",
+      "remark": "Demo机型-基础能力"
+    },
+    {
+      "machine_name": "X30",
+      "hard_version": "HW-B",
+      "firm_version": "2.0.1",
+      "remark": "Demo机型-进阶能力"
+    },
+    {
+      "machine_name": "CX2",
+      "hard_version": "HW-C",
+      "firm_version": "3.0.0",
+      "remark": "Demo机型-全量设置能力"
+    }
+  ],
+  "tags": [
+    { "tag_type": "清洁功能", "tag_name": "任务", "content_name": "开始清洁" },
+    { "tag_type": "清洁功能", "tag_name": "任务", "content_name": "结束清洁" },
+    { "tag_type": "清洁功能", "tag_name": "基站", "content_name": "设备面板-基站集尘" },
+    { "tag_type": "清洁功能", "tag_name": "基站", "content_name": "设备面板-基站清洗" },
+    { "tag_type": "清洁功能", "tag_name": "基站", "content_name": "设备面板-基站烘干" },
+    { "tag_type": "清洁功能", "tag_name": "旅程", "content_name": "清洁报告" },
+    { "tag_type": "清洁功能", "tag_name": "旅程", "content_name": "历史记录" },
+    { "tag_type": "清洁功能", "tag_name": "清洁", "content_name": "清扫" },
+    { "tag_type": "清洁功能", "tag_name": "清洁", "content_name": "拖地" },
+    { "tag_type": "清洁功能", "tag_name": "清洁", "content_name": "扫拖一体" },
+
+    { "tag_type": "地图功能", "tag_name": "地图", "content_name": "建图" },
+    { "tag_type": "地图功能", "tag_name": "地图", "content_name": "编辑地图" },
+
+    { "tag_type": "智能功能", "tag_name": "智能", "content_name": "语音控制" },
+
+    { "tag_type": "设备管理", "tag_name": "设备", "content_name": "设备信息" },
+    { "tag_type": "设备管理", "tag_name": "设备", "content_name": "固件升级" },
+    { "tag_type": "设备管理", "tag_name": "多设备列表", "content_name": "切换设备" },
+    { "tag_type": "设备管理", "tag_name": "多设备列表", "content_name": "添加设备" },
+
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "鲸灵托管-大面积脏污深度清洁" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "鲸灵托管-复拖次数上限" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "鲸灵托管-扫地吸力" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "鲸灵托管-拖地湿度" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "鲸灵托管-精细程度" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "地面清洁-回洗策略-每隔15平方米" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "地面清洁-回洗策略-每隔20平方米 (默认)" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "地面清洁-回洗策略-智能分区回洗" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "地面清洁-深度边角清洁" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "地面清洁-地毯优先清洁" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "通用-勿扰模式" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "通用-高原模式" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "通用-童锁" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "通用-谷点充电" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "通用-自动关机" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "基站-自动添加清洁剂" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "基站-拖布烘干强度" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "基站-默认清洁模式" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "基站-集尘频次" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "基站-集尘档位" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "有宠家庭-宠物清洁-宠物清洁区" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "有宠家庭-宠物清洁-补充清洁" },
+    { "tag_type": "设备管理", "tag_name": "设置", "content_name": "有宠家庭-宠物维护-智能集尘" },
+
+    { "tag_type": "通知体系", "tag_name": "通知", "content_name": "任务完成通知" },
+    { "tag_type": "通知体系", "tag_name": "通知", "content_name": "推送设置" },
+
+    { "tag_type": "用户体系", "tag_name": "用户", "content_name": "登录注册" }
+  ],
+  "machine_tags": [
+    { "machine_name": "AX17", "content_name": "清扫", "is_support": 1 },
+    { "machine_name": "AX17", "content_name": "拖地", "is_support": 1 },
+    { "machine_name": "AX17", "content_name": "设备信息", "is_support": 1 },
+    { "machine_name": "AX17", "content_name": "通用-勿扰模式", "is_support": 1 },
+    { "machine_name": "AX17", "content_name": "通用-童锁", "is_support": 1 },
+    { "machine_name": "AX17", "content_name": "登录注册", "is_support": 1 },
+
+    { "machine_name": "X30", "content_name": "清扫", "is_support": 1 },
+    { "machine_name": "X30", "content_name": "建图", "is_support": 1 },
+    { "machine_name": "X30", "content_name": "语音控制", "is_support": 1 },
+    { "machine_name": "X30", "content_name": "鲸灵托管-扫地吸力", "is_support": 1 },
+    { "machine_name": "X30", "content_name": "地面清洁-地毯优先清洁", "is_support": 1 },
+    { "machine_name": "X30", "content_name": "任务完成通知", "is_support": 1 },
+
+    { "machine_name": "CX2", "content_name": "开始清洁", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "设备面板-基站集尘", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "鲸灵托管-大面积脏污深度清洁", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "鲸灵托管-复拖次数上限", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "地面清洁-回洗策略-每隔20平方米 (默认)", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "通用-勿扰模式", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "基站-集尘频次", "is_support": 1 },
+    { "machine_name": "CX2", "content_name": "有宠家庭-宠物清洁-宠物清洁区", "is_support": 1 }
+  ]
+}

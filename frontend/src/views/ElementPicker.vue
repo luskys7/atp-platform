@@ -80,6 +80,64 @@
         </div>
       </AppCard>
 
+      <AppCard class="hub-history-card" :hover="false">
+        <template #header>
+          <div class="hub-history-head">
+            <div>
+              <div class="hub-history-title">历史拾取记录（本机）</div>
+              <div class="hub-history-desc">共 {{ pickHistory.length }} 条，保存在当前浏览器；可直接查看定位参数或批量写入控件库</div>
+            </div>
+            <div class="hub-history-actions">
+              <el-button
+                size="small"
+                type="primary"
+                :disabled="!pickHistory.length"
+                @click="restoreHistoryToPool"
+              >批量入库控件库</el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :disabled="!pickHistory.length"
+                @click="clearPickHistory"
+              >清空历史</el-button>
+            </div>
+          </div>
+        </template>
+        <el-table
+          :data="pickHistory"
+          stripe
+          max-height="420"
+          empty-text="暂无本机拾取历史"
+        >
+          <el-table-column type="index" label="#" width="52" :index="hubHistoryIndex" />
+          <el-table-column label="控件名称" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.display_name || row.element_name || `控件 (${row.x ?? '-'},${row.y ?? '-'})` }}
+            </template>
+          </el-table-column>
+          <el-table-column label="定位类型" width="110">
+            <template #default="{ row }">{{ hubHistoryLocator(row).type || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="定位值" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              <code class="hub-loc-code">{{ hubHistoryLocator(row).value || '-' }}</code>
+            </template>
+          </el-table-column>
+          <el-table-column label="设备" width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.device_label || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="拾取时间" width="170">
+            <template #default="{ row }">{{ formatHubPickTime(row.picked_at) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="100" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="restoreSingleHistoryToPool(row)">入库</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </AppCard>
+
       <el-dialog v-model="showWhitelistDialog" title="添加设备白名单" width="480px" destroy-on-close>
         <el-form :model="whitelistForm" label-width="100px">
           <el-form-item label="序列号" required><el-input v-model="whitelistForm.serial_number" /></el-form-item>
@@ -125,6 +183,7 @@
                 <span class="screen-title-text">设备投屏</span>
                 <span class="screen-device-name">{{ device?.model || device?.name || device?.serial_number || '未知设备' }}</span>
                 <span class="resolution-tag">{{ resolutionLabel }}</span>
+                <el-tag v-if="freezePickActive" type="warning" size="small" effect="dark">截图点选中</el-tag>
                 <el-tag v-if="uiTreeReady" type="success" size="small" effect="plain">树已就绪</el-tag>
                 <el-tag v-else-if="connected" type="info" size="small" effect="plain">未刷新</el-tag>
                 <el-tag v-if="dumpSource" size="small" :type="dumpSource === 'u2' ? 'success' : 'warning'" effect="plain">{{ dumpSourceLabel }}</el-tag>
@@ -137,8 +196,30 @@
                     <canvas
                       ref="canvasRef"
                       class="screen-canvas"
-                      :class="{ picking: interactionMode === 'pick', operating: interactionMode === 'operate' }"
+                      :class="{
+                        picking: interactionMode === 'pick',
+                        operating: interactionMode === 'operate',
+                        frozen: freezePickActive
+                      }"
                       @mousedown.prevent="onMouseDown"
+                      @mousemove="onPickCursorMove"
+                      @mouseleave="onPickCursorLeave"
+                    />
+                    <div v-if="freezePickActive" class="freeze-banner">
+                      画面已冻结 · 点击截图上的控件进行拾取
+                      <button type="button" class="freeze-banner-btn" @click.stop="exitFreezePick">解除</button>
+                      <button type="button" class="freeze-banner-btn" @click.stop="enterFreezePick">重新截取</button>
+                    </div>
+                    <div
+                      v-if="interactionMode === 'pick' && pickCursor.visible"
+                      class="pick-cursor-ring"
+                      :style="{ left: `${pickCursor.x}px`, top: `${pickCursor.y}px` }"
+                    />
+                    <div
+                      v-for="r in pickClickRipples"
+                      :key="r.id"
+                      class="pick-click-ripple"
+                      :style="{ left: `${r.x}px`, top: `${r.y}px` }"
                     />
                     <template v-if="interactionMode === 'pick' && resultPanelMode === 'current' && showPickHighlight && currentHighlightBox">
                       <div
@@ -165,6 +246,7 @@
                 <el-button
                   size="small"
                   :type="interactionMode === 'operate' ? 'primary' : 'default'"
+                  :disabled="freezePickActive"
                   @click="interactionMode = 'operate'"
                 >操控</el-button>
                 <el-button
@@ -172,6 +254,14 @@
                   :type="interactionMode === 'pick' ? 'primary' : 'default'"
                   @click="interactionMode = 'pick'"
                 >识别</el-button>
+                <el-button
+                  size="small"
+                  :type="freezePickActive ? 'warning' : 'default'"
+                  class="btn-outline-blue"
+                  :loading="freezing"
+                  :disabled="!hasFrame || !connected"
+                  @click="freezePickActive ? exitFreezePick() : enterFreezePick()"
+                >{{ freezePickActive ? '解除冻结' : '冻结点选' }}</el-button>
                 <span class="toolbar-sep" />
                 <el-button size="small" type="danger" class="btn-end-pick" @click="confirmEndPick">结束</el-button>
                 <el-button size="small" class="btn-outline-blue" :disabled="!hasFrame" @click="captureScreenshot">截图</el-button>
@@ -228,6 +318,7 @@
               @apply-manual="applyManualToCurrent"
               @select-history="selectHistory"
               @clear-history="clearPickHistory"
+              @restore-history-pool="restoreHistoryToPool"
               @goto-pool="$router.push('/controls')"
               @panel-mode-change="onResultPanelModeChange"
             />
@@ -287,7 +378,7 @@ import { formatStepLocator, formatLocatorType } from '@/utils/stepDisplay'
 import {
   buildLocatorChainFromPick, chainToLocators, primaryFromChain, isWeakPick,
   sortLocatorChainByPassRate,
-  riskLevelLabel, riskTagType, mapLocatorTypeForPool,
+  riskLevelLabel, riskTagType, mapLocatorTypeForPool, mapLocatorValueForPool,
   ANCHOR_DIRECTIONS, parseLocatorKv,
   buildParentIndexValue, buildAnchorAdjacentValue, buildRegionLocatorValue,
   computeStabilityScore, stabilityScoreLabel, stabilityScoreType,
@@ -324,6 +415,9 @@ const showWhitelistDialog = ref(false)
 const whitelistForm = reactive({ serial_number: '', platform: 'android', remark: '' })
 
 const interactionMode = ref('pick')
+/** 冻结当前投屏帧后点选（截图点选） */
+const freezePickActive = ref(false)
+const freezing = ref(false)
 const inspecting = ref(false)
 const pickResultPanelRef = ref(null)
 const warming = ref(false)
@@ -346,7 +440,7 @@ const PICK_HISTORY_KEY = 'atp_element_pick_history'
 function loadPersistedPickHistory() {
   try {
     const raw = JSON.parse(localStorage.getItem(PICK_HISTORY_KEY) || '[]')
-    return Array.isArray(raw) ? raw.slice(0, 30) : []
+    return Array.isArray(raw) ? raw.slice(0, 100) : []
   } catch {
     return []
   }
@@ -354,7 +448,7 @@ function loadPersistedPickHistory() {
 
 function persistPickHistory(list) {
   try {
-    const payload = JSON.stringify((list || []).slice(0, 30))
+    const payload = JSON.stringify((list || []).slice(0, 100))
     const save = () => {
       try { localStorage.setItem(PICK_HISTORY_KEY, payload) } catch { /* ignore */ }
     }
@@ -417,6 +511,62 @@ const manualForm = reactive({
 let dragStart = null
 let dragStartClient = null
 const SWIPE_THRESHOLD = 12
+
+const pickCursor = reactive({ visible: false, x: 0, y: 0 })
+const pickClickRipples = ref([])
+let pickRippleSeq = 0
+const pickRippleTimers = new Set()
+
+function canvasLocalPoint(event) {
+  const el = canvasRef.value
+  if (!el) return null
+  const rect = el.getBoundingClientRect()
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+    inside:
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom
+  }
+}
+
+function onPickCursorMove(event) {
+  if (interactionMode.value !== 'pick') {
+    pickCursor.visible = false
+    return
+  }
+  const pt = canvasLocalPoint(event)
+  if (!pt?.inside) {
+    pickCursor.visible = false
+    return
+  }
+  pickCursor.x = pt.x
+  pickCursor.y = pt.y
+  pickCursor.visible = true
+}
+
+function onPickCursorLeave() {
+  pickCursor.visible = false
+}
+
+function spawnPickClickEffect(clientX, clientY) {
+  const el = canvasRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const id = ++pickRippleSeq
+  pickClickRipples.value.push({
+    id,
+    x: clientX - rect.left,
+    y: clientY - rect.top
+  })
+  const timer = setTimeout(() => {
+    pickClickRipples.value = pickClickRipples.value.filter(r => r.id !== id)
+    pickRippleTimers.delete(timer)
+  }, 480)
+  pickRippleTimers.add(timer)
+}
 
 const {
   connected, connecting, statusText, nativeW, nativeH, streamW, streamH,
@@ -523,6 +673,7 @@ function isCanvasMostlyDark(sourceCanvas) {
 }
 
 function maybeClearHighlightOnDarkScreen() {
+  if (freezePickActive.value) return
   if (!showPickHighlight.value) {
     darkFrameStreak = 0
     return
@@ -546,8 +697,69 @@ function onResultPanelModeChange(mode) {
 
 watch(interactionMode, (mode) => {
   // 切到操控设备通常会离开当前页，收起高亮
-  if (mode === 'operate') clearPickHighlight()
+  if (mode === 'operate') {
+    clearPickHighlight()
+    pickCursor.visible = false
+    if (freezePickActive.value) exitFreezePick({ silent: true })
+  }
 })
+
+function setStreamPaused(paused) {
+  try { renderer?.setPaused?.(!!paused) } catch { /* ignore */ }
+}
+
+async function enterFreezePick() {
+  if (!connected.value || !hasFrame.value || !canvasRef.value) {
+    ElMessage.warning('请先连接投屏并等待画面出现')
+    return
+  }
+  if (freezing.value) return
+  freezing.value = true
+  try {
+    interactionMode.value = 'pick'
+    // 重新截取时先短暂恢复投屏，拿最新一帧再冻结
+    if (freezePickActive.value) {
+      setStreamPaused(false)
+      await new Promise((r) => setTimeout(r, 280))
+    }
+    setStreamPaused(true)
+    freezePickActive.value = true
+    clearPickHighlight()
+    // 同步抓取 UI dump，尽量与冻结画面同帧绑定
+    warming.value = true
+    uiTreeReady.value = false
+    try {
+      let res
+      try {
+        res = await deviceApi.screenPrepareUi(deviceId.value)
+      } catch {
+        res = await deviceApi.screenWarmUi(deviceId.value, { blocking: true })
+      }
+      const data = res.data || {}
+      uiTreeReady.value = !!data.ok
+      pageContext.value = data.page_context || data.warm?.page_context || 'native'
+      applyAppProfile(data.app_profile || data.warm?.app_profile)
+      applyDumpSource(data.dump_source || data.source || data.warm?.dump_source)
+      if (data.ok) {
+        await loadUiHierarchy({ force: true })
+        ElMessage.success('画面已冻结，点击截图上的控件即可拾取')
+      } else {
+        ElMessage.warning(data.message || data.error || 'UI 树同步失败，仍可尝试点选')
+      }
+    } finally {
+      warming.value = false
+    }
+  } finally {
+    freezing.value = false
+  }
+}
+
+function exitFreezePick({ silent = false } = {}) {
+  freezePickActive.value = false
+  freezing.value = false
+  setStreamPaused(false)
+  if (!silent) ElMessage.info('已解除冻结，恢复实时投屏')
+}
 
 const currentHighlightBox = computed(() => {
   if (!showPickHighlight.value) return null
@@ -944,18 +1156,28 @@ function resolveAppPackage() {
 
 function maybeFillControlForm(pick) {
   if (route.query.return_fill !== '1' && sessionStorage.getItem('atp_fill_control_form') !== '1') return
-  const primary = (pick.locator_type && pick.locator_value)
-    ? { type: pick.locator_type, value: pick.locator_value }
-    : (pick.locators && Object.keys(pick.locators).length
-        ? { type: Object.keys(pick.locators)[0], value: pick.locators[Object.keys(pick.locators)[0]] }
-        : null)
+  syncChainToPick()
+  const fromChain = primaryFromChain(locatorChain.value)
+  const primary = (fromChain.locator_value)
+    ? fromChain
+    : ((pick.locator_type && pick.locator_value)
+      ? { locator_type: pick.locator_type, locator_value: pick.locator_value, raw_type: pick.locator_type }
+      : (pick.locators && Object.keys(pick.locators).length
+        ? {
+            locator_type: Object.keys(pick.locators)[0],
+            locator_value: pick.locators[Object.keys(pick.locators)[0]],
+            raw_type: Object.keys(pick.locators)[0]
+          }
+        : null))
+  const rawType = primary?.raw_type || primary?.locator_type || 'id'
+  const rawValue = primary?.locator_value || ''
   const payload = {
     app_package: device.value?.app_package || pick.app_package || '',
     page_name: pick.page_name || '',
     element_name: pick.element_name || pick.text || pick.content_desc || '',
     platform: (device.value?.platform || 'android').toLowerCase().includes('ios') ? 'ios' : 'android',
-    locator_type: primary?.type || 'id',
-    locator_value: primary?.value || '',
+    locator_type: mapLocatorTypeForPool(rawType, rawValue),
+    locator_value: mapLocatorValueForPool(rawType, rawValue),
     version_tag: '',
     env_tag: '',
     control_tag: 'static',
@@ -1070,6 +1292,7 @@ async function confirmEndPick() {
 }
 
 function endPickSession() {
+  try { exitFreezePick({ silent: true }) } catch { /* ignore */ }
   try { stopStream() } catch { /* ignore */ }
   currentPick.value = null
   clearPickHighlight()
@@ -1224,12 +1447,13 @@ function bindCanvasPipeline() {
   if (detachFrame) detachFrame()
   if (detachMeta) detachMeta()
   detachFrame = attachFrameListener(buffer => {
-    if (!renderer) return
+    if (!renderer || freezePickActive.value) return
     renderer.onFrame(buffer)
   })
   detachMeta = attachMetaListener(meta => {
     renderer?.onMeta(meta)
   })
+  if (freezePickActive.value) setStreamPaused(true)
 }
 
 function mapCoords(event) {
@@ -1421,7 +1645,7 @@ function applyPickResult(data) {
   currentPick.value = merged
   syncRelativeFormFromPick(merged)
   pickHistory.value.unshift(merged)
-  if (pickHistory.value.length > 30) pickHistory.value.pop()
+  if (pickHistory.value.length > 100) pickHistory.value.length = 100
   persistPickHistory(pickHistory.value)
   lastPickMarker.value = { x: merged.inspect_x ?? merged.x, y: merged.inspect_y ?? merged.y }
   triggerHighlightFlash()
@@ -1571,31 +1795,31 @@ async function saveToControlPool() {
   savingPool.value = true
   try {
     await controlApi.createPool({
-      appPackage: resolveAppPackage(),
-      pageName: savePoolForm.page_name?.trim() || '',
-      elementName: savePoolForm.element_name.trim(),
+      app_package: resolveAppPackage(),
+      page_name: savePoolForm.page_name?.trim() || '',
+      element_name: savePoolForm.element_name.trim(),
       platform: device.value?.platform || 'android',
-      locatorType: mapLocatorTypeForPool(primary.locator_type),
-      locatorValue: primary.locator_value,
-      versionTag: savePoolForm.version_tag?.trim() || '',
-      envTag: savePoolForm.env_tag?.trim() || '',
-      controlTag: savePoolForm.control_tag || 'static',
-      waitRule: savePoolForm.wait_timeout_ms > 0 ? {
+      locator_type: mapLocatorTypeForPool(primary.raw_type || primary.locator_type, primary.locator_value),
+      locator_value: mapLocatorValueForPool(primary.raw_type || primary.locator_type, primary.locator_value),
+      version_tag: savePoolForm.version_tag?.trim() || '',
+      env_tag: savePoolForm.env_tag?.trim() || '',
+      control_tag: savePoolForm.control_tag || 'static',
+      wait_rule: savePoolForm.wait_timeout_ms > 0 ? {
         condition: savePoolForm.wait_condition,
         timeout_ms: savePoolForm.wait_timeout_ms,
         interval_ms: 500
       } : undefined,
-      displayName: pick.display_name || manualForm.display_name,
-      widgetType: pick.widget_type,
-      riskLevel: pick.risk_level,
-      riskTags: pick.risk_tags || [],
-      riskReasons: pick.risk_reasons || [],
+      display_name: pick.display_name || manualForm.display_name,
+      widget_type: pick.widget_type,
+      risk_level: pick.risk_level,
+      risk_tags: pick.risk_tags || [],
+      risk_reasons: pick.risk_reasons || [],
       locators: pick.locators || {},
-      locatorChain: locatorChain.value,
-      validateResult: pick.validate_result || null,
-      validatedAt: pick.validated_at || pick.validate_result?.validated_at || null,
-      tapX: pick.x,
-      tapY: pick.y
+      locator_chain: locatorChain.value,
+      validate_result: pick.validate_result || null,
+      validated_at: pick.validated_at || pick.validate_result?.validated_at || null,
+      tap_x: pick.x,
+      tap_y: pick.y
     })
     ElMessage.success('已保存到控件池')
     showSavePool.value = false
@@ -1710,6 +1934,147 @@ async function clearPickHistory() {
   ElMessage.success('已清空拾取历史')
 }
 
+/** 从浏览器本地拾取历史批量写回控件库（清库后恢复用） */
+async function restoreHistoryToPool() {
+  const list = (pickHistory.value || []).filter(Boolean)
+  if (!list.length) {
+    ElMessage.warning('当前浏览器没有可恢复的拾取历史')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将把本机浏览器中的 ${list.length} 条拾取历史写入控件库（按控件名+定位去重）。是否继续？`,
+      '从拾取历史恢复控件',
+      { type: 'info', confirmButtonText: '开始入库', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  const result = await writeHistoryItemsToPool(list)
+  ElMessage.success(`拾取历史入库完成：成功 ${result.ok}，跳过 ${result.skip}，失败 ${result.fail}`)
+  if (result.ok > 0) {
+    try {
+      await ElMessageBox.confirm('是否前往控件库查看？', '入库完成', {
+        confirmButtonText: '查看控件库',
+        cancelButtonText: '留在本页',
+        type: 'success'
+      })
+      router.push('/controls')
+    } catch { /* stay */ }
+  }
+}
+
+async function restoreSingleHistoryToPool(pick) {
+  if (!pick) return
+  const result = await writeHistoryItemsToPool([pick])
+  if (result.ok) ElMessage.success('已写入控件库')
+  else if (result.skip) ElMessage.warning('已存在或缺少定位信息，已跳过')
+  else ElMessage.error('入库失败')
+}
+
+function hubHistoryIndex(index) {
+  return (pickHistory.value?.length || 0) - index
+}
+
+function hubHistoryLocator(pick) {
+  if (!pick) return { type: '', value: '' }
+  const chain = Array.isArray(pick.locator_chain) && pick.locator_chain.length
+    ? pick.locator_chain
+    : buildLocatorChainFromPick(pick)
+  const primary = primaryFromChain(chain)
+  const type = primary.locator_type || pick.locator_type || ''
+  const value = primary.locator_value || pick.locator_value || ''
+  if (type || value) return { type, value }
+  const locs = pick.locators
+  if (locs && typeof locs === 'object') {
+    const first = Object.entries(locs).find(([, v]) => v != null && String(v).trim())
+    if (first) return { type: first[0], value: String(first[1]) }
+  }
+  return { type: '', value: '' }
+}
+
+function formatHubPickTime(ts) {
+  if (!ts) return '-'
+  try {
+    const d = new Date(ts)
+    if (Number.isNaN(d.getTime())) return String(ts)
+    const p = n => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  } catch {
+    return String(ts)
+  }
+}
+
+async function writeHistoryItemsToPool(list) {
+  let ok = 0
+  let skip = 0
+  let fail = 0
+  const seen = new Set()
+  for (const pick of list) {
+    const chain = Array.isArray(pick.locator_chain) && pick.locator_chain.length
+      ? pick.locator_chain
+      : buildLocatorChainFromPick(pick)
+    const primary = primaryFromChain(chain)
+    const elementName = String(pick.element_name || pick.display_name || '').trim()
+      || `控件_${pick.x ?? 0}_${pick.y ?? 0}`
+    const rawType = primary.raw_type || primary.locator_type || pick.locator_type || ''
+    const rawValue = primary.locator_value || pick.locator_value || ''
+    let locatorValue = mapLocatorValueForPool(rawType, rawValue)
+    let locatorType = mapLocatorTypeForPool(rawType, rawValue)
+    // 兜底：从 locators 对象取第一条有效定位
+    if (!locatorValue && pick.locators && typeof pick.locators === 'object') {
+      const first = Object.entries(pick.locators).find(([, v]) => v != null && String(v).trim())
+      if (first) {
+        locatorType = mapLocatorTypeForPool(first[0], first[1])
+        locatorValue = mapLocatorValueForPool(first[0], first[1])
+      }
+    }
+    if (!locatorType) locatorType = 'id'
+    if (!locatorValue) {
+      skip += 1
+      continue
+    }
+    const dedupeKey = `${elementName}::${locatorType}::${locatorValue}`
+    if (seen.has(dedupeKey)) {
+      skip += 1
+      continue
+    }
+    seen.add(dedupeKey)
+    try {
+      // 后端 Jackson SNAKE_CASE：必须传 snake_case，否则 @Valid 报「参数错误」
+      await controlApi.createPool({
+        app_package: pick.app_package || resolveAppPackage(),
+        page_name: pick.page_name || '',
+        element_name: elementName,
+        platform: pick.platform || device.value?.platform || 'android',
+        locator_type: locatorType,
+        locator_value: locatorValue,
+        version_tag: pick.version_tag || '',
+        env_tag: pick.env_tag || '',
+        control_tag: pick.control_tag || 'static',
+        display_name: pick.display_name || elementName,
+        widget_type: pick.widget_type,
+        risk_level: pick.risk_level,
+        risk_tags: pick.risk_tags || [],
+        risk_reasons: pick.risk_reasons || [],
+        locators: pick.locators || chainToLocators(chain),
+        locator_chain: chain,
+        validate_result: pick.validate_result || null,
+        validated_at: pick.validated_at || null,
+        tap_x: pick.x,
+        tap_y: pick.y,
+        device_element_value: pick.device_element_value || pick.text || pick.content_desc || undefined
+      }, { silent: true })
+      ok += 1
+    } catch (e) {
+      const msg = String(e?.message || e || '')
+      if (/已存在|DUPLICATE|duplicate|unique|冲突/i.test(msg)) skip += 1
+      else fail += 1
+    }
+  }
+  return { ok, skip, fail }
+}
+
 function selectHistory(item) {
   currentPick.value = item
   locatorChain.value = buildLocatorChainFromPick(item)
@@ -1753,6 +2118,17 @@ async function onMouseUp(event) {
   dragStart = null
   dragStartClient = null
 
+  // 冻结点选：禁止滑动设备（避免画面与 dump 脱节），只做控件拾取
+  if (freezePickActive.value) {
+    if (dx > SWIPE_THRESHOLD || dy > SWIPE_THRESHOLD) {
+      ElMessage.info('冻结点选中不支持滑动，请先解除冻结或重新截取')
+      return
+    }
+    spawnPickClickEffect(event.clientX, event.clientY)
+    await inspectAt(end.x, end.y)
+    return
+  }
+
   // 操控模式：拖拽=滑动，点击=点击；识别模式：点击=拾取，拖拽仍滑动设备以便翻页
   if (dx > SWIPE_THRESHOLD || dy > SWIPE_THRESHOLD) {
     clearPickHighlight()
@@ -1768,6 +2144,7 @@ async function onMouseUp(event) {
   }
 
   if (interactionMode.value === 'pick') {
+    spawnPickClickEffect(event.clientX, event.clientY)
     await inspectAt(end.x, end.y)
     return
   }
@@ -1783,6 +2160,10 @@ async function onMouseUp(event) {
 
 async function pressNavKey(key) {
   if (!connected.value) return
+  if (freezePickActive.value) {
+    ElMessage.info('冻结点选中请先解除冻结，再操作导航键')
+    return
+  }
   clearPickHighlight()
   uiTreeReady.value = false
   try {
@@ -1879,6 +2260,9 @@ onUnmounted(() => {
   if (detachFrame) detachFrame()
   if (detachMeta) detachMeta()
   if (renderer) renderer.destroy()
+  for (const t of pickRippleTimers) clearTimeout(t)
+  pickRippleTimers.clear()
+  pickClickRipples.value = []
 })
 </script>
 
@@ -1956,6 +2340,37 @@ onUnmounted(() => {
 }
 .hub-empty p { margin: 0 0 16px; }
 .hub-empty__actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.hub-history-card {
+  margin-top: 16px;
+}
+.hub-history-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.hub-history-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1d2129;
+}
+.hub-history-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #86909c;
+}
+.hub-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.hub-loc-code {
+  font-size: 12px;
+  color: #4e5969;
+  word-break: break-all;
+}
 
 .screen-card-title {
   display: flex;
@@ -2159,13 +2574,102 @@ onUnmounted(() => {
   vertical-align: top;
 }
 .screen-canvas.picking {
+  cursor: none;
+}
+.screen-canvas.frozen {
   cursor: crosshair;
+  box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.85);
 }
 .screen-canvas.operating {
   cursor: grab;
 }
 .screen-canvas.operating:active {
   cursor: grabbing;
+}
+.freeze-banner {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #fef3c7;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: auto;
+}
+.freeze-banner-btn {
+  border: 1px solid rgba(253, 230, 138, 0.55);
+  background: rgba(245, 158, 11, 0.18);
+  color: #fde68a;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.freeze-banner-btn:hover {
+  background: rgba(245, 158, 11, 0.32);
+}
+.pick-cursor-ring {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  border: 2px solid #8b6cf0;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: rgba(139, 108, 240, 0.14);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 10px rgba(139, 108, 240, 0.45);
+  pointer-events: none;
+  z-index: 6;
+  transform: translateZ(0);
+}
+.pick-cursor-ring::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: #8b6cf0;
+  box-shadow: 0 0 4px rgba(139, 108, 240, 0.8);
+}
+.pick-click-ripple {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 2px solid rgba(139, 108, 240, 0.95);
+  background: rgba(139, 108, 240, 0.28);
+  pointer-events: none;
+  z-index: 7;
+  animation: pick-click-ripple 0.45s ease-out forwards;
+}
+@keyframes pick-click-ripple {
+  0% {
+    transform: scale(0.55);
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(3.4);
+    opacity: 0;
+  }
 }
 .pick-highlight {
   position: absolute;
@@ -2176,7 +2680,7 @@ onUnmounted(() => {
 }
 .pick-highlight--current {
   border: 2px solid #2563eb;
-  background: rgba(37, 99, 235, 0.12);
+  background: rgba(21, 82, 214, 0.12);
   box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
 }
 .pick-highlight--current.is-flashing {

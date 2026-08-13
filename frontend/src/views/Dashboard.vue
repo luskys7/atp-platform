@@ -4,33 +4,33 @@
     <div class="dash-sticky">
       <div class="dash-sticky__info">
         <h2>首页概览</h2>
-        <p>平台运行与测试质量一览</p>
+        <p>平台运行、用例、设备、任务一站式监控</p>
       </div>
       <div class="dash-sticky__actions">
-        <el-button type="primary" @click="openCreateCase">
+        <el-button type="primary" class="btn-primary-fill" @click="openCreateCase">
           <el-icon><DocumentAdd /></el-icon>
-          一键新建用例
+          新建用例
         </el-button>
-        <el-button class="btn-record" type="warning" @click="goRecordSelectDevice">
+        <el-button type="warning" class="btn-warn-fill" @click="goRecordSelectDevice">
           <el-icon><VideoCamera /></el-icon>
           一键录制
         </el-button>
-        <el-button type="success" @click="showTaskDialog = true">
+        <el-button type="success" class="btn-success-fill" @click="showTaskDialog = true">
           <el-icon><VideoPlay /></el-icon>
-          批量执行任务
+          批量任务
         </el-button>
-        <el-button class="btn-devices" @click="$router.push('/devices')">
+        <el-button class="btn-muted" @click="$router.push('/devices')">
           <el-icon><Iphone /></el-icon>
-          设备池管理
+          设备管理
         </el-button>
       </div>
     </div>
 
-    <!-- 2. 核心指标：统一 4 列网格，与下方风险卡对齐 -->
+    <!-- 2. 核心指标：两行 8 卡 -->
     <div class="metrics-block" v-loading="loading">
       <div class="metrics-titles">
-        <div class="metrics-group-title">用例 & 测试质量</div>
-        <div class="metrics-group-title">设备 & 运行任务</div>
+        <div class="metrics-group-title">用例 & 设备基础统计</div>
+        <div class="metrics-group-title">运行质量 & 进度统计</div>
       </div>
       <div class="metrics-grid">
         <StatCard
@@ -43,7 +43,7 @@
           @click="$router.push('/cases')"
         />
         <StatCard
-          label="生效可用用例"
+          label="生效用例"
           :value="coverage.active_cases || 0"
           icon="CircleCheck"
           tone="pass"
@@ -81,6 +81,7 @@
           icon="PieChart"
           tone="cover"
           variant="warning"
+          :risk="coverRateLow"
           clickable
           @click="$router.push('/cases')"
         />
@@ -95,11 +96,11 @@
         >
           {{ Number(stats.pass_rate || 0).toFixed(1) }}%
           <template #extra>
-            <el-tag v-if="passRateLow" type="danger" size="small" effect="plain" style="margin-left:6px">偏低</el-tag>
+            <el-tag v-if="passRateLow" type="warning" size="small" effect="plain" style="margin-left:6px">偏低</el-tag>
           </template>
         </StatCard>
         <StatCard
-          label="当前运行中任务"
+          label="执行中任务"
           :value="stats.tasks?.running || 0"
           icon="Sunny"
           tone="cover"
@@ -170,24 +171,24 @@
     <div class="dual-grid section-gap">
       <AppCard class="dash-panel" shadow="never" :hover="false">
         <template #header>
-          <span>录制自动化用例</span>
+          <span>录制自动化</span>
         </template>
         <div class="record-panel">
           <div v-if="recordingActive" class="record-status live">
             设备 <strong>{{ recordingDeviceLabel }}</strong> 正在录制中
           </div>
           <div v-else class="record-status">
-            上次录制设备 ID：
+            上次录制会话 / 设备：
             <strong>{{ lastRecordDeviceId || '暂无' }}</strong>
           </div>
           <div class="record-actions">
-            <el-button type="warning" size="large" :disabled="!canContinueRecord" @click="goContinueOrQuick">
+            <el-button type="warning" :disabled="!canContinueRecord" @click="goContinueOrQuick">
               <el-icon><VideoCamera /></el-icon>
-              一键继续录制
+              继续录制
             </el-button>
-            <el-button type="warning" plain size="large" @click="goNewRecordSession">
+            <el-button type="warning" plain @click="goNewRecordSession">
               <el-icon><Plus /></el-icon>
-              新建录制会话
+              新建会话
             </el-button>
           </div>
           <el-button type="primary" link class="record-history-link" @click="$router.push('/recordings')">
@@ -226,9 +227,9 @@
             {{ riskRecording }} 个会话识别率低于 95%
           </div>
           <div class="audit-actions">
-            <el-button type="primary" @click="$router.push('/recording-quality')">查看完整质量报告</el-button>
+            <el-button type="primary" @click="$router.push('/recording-quality')">查看报告</el-button>
             <el-button type="warning" plain :disabled="!riskRecording" @click="goOptimizeLowSessions">
-              批量优化低识别会话
+              批量优化
             </el-button>
           </div>
         </div>
@@ -255,9 +256,9 @@
       <AppCard class="dash-panel" shadow="never" :hover="false">
         <template #header>
           <div class="board-head">
-            <span>近 7 日任务 & 用例执行统计</span>
+            <span>近 7 日用例 & 任务执行</span>
             <span class="chart-summary">
-              7 天平均覆盖率 {{ weekAvgCover }}% · 平均通过率 {{ weekAvgPass }}%
+              7 天覆盖率 {{ weekAvgCover }}% · 平均通过率 {{ weekAvgPass }}%
             </span>
           </div>
         </template>
@@ -414,6 +415,7 @@ const deviceOffline = computed(() => Math.max(
 
 const minPassRate = computed(() => stats.value.min_pass_rate || 99)
 const passRateLow = computed(() => (stats.value.pass_rate || 0) < minPassRate.value)
+const coverRateLow = computed(() => Number(coverage.value.automation_rate || 0) < 60)
 const passRateVariant = computed(() => {
   const rate = stats.value.pass_rate || 0
   if (rate >= minPassRate.value) return 'success'
@@ -754,11 +756,10 @@ onUnmounted(() => {
   flex-wrap: wrap;
   margin: -8px -8px 20px;
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
+  background: #fff;
   border: 1px solid var(--atp-border-neutral);
-  border-radius: 14px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  box-shadow: var(--atp-shadow);
 }
 
 .dash-sticky__info h2 {
@@ -772,7 +773,7 @@ onUnmounted(() => {
 .dash-sticky__info p {
   margin: 4px 0 0;
   font-size: 13px;
-  color: var(--atp-text-secondary);
+  color: var(--atp-text-muted);
 }
 
 .dash-sticky__actions {
@@ -782,18 +783,26 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.btn-record {
+.btn-primary-fill {
   font-weight: 600;
-  box-shadow: 0 2px 10px rgba(245, 158, 11, 0.35);
 }
-
-.btn-devices {
-  --el-button-bg-color: #f1f5f9;
-  --el-button-border-color: #e2e8f0;
-  --el-button-text-color: #475569;
-  --el-button-hover-bg-color: #e2e8f0;
-  --el-button-hover-border-color: #cbd5e1;
-  --el-button-hover-text-color: #334155;
+.btn-warn-fill {
+  font-weight: 600;
+  --el-button-bg-color: var(--atp-warning);
+  --el-button-border-color: var(--atp-warning);
+  --el-button-hover-bg-color: #f08a2e;
+  --el-button-hover-border-color: #f08a2e;
+}
+.btn-success-fill {
+  font-weight: 600;
+}
+.btn-muted {
+  --el-button-bg-color: #fff;
+  --el-button-border-color: var(--atp-border-neutral);
+  --el-button-text-color: var(--atp-text-secondary);
+  --el-button-hover-bg-color: var(--atp-brand-50);
+  --el-button-hover-border-color: var(--atp-brand-300);
+  --el-button-hover-text-color: var(--atp-primary);
 }
 
 .metrics-block {
@@ -1002,7 +1011,7 @@ onUnmounted(() => {
 }
 
 .audit-metric .num.warn {
-  color: #d97706;
+  color: var(--atp-warning);
 }
 
 .audit-metric .lbl {
@@ -1061,10 +1070,10 @@ onUnmounted(() => {
   margin-right: 6px;
 }
 
-.device-legend .online::before { background: #10B981; }
-.device-legend .busy::before { background: #F59E0B; }
-.device-legend .offline::before { background: #94A3B8; }
-.device-legend .offline.danger { color: #dc2626; font-weight: 600; }
+.device-legend .online::before { background: var(--atp-success); }
+.device-legend .busy::before { background: var(--atp-warning); }
+.device-legend .offline::before { background: var(--atp-text-muted); }
+.device-legend .offline.danger { color: var(--atp-danger); font-weight: 600; }
 
 .chart-summary {
   font-size: 12px;

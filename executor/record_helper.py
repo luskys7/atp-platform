@@ -600,12 +600,13 @@ def _is_weak_inspect_result(result: dict) -> bool:
         w, h = max(1, x2 - x1), max(1, y2 - y1)
         ratio = (w * h) / (ui_w * ui_h)
         clazz = str(result.get("class") or "")
-        # 点到大卡片/整块容器 → 视为弱命中，触发收缩/OCR 提升
-        if ratio > 0.22 and _is_layout_container(clazz):
+        # 覆盖大半屏：一律弱命中（含大 TextView「扫描中…」），触发收缩/OCR
+        if ratio > 0.25:
             return True
-        if ratio > 0.35 and not _is_control_leaf(clazz):
+        # 点到大卡片/整块容器 → 视为弱命中
+        if ratio > 0.15 and _is_layout_container(clazz):
             return True
-        if ratio > 0.72 and _is_layout_container(clazz) and not has_label:
+        if ratio > 0.28 and not _is_control_leaf(clazz):
             return True
         # 全宽底条且无稳定文案 → 弱命中，触发近点/OCR 提升
         if (w / ui_w) >= 0.82 and (h / ui_h) <= 0.28 and (y1 / ui_h) >= 0.68 and not has_label:
@@ -616,6 +617,85 @@ def _is_weak_inspect_result(result: dict) -> bool:
     if not has_label and not rid:
         return True
     return False
+
+
+def _prefer_smallest_under_point(
+    root: ET.Element,
+    node: ET.Element | None,
+    x: int,
+    y: int,
+    screen_w: int = 0,
+    screen_h: int = 0,
+    max_ratio: float = 0.22,
+) -> ET.Element | None:
+    """大面积命中时，强制收缩到覆盖点击点的更小子孙（允许无文案叶子）。"""
+    if node is None:
+        return None
+    if screen_w <= 0 or screen_h <= 0:
+        screen_w, screen_h = _hierarchy_size(root)
+    cur = node
+    for _ in range(12):
+        ratio = _node_area_ratio(cur, screen_w, screen_h)
+        cur_area = _bounds_area(cur.get("bounds") or "")
+        if cur_area <= 0:
+            return cur
+        if ratio <= max_ratio and (
+            _is_control_leaf(cur.get("class") or "")
+            or _node_pick_label(cur)
+            or cur.get("clickable") == "true"
+        ):
+            return cur
+        best = None
+        best_key = None
+        for child in cur.iter("node"):
+            if child is cur:
+                continue
+            bounds = child.get("bounds") or ""
+            if not _point_in_bounds(x, y, bounds):
+                continue
+            area = _bounds_area(bounds)
+            if area <= 0 or area >= cur_area:
+                continue
+            # 必须明显更小，避免同层几乎等大的兄弟干扰
+            if area > int(cur_area * 0.92):
+                continue
+            cr = _node_area_ratio(child, screen_w, screen_h)
+            clazz = child.get("class") or ""
+            label = _node_pick_label(child)
+            # 跳过仍是大半屏且无标识的布局壳
+            if _is_layout_container(clazz) and cr > 0.35 and not label:
+                continue
+            score = _node_pick_score(child, cr, screen_w, screen_h)
+            leaf_rank = 0 if _is_control_leaf(clazz) else 1
+            label_rank = 0 if label else 1
+            key = (area, cr, label_rank, leaf_rank, -score)
+            if best_key is None or key < best_key:
+                best_key = key
+                best = child
+        if best is None or best is cur:
+            # 全局再扫一遍更小命中
+            global_best = None
+            global_key = None
+            for cand in root.iter("node"):
+                if cand is cur:
+                    continue
+                bounds = cand.get("bounds") or ""
+                if not _point_in_bounds(x, y, bounds):
+                    continue
+                area = _bounds_area(bounds)
+                if area <= 0 or area >= int(cur_area * 0.7):
+                    continue
+                cr = _node_area_ratio(cand, screen_w, screen_h)
+                if cr > max_ratio and not _node_pick_label(cand) and not _is_control_leaf(cand.get("class") or ""):
+                    continue
+                score = _node_pick_score(cand, cr, screen_w, screen_h)
+                key = (area, cr, 0 if _node_pick_label(cand) else 1, 0 if _is_control_leaf(cand.get("class") or "") else 1, -score)
+                if global_key is None or key < global_key:
+                    global_key = key
+                    global_best = cand
+            return global_best or cur
+        cur = best
+    return cur
 
 
 def _build_parent_map(root: ET.Element) -> dict[ET.Element, ET.Element]:
@@ -678,18 +758,25 @@ def _shrink_to_tightest_hit(
         bounds = child.get("bounds") or ""
         if not _point_in_bounds(x, y, bounds):
             continue
-        if not _is_meaningful_tight_hit(child):
-            continue
         area = _bounds_area(bounds)
         if area <= 0 or area >= parent_area:
             continue
-        # 至少缩小到约 55% 才有意义；过小噪声节点另行用打分过滤
-        if area > int(parent_area * 0.55) and parent_ratio <= 0.2:
-            continue
         ratio = _node_area_ratio(child, screen_w, screen_h)
-        # 仍是大半屏布局容器则跳过
-        if _is_layout_container(child.get("class") or "") and ratio > 0.18 and not _node_pick_label(child):
+        meaningful = _is_meaningful_tight_hit(child)
+        # 父节点很大时：允许收缩到无文案的更小子节点（仍跳过超大空壳布局）
+        if not meaningful:
+            if parent_ratio <= 0.2:
+                continue
+            if _is_layout_container(child.get("class") or "") and ratio > 0.25 and not _node_pick_label(child):
+                continue
+        # 至少缩小到约 55% 才有意义（大父节点放宽到 85%）
+        shrink_cap = 0.85 if parent_ratio > 0.2 else 0.55
+        if area > int(parent_area * shrink_cap) and parent_ratio <= 0.2:
             continue
+        # 仍是大半屏布局容器则跳过（父节点本身很大时允许再往下钻一层）
+        if _is_layout_container(child.get("class") or "") and ratio > 0.18 and not _node_pick_label(child):
+            if parent_ratio <= 0.25 or ratio >= parent_ratio * 0.9:
+                continue
         score = _node_pick_score(child, ratio, screen_w, screen_h)
         # 优先更小面积；同分看 pick_score；选项芯片再优先
         opt_rank = -1 if _is_option_like_label(_node_pick_label(child)) else 0
@@ -706,7 +793,7 @@ def _shrink_to_tightest_hit(
             bounds = cand.get("bounds") or ""
             if not _point_in_bounds(x, y, bounds):
                 continue
-            if not _is_meaningful_tight_hit(cand):
+            if not _is_meaningful_tight_hit(cand) and parent_ratio <= 0.25:
                 continue
             area = _bounds_area(bounds)
             if area <= 0 or area >= int(parent_area * 0.7):
@@ -880,7 +967,8 @@ def _best_node_at_point(root: ET.Element, x: int, y: int) -> ET.Element | None:
     if best_node is None and hits:
         best_node = hits[0][3]
     promoted = _promote_labeled_target(root, best_node, x, y)
-    return _shrink_to_tightest_hit(root, promoted, x, y, screen_w, screen_h) or promoted
+    tight = _shrink_to_tightest_hit(root, promoted, x, y, screen_w, screen_h) or promoted
+    return _prefer_smallest_under_point(root, tight, x, y, screen_w, screen_h) or tight
 
 
 def _nearby_identifiable_node(root: ET.Element, x: int, y: int, radius: int = 48) -> ET.Element | None:
@@ -1720,12 +1808,19 @@ def inspect_point(
             if profile and apply_strategy_to_inspect:
                 return apply_strategy_to_inspect(profile, ocr)
             return ocr
-        result["valid"] = False
-        result["inspect_error"] = result.get("inspect_error") or "generic_container"
+        # OCR 也偏大/失败时：若仍有更紧 OCR 框则采用；否则压成点击焦点框，避免整页高亮
+        if ocr.get("bounds") and not _is_weak_inspect_result({**result, **ocr, "valid": True}):
+            result.update(ocr)
+            result["strategy_used"] = "ocr"
+        else:
+            result["valid"] = False
+            result["inspect_error"] = result.get("inspect_error") or "generic_container"
+            result = _clamp_oversized_bounds(result, result.get("inspect_x", x), result.get("inspect_y", y))
 
     # 弱树 / 失败：保证至少有屏幕比例坐标兜底，避免空结果
     if blocking and (not result.get("valid") or _is_weak_inspect_result(result)):
         result = _ensure_ratio_fallback(serial, x, y, display_width, display_height, result)
+        result = _clamp_oversized_bounds(result, result.get("inspect_x", x), result.get("inspect_y", y))
         if result.get("source") in ("ocr_screen", "ui_near_text"):
             result["strategy_used"] = result.get("strategy_used") or "ocr"
         elif result.get("locators", {}).get("screen_ratio") and not result.get("valid"):
@@ -1736,6 +1831,48 @@ def inspect_point(
 
     if profile and apply_strategy_to_inspect:
         return apply_strategy_to_inspect(profile, result)
+    return result
+
+
+def _clamp_oversized_bounds(result: dict, x: int, y: int) -> dict:
+    """命中整页级 bounds 时，改为点击点附近小框，避免前端高亮整屏。
+    OCR / 近点文本已带合理 bounds 时不裁剪。
+    """
+    if result.get("source") in ("ocr_screen", "ui_near_text", "ocr_near") and result.get("bounds"):
+        # OCR 行框通常远小于整页，保留原文框
+        parsed_ocr = _parse_bounds(str(result.get("bounds") or ""))
+        ui_w = int(result.get("ui_width") or result.get("display_width") or 0)
+        ui_h = int(result.get("ui_height") or result.get("display_height") or 0)
+        if parsed_ocr and ui_w > 0 and ui_h > 0:
+            x1, y1, x2, y2 = parsed_ocr
+            ratio = (max(1, x2 - x1) * max(1, y2 - y1)) / float(ui_w * ui_h)
+            if ratio <= 0.28:
+                return result
+    bounds = str(result.get("bounds") or "")
+    parsed = _parse_bounds(bounds)
+    ui_w = int(result.get("ui_width") or result.get("display_width") or 0)
+    ui_h = int(result.get("ui_height") or result.get("display_height") or 0)
+    if not parsed or ui_w <= 0 or ui_h <= 0:
+        return result
+    x1, y1, x2, y2 = parsed
+    w, h = max(1, x2 - x1), max(1, y2 - y1)
+    ratio = (w * h) / float(ui_w * ui_h)
+    if ratio <= 0.28:
+        return result
+    # 以点击点为中心裁约区域（按分辨率比例）
+    half_w = max(48, int(ui_w * 0.08))
+    half_h = max(48, int(ui_h * 0.045))
+    cx = int(x if x is not None else (x1 + x2) // 2)
+    cy = int(y if y is not None else (y1 + y2) // 2)
+    nx1 = max(0, cx - half_w)
+    ny1 = max(0, cy - half_h)
+    nx2 = min(ui_w, cx + half_w)
+    ny2 = min(ui_h, cy + half_h)
+    result["bounds"] = f"[{nx1},{ny1}][{nx2},{ny2}]"
+    result["bounds_clamped"] = True
+    result.setdefault("risk_tags", [])
+    if "oversized_bounds_clamped" not in result["risk_tags"]:
+        result["risk_tags"] = list(result["risk_tags"]) + ["oversized_bounds_clamped"]
     return result
 
 
@@ -1791,6 +1928,23 @@ def _ocr_screen_fallback(serial: str, x: int, y: int, result: dict) -> dict:
     if not pick.get("text"):
         return near if near.get("text") else result
     text = str(pick["text"]).strip()
+    locs = {"ocr": text, "text": text}
+    bounds = str(pick.get("bounds") or "").strip()
+    iw = int(pick.get("image_width") or 0)
+    ih = int(pick.get("image_height") or 0)
+    tw = int(result.get("ui_width") or result.get("display_width") or 0)
+    th = int(result.get("ui_height") or result.get("display_height") or 0)
+    if bounds and iw > 0 and ih > 0 and tw > 0 and th > 0 and (abs(iw - tw) > 8 or abs(ih - th) > 8):
+        parsed = _parse_bounds(bounds)
+        if parsed:
+            x1, y1, x2, y2 = parsed
+            x1 = int(round(x1 * tw / iw))
+            y1 = int(round(y1 * th / ih))
+            x2 = int(round(x2 * tw / iw))
+            y2 = int(round(y2 * th / ih))
+            bounds = f"[{x1},{y1}][{x2},{y2}]"
+    if bounds:
+        locs["bounds"] = bounds
     result.update({
         "source": "ocr_screen",
         "element_name": _element_name(text, "", ""),
@@ -1798,13 +1952,15 @@ def _ocr_screen_fallback(serial: str, x: int, y: int, result: dict) -> dict:
         "text": text,
         "locator_type": "ocr",
         "locator_value": text,
-        "locators": {"ocr": text, "text": text},
+        "locators": locs,
         "valid": True,
         "suggested_step_type": "tap_ocr",
         "widget_type": "text",
         "risk_level": "medium",
         "risk_tags": ["ocr_fallback"],
     })
+    if bounds:
+        result["bounds"] = bounds
     return result
 
 

@@ -51,6 +51,14 @@ public class VisualScriptGenerator {
                 return r
             
             
+            app_package = _subst_tpl(app_package or "")
+            
+            
+            def warm_ui_cache(serial_no=None, blocking=True):
+                from record_helper import warm_ui_cache as _warm
+                return _warm(serial_no or serial, blocking=blocking)
+            
+            
             def _match_pat(pattern, value):
                 if not pattern or value is None:
                     return False
@@ -122,8 +130,11 @@ public class VisualScriptGenerator {
                 return result
             
             
-            def run_custom_script(lang, code_or_b64, *, b64=True, timeout=120):
+            def run_custom_script(lang, code_or_b64, *, b64=True, timeout=120, extra_vars=None):
                 from custom_script_helper import run_custom_script as _rcs, run_custom_script_b64 as _rcs_b64
+                if extra_vars:
+                    for _ek, _ev in dict(extra_vars).items():
+                        set_var(str(_ek), _subst_tpl(str(_ev)))
                 if b64:
                     return _rcs_b64(lang, code_or_b64, serial=serial, vars_dict=_VARS, timeout=timeout)
                 return _rcs(lang, code_or_b64, serial=serial, vars_dict=_VARS, timeout=timeout)
@@ -194,7 +205,7 @@ public class VisualScriptGenerator {
                             print(f"Tapped ratio [{result.get('matched_by')}]: {display_name or element_name}")
                             return
                 except Exception as _chain_e:
-                    print(f"ATP_LOCATOR_FAIL:{{\"error\":\"chain_resolve\",\"detail\":{repr(str(_chain_e))}}}")
+                    print("ATP_LOCATOR_FAIL:" + _json.dumps({"error": "chain_resolve", "detail": str(_chain_e)}, ensure_ascii=False))
                 if locs.get("bounds"):
                     tap_bounds(locs["bounds"])
                     print(f"Tapped recorded bounds: {display_name or element_name}")
@@ -359,10 +370,15 @@ public class VisualScriptGenerator {
             
             
             def launch_app(package):
-                if package:
-                    adb_shell("monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1")
-                    time.sleep(1.0)
-                    print(f"Launched: {package}")
+                pkg = _subst_tpl(package or "") or app_package
+                if not pkg:
+                    print("WARN: launch_app skipped — empty package")
+                    return
+                if "{{" in pkg and "}}" in pkg:
+                    print(f"WARN: launch package still contains unresolved template: {pkg}")
+                adb_shell("monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1")
+                time.sleep(1.0)
+                print(f"Launched: {pkg}")
             
             
             def assert_element_exists(name):
@@ -460,9 +476,12 @@ public class VisualScriptGenerator {
             
             
             def clear_app_cache(mode="disk"):
-                pkg = app_package or os.environ.get("ATP_APP_PACKAGE", "")
+                pkg = _subst_tpl(app_package or os.environ.get("ATP_APP_PACKAGE", "") or "")
                 if not pkg:
                     print("clear_app_cache: no package specified")
+                    return
+                if "{{" in pkg and "}}" in pkg:
+                    print(f"clear_app_cache: unresolved package template: {pkg}")
                     return
                 if mode in ("memory", "all"):
                     adb_shell("am", "force-stop", pkg)
@@ -657,6 +676,162 @@ public class VisualScriptGenerator {
                     raise AssertionError(f"Cold start {data['cold_start_ms']}ms > {max_ms}ms")
                 print(f"Cold start OK: {data.get('cold_start_ms')}ms")
             
+            
+            # === if / else if / else：各自独立块（各有 end_block），链式跳过 ===
+            _CF_SKIP = []
+            _CF_OPEN = []
+            _CF_PENDING = []
+            
+            
+            def _cf_should_skip():
+                return any(bool(x) for x in _CF_SKIP)
+            
+            
+            def _cf_break_chain():
+                # 同层若出现普通步骤，断开与后续 else if/else 的衔接
+                depth = len(_CF_SKIP)
+                while _CF_PENDING and _CF_PENDING[-1].get("depth") == depth:
+                    _CF_PENDING.pop()
+            
+            
+            def eval_branch_condition(kind="exists", element_name="", expected="", timeout=5, custom="", var_name=""):
+                # 条件判断：返回 True/False，不抛断言异常
+                k = (kind or "exists").strip().lower()
+                name = _subst_tpl(element_name or "")
+                exp = _subst_tpl(expected or "")
+                custom_txt = _subst_tpl(custom or "")
+                var_key = _subst_tpl(var_name or "")
+                to = max(1, int(timeout or 5))
+                if k in ("", "custom") and custom_txt:
+                    if custom_txt in ("控件存在", "exists", "元素存在"):
+                        k = "exists"
+                    elif custom_txt in ("控件不存在", "not_exists", "元素不存在"):
+                        k = "not_exists"
+                    elif custom_txt in ("文本包含", "text_contains"):
+                        k = "text_contains"
+                    elif custom_txt in ("变量等于", "var_equals"):
+                        k = "var_equals"
+                    elif custom_txt in ("变量不等于", "var_not_equals"):
+                        k = "var_not_equals"
+                try:
+                    if k in ("exists", "appear", "控件存在"):
+                        wait_element(name, timeout=to)
+                        return True
+                    if k in ("not_exists", "disappear", "控件不存在"):
+                        assert_element_not_exists(name, timeout=to)
+                        return True
+                    if k in ("text_contains", "文本包含"):
+                        deadline = time.time() + to
+                        target = exp or custom_txt or name
+                        last_err = None
+                        while time.time() < deadline:
+                            try:
+                                assert_text_on_screen(target)
+                                return True
+                            except Exception as e:
+                                last_err = e
+                                time.sleep(0.4)
+                        print(f"branch text_contains miss: {target} ({last_err})")
+                        return False
+                    if k in ("var_equals", "变量等于", "var_eq", "var_not_equals", "变量不等于", "var_ne"):
+                        key = (var_key or name or "").strip()
+                        if key.startswith("{{") and key.endswith("}}"):
+                            key = key[2:-2].strip()
+                        actual = str(_VARS.get(key, ""))
+                        want = str(exp or "")
+                        ok = (actual == want)
+                        if k in ("var_not_equals", "变量不等于", "var_ne"):
+                            ok = not ok
+                        print(f"branch {k}: {key}={actual!r} vs expected={want!r} -> {ok}")
+                        return ok
+                    lit = custom_txt.strip().lower()
+                    if lit in ("true", "1", "yes"):
+                        return True
+                    if lit in ("false", "0", "no", ""):
+                        return False
+                    if custom_txt:
+                        try:
+                            assert_text_on_screen(custom_txt)
+                            return True
+                        except Exception:
+                            return False
+                    return False
+                except Exception as e:
+                    print(f"branch condition False ({k}/{name}): {e}")
+                    return False
+            
+            
+            def _cf_begin_if(cond_ok):
+                depth = len(_CF_SKIP)
+                while _CF_PENDING and _CF_PENDING[-1].get("depth") == depth:
+                    _CF_PENDING.pop()
+                parent_skip = _cf_should_skip()
+                matched = (not parent_skip) and bool(cond_ok)
+                _CF_OPEN.append({"kind": "if", "matched": matched, "depth": depth})
+                _CF_SKIP.append(parent_skip or (not matched))
+                print(f"IF -> {'THEN' if matched else 'SKIP'} (open={len(_CF_OPEN)})")
+            
+            
+            def _cf_else_if(cond_ok):
+                depth = len(_CF_SKIP)
+                parent_skip = _cf_should_skip()
+                pending = _CF_PENDING[-1] if (_CF_PENDING and _CF_PENDING[-1].get("depth") == depth) else None
+                if pending is not None:
+                    _CF_PENDING.pop()
+                if parent_skip or pending is None:
+                    chain_matched = bool(pending.get("matched")) if pending else False
+                    skip = True
+                    if pending is None:
+                        print("WARN: else_if without preceding if block")
+                    else:
+                        print("ELSE IF -> SKIP (parent skip)")
+                elif pending.get("matched"):
+                    chain_matched = True
+                    skip = True
+                    print("ELSE IF -> SKIP (already matched)")
+                else:
+                    chain_matched = bool(cond_ok)
+                    skip = not chain_matched
+                    print(f"ELSE IF -> {'THEN' if chain_matched else 'SKIP'}")
+                _CF_OPEN.append({"kind": "else_if", "matched": chain_matched, "depth": depth})
+                _CF_SKIP.append(skip)
+            
+            
+            def _cf_else():
+                depth = len(_CF_SKIP)
+                parent_skip = _cf_should_skip()
+                pending = _CF_PENDING[-1] if (_CF_PENDING and _CF_PENDING[-1].get("depth") == depth) else None
+                if pending is not None:
+                    _CF_PENDING.pop()
+                if parent_skip or pending is None or pending.get("matched"):
+                    skip = True
+                    chain_matched = True if (pending and pending.get("matched")) else False
+                    print("ELSE -> SKIP")
+                else:
+                    skip = False
+                    chain_matched = True
+                    print("ELSE -> THEN")
+                _CF_OPEN.append({"kind": "else", "matched": chain_matched, "depth": depth})
+                _CF_SKIP.append(skip)
+            
+            
+            def _cf_end():
+                if not _CF_OPEN:
+                    if _CF_SKIP:
+                        _CF_SKIP.pop()
+                    print("WARN: end_block without open if/else block")
+                    return
+                open_b = _CF_OPEN.pop()
+                if _CF_SKIP:
+                    _CF_SKIP.pop()
+                kind = open_b.get("kind") or "if"
+                depth = int(open_b.get("depth") or 0)
+                if kind == "else":
+                    print("END ELSE")
+                else:
+                    _CF_PENDING.append({"depth": depth, "matched": bool(open_b.get("matched"))})
+                    print(f"END {kind} (pending matched={bool(open_b.get('matched'))})")
+            
             """;
 
     public String generate(String visualJson) {
@@ -709,18 +884,148 @@ public class VisualScriptGenerator {
                     continue;
                 }
                 String type = step.path("type").asText("wait");
+                if (isControlFlowMarker(type, step)) {
+                    appendControlFlowMarker(sb, index, step, type);
+                    continue;
+                }
+                boolean bypassSkip = "check_anomaly".equals(type);
+                if (!bypassSkip) {
+                    // 普通步骤打断同层 if→else if 衔接；未命中分支则跳过
+                    sb.append("\n_cf_break_chain()\n");
+                    sb.append("if _cf_should_skip():\n");
+                    sb.append("    emit_step_begin(").append(index).append(", ").append(q(type)).append(", ")
+                            .append(displayLabel(step)).append(")\n");
+                    sb.append("    emit_step_end(").append(index).append(", 'skip', 'control-flow skip')\n");
+                    sb.append("    print('STEP_SKIPPED:step=").append(index).append(" reason=control-flow')\n");
+                    sb.append("else:\n");
+                }
+                StringBuilder inner = new StringBuilder();
                 if ("manual_wait".equals(type)) {
-                    appendManualWaitStep(sb, index, step);
+                    appendManualWaitStep(inner, index, step);
                 } else if (isAssertStep(type)) {
-                    appendAssertStepWithRetry(sb, index, step, type);
+                    appendAssertStepWithRetry(inner, index, step, type);
                 } else {
-                    appendStepWithRetry(sb, index, step, type);
+                    appendStepWithRetry(inner, index, step, type);
+                }
+                if (bypassSkip) {
+                    sb.append(inner);
+                } else {
+                    indentBlock(sb, inner.toString(), 4);
                 }
             }
+            sb.append("\nif _CF_OPEN or _CF_SKIP or _CF_PENDING:\n");
+            sb.append("    print('WARN: unclosed control-flow open=', len(_CF_OPEN), 'skip=', len(_CF_SKIP), 'pending=', len(_CF_PENDING))\n");
+            sb.append("    _CF_OPEN.clear()\n");
+            sb.append("    _CF_SKIP.clear()\n");
+            sb.append("    _CF_PENDING.clear()\n");
             sb.append("\nprint('Visual case execution finished')\n");
             return sb.toString();
         } catch (Exception e) {
             throw new RuntimeException("可视化脚本编译失败: " + e.getMessage(), e);
+        }
+    }
+
+    private static boolean isControlFlowMarker(String type, JsonNode step) {
+        if ("else_if".equals(type) || "else".equals(type) || "elif".equals(type)) {
+            return true;
+        }
+        if ("end_block".equals(type)) {
+            // 循环结束块暂不参与 if 栈；分支结束块负责 pop
+            String bt = step.path("block_type").asText("branch");
+            return !"loop".equals(bt);
+        }
+        if ("branch".equals(type)) {
+            // try_catch 尚未结构化，不进入 if 栈
+            return !"try_catch".equals(step.path("branch_mode").asText(""));
+        }
+        // 兼容：branch + branch_mode=else_if / else
+        String mode = step.path("branch_mode").asText("");
+        return "else_if".equals(mode) || "elif".equals(mode) || "else".equals(mode);
+    }
+
+    private void appendControlFlowMarker(StringBuilder sb, int index, JsonNode step, String type) {
+        String mode = step.path("branch_mode").asText("");
+        String effective = type;
+        if ("branch".equals(type) && ("else_if".equals(mode) || "elif".equals(mode) || "else".equals(mode))) {
+            effective = mode;
+        }
+        if ("elif".equals(effective)) {
+            effective = "else_if";
+        }
+
+        sb.append("\n# Step ").append(index).append(": ").append(effective).append("\n");
+        sb.append("emit_step_begin(").append(index).append(", ").append(q(effective)).append(", ")
+                .append(displayLabel(step)).append(")\n");
+        sb.append("try:\n");
+
+        if ("end_block".equals(effective)) {
+            sb.append("    _cf_end()\n");
+        } else if ("else".equals(effective)) {
+            sb.append("    _cf_else()\n");
+        } else if ("else_if".equals(effective)) {
+            sb.append("    _ok = False\n");
+            sb.append("    if not _cf_should_skip():\n");
+            sb.append("        _pend = _CF_PENDING[-1] if (_CF_PENDING and _CF_PENDING[-1].get('depth') == len(_CF_SKIP)) else None\n");
+            sb.append("        if _pend is not None and not _pend.get('matched'):\n");
+            sb.append("            _ok = ").append(buildBranchConditionCall(step)).append("\n");
+            sb.append("    _cf_else_if(_ok)\n");
+        } else {
+            // if / branch
+            sb.append("    _ok = False if _cf_should_skip() else ").append(buildBranchConditionCall(step)).append("\n");
+            sb.append("    _cf_begin_if(_ok)\n");
+        }
+
+        sb.append("    emit_step_end(").append(index).append(", 'ok')\n");
+        sb.append("except Exception as _cf_e:\n");
+        sb.append("    emit_step_end(").append(index).append(", 'fail', str(_cf_e))\n");
+        sb.append("    raise\n");
+    }
+
+    private String buildBranchConditionCall(JsonNode step) {
+        String kind = step.path("condition_kind").asText("");
+        if (kind.isBlank()) {
+            String cond = step.path("condition").asText("");
+            if ("控件不存在".equals(cond)) kind = "not_exists";
+            else if ("文本包含".equals(cond)) kind = "text_contains";
+            else if ("变量等于".equals(cond) || (cond.startsWith("{{") && cond.contains("=="))) kind = "var_equals";
+            else if ("变量不等于".equals(cond)) kind = "var_not_equals";
+            else if ("控件存在".equals(cond) || cond.isBlank()) kind = "exists";
+            else kind = "custom";
+        }
+        String element = step.path("element_name").asText("");
+        if (element.isBlank()) {
+            element = step.path("locator_value").asText("");
+        }
+        String expected = step.path("expected").asText("");
+        int timeout = Math.max(1, step.path("timeout").asInt(step.path("seconds").asInt(5)));
+        String custom = step.path("condition").asText("");
+        String varName = step.path("var_name").asText("");
+        if (varName.isBlank() && ("var_equals".equals(kind) || "var_not_equals".equals(kind))) {
+            // 兼容：变量名写在 element_name 里
+            varName = element;
+        }
+        return "eval_branch_condition("
+                + q(kind) + ", "
+                + "element_name=" + q(element) + ", "
+                + "expected=" + q(expected) + ", "
+                + "timeout=" + timeout + ", "
+                + "custom=" + q(custom) + ", "
+                + "var_name=" + q(varName) + ")";
+    }
+
+    private static void indentBlock(StringBuilder out, String block, int spaces) {
+        String pad = " ".repeat(Math.max(0, spaces));
+        String[] lines = block.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isEmpty()) {
+                // 保留空行，但避免文件开头多余空行造成语法问题：仍输出换行
+                if (i < lines.length - 1 || block.endsWith("\n")) {
+                    out.append("\n");
+                }
+                continue;
+            }
+            out.append(pad).append(line).append("\n");
         }
     }
 
@@ -788,11 +1093,7 @@ public class VisualScriptGenerator {
         sb.append("try:\n");
         sb.append("    for _attempt in range(").append(attempts).append("):\n");
         sb.append("        try:\n");
-        for (String line : body.split("\n")) {
-            if (!line.isBlank()) {
-                sb.append("            ").append(line.stripLeading()).append("\n");
-            }
-        }
+        appendIndentedBody(sb, body, "            ");
         sb.append("            emit_step_end(").append(index).append(", 'ok')\n");
         sb.append("            break\n");
         sb.append("        except Exception as _step_e:\n");
@@ -803,6 +1104,25 @@ public class VisualScriptGenerator {
         }
         sb.append("except Exception:\n");
         sb.append("    raise\n");
+    }
+
+    /** 将多行步骤体嵌入固定前缀缩进，保留相对缩进（避免 try/if 体被 strip 成同级）。 */
+    private static void appendIndentedBody(StringBuilder sb, String body, String prefix) {
+        if (body == null || body.isBlank()) return;
+        String[] lines = body.split("\n", -1);
+        int minIndent = Integer.MAX_VALUE;
+        for (String line : lines) {
+            if (line.isBlank()) continue;
+            int i = 0;
+            while (i < line.length() && line.charAt(i) == ' ') i++;
+            minIndent = Math.min(minIndent, i);
+        }
+        if (minIndent == Integer.MAX_VALUE) minIndent = 0;
+        for (String line : lines) {
+            if (line.isBlank()) continue;
+            String content = line.length() >= minIndent ? line.substring(minIndent) : line.stripLeading();
+            sb.append(prefix).append(content).append("\n");
+        }
     }
 
     /** 失败/异常时的脚本分支：fail 终止；skip/exception/ignore 继续；interrupt 立即中断 */
@@ -882,11 +1202,7 @@ public class VisualScriptGenerator {
         sb.append("    for _attempt in range(").append(attempts).append("):\n");
         sb.append("        try:\n");
         sb.append("            def _assert_fn():\n");
-        for (String line : innerBody.split("\n")) {
-            if (!line.isBlank()) {
-                sb.append("                ").append(line.stripLeading()).append("\n");
-            }
-        }
+        appendIndentedBody(sb, innerBody, "                ");
         sb.append("            _guard_assert(").append(q(type)).append(", ").append(q(target)).append(", _assert_fn)\n");
         sb.append("            emit_step_end(").append(index).append(", 'ok')\n");
         sb.append("            break\n");
@@ -1244,6 +1560,8 @@ public class VisualScriptGenerator {
             case "invoke_case" -> "pass  # expanded at compile time";
             case "end_block" -> "pass  # control block end marker";
             case "branch", "loop" -> "pass  # control marker (body steps follow)";
+            case "else_if", "elif" -> "pass  # else_if marker";
+            case "else" -> "pass  # else marker";
             case "screenshot" -> """
                     try:
                         from record_helper import capture_screen
@@ -1297,7 +1615,8 @@ public class VisualScriptGenerator {
     private String buildCustomScriptStep(JsonNode step) {
         String lang = step.path("script_lang").asText(step.path("language").asText("python"));
         if (lang == null || lang.isBlank()) lang = "python";
-        String code = step.path("script_code").asText(step.path("text").asText(""));
+        String code = step.path("script_code").asText(
+                step.path("script").asText(step.path("text").asText("")));
         if (code == null || code.isBlank()) {
             return "raise RuntimeError('custom_script: 脚本内容为空')";
         }
