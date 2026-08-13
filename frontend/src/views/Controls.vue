@@ -54,14 +54,6 @@
       <!-- 模块 3：筛选 -->
       <div class="filter-bar">
         <el-input
-          v-model="filters.app_package"
-          placeholder="应用包名"
-          clearable
-          style="width:180px"
-          @change="onFilterChange"
-          @clear="onFilterChange"
-        />
-        <el-input
           v-model="filters.page_name"
           placeholder="所属页面（中文）"
           clearable
@@ -110,7 +102,6 @@
         <el-table-column label="设备关联元素值" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ formatDeviceElementValue(row) }}</template>
         </el-table-column>
-        <el-table-column prop="app_package" label="应用包名" min-width="160" show-overflow-tooltip />
         <el-table-column prop="page_name" label="所属页面" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ formatPageName(row.page_name) }}</template>
         </el-table-column>
@@ -245,13 +236,16 @@
 
     <el-dialog v-model="showEditDialog" title="编辑控件" width="640px" destroy-on-close>
       <el-form :model="editForm" label-width="100px">
-        <el-form-item label="控件名称"><el-input v-model="editForm.element_name" disabled /></el-form-item>
+        <el-form-item label="控件名称">
+          <el-input v-model="editForm.element_name" maxlength="256" show-word-limit placeholder="业务可读控件名" />
+        </el-form-item>
         <el-form-item label="主定位类型">
           <el-select v-model="editForm.locator_type" style="width:100%">
             <el-option label="ID 定位" value="id" />
             <el-option label="xpath" value="xpath" />
             <el-option label="文案定位" value="accessibility" />
             <el-option label="文本定位" value="text" />
+            <el-option label="坐标定位" value="bounds" />
           </el-select>
         </el-form-item>
         <el-form-item label="主定位值"><el-input v-model="editForm.locator_value" type="textarea" :rows="2" /></el-form-item>
@@ -370,9 +364,6 @@
 
     <el-dialog v-model="showBatchReplace" title="批量脚本修复" width="520px">
       <el-form label-width="100px">
-        <el-form-item label="应用包名">
-          <el-input v-model="batchForm.app_package" placeholder="com.example.app" />
-        </el-form-item>
         <el-form-item label="旧控件名">
           <el-input v-model="batchForm.old_name" placeholder="btn_login_old" />
         </el-form-item>
@@ -401,7 +392,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ControlPoolEntryDialog from '@/components/ControlPoolEntryDialog.vue'
 import {
   buildLocatorChainFromPick, chainToLocators, primaryFromChain, computeStabilityScore,
-  stabilityScoreLabel, stabilityScoreType, riskTagLabel
+  stabilityScoreLabel, stabilityScoreType, riskTagLabel,
+  mapLocatorTypeForPool, mapLocatorValueForPool
 } from '@/utils/locatorAssist'
 import { formatLocatorType } from '@/utils/stepDisplay'
 
@@ -418,7 +410,7 @@ const showVersionDialog = ref(false)
 const page = ref(1)
 const pageSize = ref(15)
 const total = ref(0)
-const filters = reactive({ app_package: '', page_name: '', version_tag: '', env_tag: '', status: '' })
+const filters = reactive({ page_name: '', version_tag: '', env_tag: '', status: '' })
 const onlyUnstable = ref(false)
 const selectedRows = ref([])
 const versionOptions = ref([])
@@ -603,6 +595,9 @@ function locatorTypeLabel(type) {
     xpath_desc: 'xpath',
     absolute_xpath: '绝对 xpath',
     relative_xpath: '相对 xpath',
+    bounds: '坐标定位',
+    coordinate: '坐标定位',
+    xy: '坐标定位',
     ai: 'AI 定位',
     image: '图像定位'
   }
@@ -641,7 +636,6 @@ function onFilterChange() {
 }
 
 function resetFilters() {
-  filters.app_package = ''
   filters.page_name = ''
   filters.version_tag = ''
   filters.env_tag = ''
@@ -700,7 +694,7 @@ function goBatchValidate() {
   router.push({
     path: '/controls/batch-validate',
     query: {
-      app_package: first?.app_package || filters.app_package || undefined,
+      app_package: first?.app_package || undefined,
       version_tag: first?.version_tag || filters.version_tag || undefined,
       env_tag: first?.env_tag || filters.env_tag || undefined,
       ids: selectedRows.value.map(r => r.id).join(',')
@@ -716,7 +710,7 @@ function goFailureReport() {
 function openBatchRepair() {
   if (!hasSelection.value) return
   const first = selectedRows.value[0]
-  batchForm.app_package = first?.app_package || filters.app_package || ''
+  batchForm.app_package = first?.app_package || ''
   batchForm.old_name = first?.element_name || ''
   batchForm.new_name = first?.element_name ? `${first.element_name}_fixed` : ''
   showBatchReplace.value = true
@@ -848,8 +842,8 @@ function openEdit(row) {
   const primary = primaryFromChain(editChain.value)
   Object.assign(editForm, {
     id: row.id, element_name: row.element_name,
-    locator_type: primary.locator_type || row.locator_type,
-    locator_value: primary.locator_value || row.locator_value,
+    locator_type: mapLocatorTypeForPool(primary.raw_type || primary.locator_type || row.locator_type, primary.locator_value || row.locator_value),
+    locator_value: mapLocatorValueForPool(primary.raw_type || primary.locator_type || row.locator_type, primary.locator_value || row.locator_value),
     propagate_bindings: true, reason: '更新定位'
   })
   showEditDialog.value = true
@@ -858,8 +852,8 @@ function openEdit(row) {
 function setEditPrimary(index) {
   editChain.value = editChain.value.map((item, idx) => ({ ...item, primary: idx === index }))
   const primary = primaryFromChain(editChain.value)
-  editForm.locator_type = primary.locator_type || editForm.locator_type
-  editForm.locator_value = primary.locator_value || editForm.locator_value
+  editForm.locator_type = mapLocatorTypeForPool(primary.raw_type || primary.locator_type, primary.locator_value) || editForm.locator_type
+  editForm.locator_value = mapLocatorValueForPool(primary.raw_type || primary.locator_type, primary.locator_value) || editForm.locator_value
 }
 
 function moveEditChain(index, delta) {
@@ -887,8 +881,9 @@ async function saveEdit() {
   const locators = chainToLocators(editChain.value)
   const primary = primaryFromChain(editChain.value)
   await controlApi.updatePool(editForm.id, {
-    locator_type: primary.locator_type || editForm.locator_type,
-    locator_value: primary.locator_value || editForm.locator_value,
+    element_name: (editForm.element_name || '').trim(),
+    locator_type: mapLocatorTypeForPool(primary.raw_type || primary.locator_type || editForm.locator_type, primary.locator_value || editForm.locator_value),
+    locator_value: mapLocatorValueForPool(primary.raw_type || primary.locator_type || editForm.locator_type, primary.locator_value || editForm.locator_value),
     locators,
     locator_chain: editChain.value,
     propagate_bindings: editForm.propagate_bindings,
@@ -996,8 +991,12 @@ async function rollbackVersion(ver) {
 }
 
 async function runBatchReplace() {
-  if (!batchForm.app_package || !batchForm.old_name || !batchForm.new_name) {
-    ElMessage.warning('请填写包名、旧控件名和新控件名')
+  if (!batchForm.old_name || !batchForm.new_name) {
+    ElMessage.warning('请填写旧控件名和新控件名')
+    return
+  }
+  if (!batchForm.app_package) {
+    ElMessage.warning('所选控件缺少应用包名，无法批量替换')
     return
   }
   const res = await controlApi.batchReplace({
@@ -1025,10 +1024,9 @@ async function exportControls() {
   try {
     const res = await controlApi.listPool({ page: 1, page_size: 500, ...filters })
     const list = res.data?.list || []
-    const header = ['控件名称', '应用包名', '所属页面', '定位类型', '定位表达式', '稳定性', '命中次数', '控件状态', '版本', '环境']
+    const header = ['控件名称', '所属页面', '定位类型', '定位表达式', '稳定性', '命中次数', '控件状态', '版本', '环境']
     const rows = list.map(r => [
       r.element_name,
-      r.app_package,
       r.page_name ? formatPageName(r.page_name) : '未命名页面',
       locatorTypeLabel(r.locator_type),
       `"${String(r.locator_value || '').replace(/"/g, '""')}"`,
@@ -1072,6 +1070,14 @@ onActivated(() => {
 </script>
 
 <style scoped>
+.controls-page {
+  max-width: none;
+  width: 100%;
+  padding: 16px 12px 24px;
+  margin: 0;
+  box-sizing: border-box;
+}
+
 .header-actions {
   display: flex;
   flex-wrap: wrap;

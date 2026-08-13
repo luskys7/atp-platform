@@ -72,7 +72,7 @@ export function formatStepTarget(step) {
     return `当前时间+${mins}分钟 → TIME_HM`
   }
   if (step.type === 'custom_script') {
-    const lang = (step.script_lang || 'python').toUpperCase()
+    const lang = (step.script_lang || step.language || 'python').toUpperCase()
     return step.element_name || `${lang} 脚本`
   }
   if (step.type === 'swipe') {

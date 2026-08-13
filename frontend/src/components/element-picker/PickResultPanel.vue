@@ -423,22 +423,33 @@
           <div class="history-panel-head">
             <div>
               <div class="history-panel-title">本轮拾取历史</div>
-              <p class="history-panel-desc">点击任意记录可回看定位信息；不会误清空丢失。</p>
+              <p class="history-panel-desc">点击任意记录可回看定位信息；可一键批量入库到控件库。</p>
             </div>
-            <el-button
-              v-if="pickHistory.length"
-              size="small"
-              type="danger"
-              plain
-              @click="$emit('clear-history')"
-            >
-              清空全部历史
-            </el-button>
+            <div class="history-panel-actions">
+              <el-button
+                v-if="pickHistory.length"
+                size="small"
+                type="primary"
+                plain
+                @click="$emit('restore-history-pool')"
+              >
+                批量入库
+              </el-button>
+              <el-button
+                v-if="pickHistory.length"
+                size="small"
+                type="danger"
+                plain
+                @click="$emit('clear-history')"
+              >
+                清空全部历史
+              </el-button>
+            </div>
           </div>
           <el-scrollbar max-height="520px">
             <div
               v-for="(item, idx) in pickHistory"
-              :key="item.id"
+              :key="item.id || `${item.picked_at || ''}-${idx}`"
               class="history-row"
               :class="{ active: currentPick?.id === item.id }"
               @click="onSelectHistory(item)"
@@ -498,7 +509,7 @@ const props = defineProps({
 const emit = defineEmits([
   'copy-all', 'validate', 'save-pool', 'create-case', 'apply-review', 'copy-text',
   'set-primary', 'move-chain', 'toggle-enabled', 'add-relative',
-  'apply-manual', 'select-history', 'clear-history', 'goto-pool', 'sync-chain',
+  'apply-manual', 'select-history', 'clear-history', 'restore-history-pool', 'goto-pool', 'sync-chain',
   'panel-mode-change'
 ])
 
@@ -1191,6 +1202,12 @@ defineExpose({ focusChainSection, switchPanelMode })
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 12px;
+}
+.history-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 .history-panel-title {
   font-size: 15px;

@@ -1,86 +1,101 @@
 <template>
   <div class="page-container vce-page">
-    <PageHeader
-      :title="taskId ? '编辑可视化用例' : '手动新增测试用例'"
-      subtitle="录入基础信息 → 可视化编排步骤 → 配置断言与策略 → 调试保存"
-    >
-      <template #actions>
-        <div class="header-actions">
-          <el-button class="btn-secondary" @click="previewScript">预览脚本</el-button>
-          <el-button class="btn-secondary" type="success" plain @click="goAuthorWorkspace">同屏编写</el-button>
-          <el-button class="btn-secondary" :disabled="!taskId" @click="openVersionHistory">版本历史</el-button>
-          <el-button class="btn-secondary" :disabled="!taskId" @click="openComments">协作批注</el-button>
+    <header class="vce-topbar">
+      <div class="vce-topbar-left">
+        <h2 class="vce-title">{{ taskId ? '编辑测试用例' : '新增测试用例' }}</h2>
+        <nav class="flow-progress" aria-label="编写流程">
+          <button
+            v-for="(stage, idx) in FLOW_STAGES"
+            :key="stage.key"
+            type="button"
+            class="flow-step"
+            :class="{
+              active: flowStage === stage.key,
+              done: FLOW_STAGE_ORDER.indexOf(flowStage) > idx,
+              current: flowStage === stage.key
+            }"
+            @click="goToFlowStage(stage.key)"
+          >
+            <span class="flow-dot">{{ idx + 1 }}</span>
+            <span class="flow-label">{{ stage.label }}</span>
+          </button>
+        </nav>
+      </div>
+      <div class="vce-topbar-actions">
+        <el-dropdown split-button type="primary" class="btn-save" :disabled="saving" @click="saveTask('keep')" @command="onSaveCommand">
+          {{ saving ? '保存中…' : '保存' }}
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="draft">保存草稿</el-dropdown-item>
+              <el-dropdown-item command="active">提交生效</el-dropdown-item>
+              <el-dropdown-item command="template">另存为模板</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
-          <el-dropdown split-button type="warning" :disabled="debugging" @click="debugRun('full')" @command="onDebugCommand">
-            {{ debugging ? '调试中…' : '调试执行' }}
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="full">完整调试</el-dropdown-item>
-                <el-dropdown-item command="step">单步调试</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+        <el-dropdown split-button type="warning" class="btn-debug" :disabled="debugging" @click="debugRun('full')" @command="onDebugCommand">
+          {{ debugging ? '调试中…' : '调试执行' }}
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="full">完整调试</el-dropdown-item>
+              <el-dropdown-item command="step">单步调试</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
-          <el-dropdown split-button type="primary" :disabled="saving" @click="saveTask('keep')" @command="onSaveCommand">
-            {{ saving ? '保存中…' : '保存' }}
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="draft">保存草稿</el-dropdown-item>
-                <el-dropdown-item command="active">提交生效</el-dropdown-item>
-                <el-dropdown-item command="template">另存为模板</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+        <el-button type="primary" plain class="btn-preview" @click="previewScript">预览脚本</el-button>
 
-          <el-button @click="$router.back()">返回</el-button>
-        </div>
-      </template>
-    </PageHeader>
+        <el-dropdown trigger="click" @command="onMoreCommand">
+          <el-button class="btn-more">更多 <span class="more-caret">▾</span></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="author">同屏编写</el-dropdown-item>
+              <el-dropdown-item command="versions" :disabled="!taskId">版本历史</el-dropdown-item>
+              <el-dropdown-item command="comments" :disabled="!taskId">协作批注</el-dropdown-item>
+              <el-dropdown-item divided command="back">返回</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    </header>
 
     <el-row :gutter="16" class="main-row">
-      <!-- 模块 2：用例信息 -->
-      <el-col :xs="24" :lg="8">
-        <AppCard title="用例信息" :hover="false" class="meta-card">
-          <el-form :model="meta" label-width="110px" class="meta-form">
-            <div class="form-group">
-              <div class="form-group-title">基础信息（必配项）</div>
+      <el-col :xs="24" :lg="6">
+        <AppCard :hover="false" class="meta-card">
+          <el-form :model="meta" label-position="top" class="meta-form" @submit.prevent>
+            <section ref="basicInfoRef" class="meta-section">
+              <div class="meta-section-title">基础信息 <span class="req-hint">必填标红</span></div>
 
-              <el-form-item required>
+              <el-form-item required class="is-required-strong">
                 <template #label>
-                  <span v-tooltip="'用于列表、报告与检索的业务名称'">用例名称</span>
+                  <span class="req-label">用例名称</span>
                 </template>
                 <el-input
                   v-model="meta.name"
-                  placeholder="请填写用例名称，如登录流程、支付校验"
+                  placeholder="请填写用例名称"
                   maxlength="80"
                   show-word-limit
                 />
               </el-form-item>
 
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'将用例归入目录，方便批量管理与筛选'">所属目录</span>
-                </template>
-                <el-select v-model="meta.folder_id" clearable placeholder="根目录（全部用例）" style="width:100%">
-                  <el-option label="根目录（全部用例）" :value="null" />
-                  <el-option v-for="f in flatFolders" :key="f.id" :label="f.label" :value="f.id" />
-                </el-select>
+              <el-form-item label="所属目录">
+                <div class="folder-row">
+                  <el-select v-model="meta.folder_id" clearable placeholder="根目录" class="folder-select">
+                    <el-option label="根目录" :value="null" />
+                    <el-option v-for="f in flatFolders" :key="f.id" :label="f.label" :value="f.id" />
+                  </el-select>
+                  <el-button size="default" @click="openFolderDialog">新建</el-button>
+                </div>
               </el-form-item>
 
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'业务模块，用于分类管理与批量筛选'">业务模块</span>
-                </template>
+              <el-form-item label="业务模块">
                 <el-select v-model="meta.module_name" clearable filterable allow-create placeholder="选择或输入模块" style="width:100%">
                   <el-option v-for="m in MODULE_OPTIONS" :key="m" :label="m" :value="m" />
                 </el-select>
               </el-form-item>
 
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'P0 核心链路优先执行，适配定时任务筛选'">优先级</span>
-                </template>
-                <el-radio-group v-model="meta.priority">
+              <el-form-item label="优先级">
+                <el-radio-group v-model="meta.priority" class="priority-group">
                   <el-radio-button :value="0">P0</el-radio-button>
                   <el-radio-button :value="1">P1</el-radio-button>
                   <el-radio-button :value="2">P2</el-radio-button>
@@ -88,257 +103,230 @@
                 </el-radio-group>
               </el-form-item>
 
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'对齐手工用例规范，便于团队阅读'">前置条件</span>
-                </template>
+              <el-form-item label="前置条件">
                 <el-input
                   v-model="meta.preconditions"
                   type="textarea"
-                  :rows="2"
-                  placeholder="例：已安装 App，账号处于登录态"
+                  :rows="1"
+                  class="compact-textarea"
+                  placeholder="例：已登录、设备在线"
                 />
               </el-form-item>
 
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'对齐手工用例规范，描述期望业务结果'">预期结果</span>
-                </template>
+              <el-form-item label="预期结果">
                 <el-input
                   v-model="meta.expected_result"
                   type="textarea"
-                  :rows="2"
-                  placeholder="例：成功进入首页并展示用户昵称"
+                  :rows="1"
+                  class="compact-textarea"
+                  placeholder="例：进入首页并展示昵称"
                 />
               </el-form-item>
+            </section>
 
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'单次执行最长等待时间，超时后任务将终止'">全局超时 (秒)</span>
-                </template>
-                <el-input-number v-model="meta.timeout_seconds" :min="60" :max="7200" :step="60" style="width:100%" />
-              </el-form-item>
-            </div>
-
-            <div class="form-group form-group--advanced">
-              <div class="form-group-title">执行策略与高级配置</div>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'步骤失败时整条用例的默认策略（单步可覆盖）'">失败策略</span>
-                </template>
-                <el-select v-model="meta.on_fail" style="width:100%">
-                  <el-option label="失败停止执行" value="fail" />
-                  <el-option label="失败继续执行" value="skip" />
-                </el-select>
-              </el-form-item>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'调试排障截图策略，平衡排查需求与存储压力'">截图策略</span>
-                </template>
-                <el-select v-model="meta.screenshot_policy" style="width:100%">
-                  <el-option label="仅失败截图" value="on_fail" />
-                  <el-option label="每步截图" value="every_step" />
-                  <el-option label="不截图" value="off" />
-                </el-select>
-              </el-form-item>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'执行全程录制设备画面，生成回放视频'">录屏</span>
-                </template>
-                <div class="switch-with-hint">
-                  <el-switch v-model="meta.enable_recording" />
-                  <span class="field-hint">执行全程录制设备画面，生成回放视频</span>
-                </div>
-              </el-form-item>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'模拟真人操作速率，避免检测自动化脚本'">真人模拟</span>
-                </template>
-                <div class="switch-with-hint">
-                  <el-switch v-model="meta.human_delay" />
-                  <span class="field-hint">模拟真人操作速率，避免检测自动化脚本</span>
-                </div>
-              </el-form-item>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'统一控制步骤间等待节奏：标准 / 快速 / 慢速'">等待模板</span>
-                </template>
-                <el-select v-model="meta.wait_template" clearable placeholder="标准" style="width:100%">
-                  <el-option label="标准" value="standard" />
-                  <el-option label="快速" value="smoke" />
-                  <el-option label="慢速" value="weak_network" />
-                </el-select>
-              </el-form-item>
-
-              <el-form-item v-if="isAssetMode">
-                <template #label>
-                  <span v-tooltip="'草稿不参与定时自动执行；已生效可被套件引用'">用例状态</span>
-                </template>
-                <el-select v-model="meta.case_status" style="width:100%">
-                  <el-option label="草稿" value="draft" />
-                  <el-option label="待评审" value="review" />
-                  <el-option label="已生效（正式）" value="active" />
-                </el-select>
-              </el-form-item>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'逗号分隔标签，便于筛选'">标签</span>
-                </template>
-                <el-input v-model="meta.tags" placeholder="例：回归,冒烟,登录" />
-              </el-form-item>
-
-              <el-form-item>
-                <template #label>
-                  <span v-tooltip="'绑定数据集后，执行时可按多组数据循环跑同一用例'">数据驱动</span>
-                </template>
-                <el-select v-model="meta.dataset_id" clearable filterable placeholder="不绑定数据集" style="width:100%">
-                  <el-option
-                    v-for="d in datasets"
-                    :key="d.id"
-                    :label="d.name"
-                    :value="d.id"
-                  />
-                </el-select>
-              </el-form-item>
-
-              <el-form-item v-if="!isAssetMode" label="账号池互斥">
-                <el-switch v-model="meta.use_account_pool" />
-              </el-form-item>
-
-              <div v-if="autoSaveHint" class="autosave-hint">{{ autoSaveHint }}</div>
-            </div>
+            <div v-if="autoSaveHint" class="autosave-hint">{{ autoSaveHint }}</div>
           </el-form>
         </AppCard>
       </el-col>
 
-      <!-- 模块 3：右侧工作区 -->
-      <el-col :xs="24" :lg="16">
+      <el-col :xs="24" :lg="18">
         <AppCard :hover="false" class="workspace-card">
           <el-tabs v-model="rightTab" class="right-tabs">
             <el-tab-pane name="list" label="测试步骤列表">
-                          <div class="steps-header">
-                            <div class="steps-header-left">
-                              <span class="steps-title">测试步骤列表</span>
-                              <span class="steps-hint">拖拽步骤调整执行顺序</span>
-                            </div>
-                            <div class="steps-header-actions">
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" :disabled="!hasStepSelection" @click="batchIndent(1)">增加缩进</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" :disabled="!hasStepSelection" @click="batchIndent(-1)">减少缩进</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" :disabled="!hasStepSelection" @click="saveSelectionAsCommon">另存公共步骤</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" :disabled="!hasStepSelection" @click="batchSetStepsEnabled(true)">批量启用</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" :disabled="!hasStepSelection" @click="batchSetStepsEnabled(false)">批量禁用</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" :disabled="!hasStepSelection" @click="batchCopySteps">批量复制</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
-                                <span>
-                                  <el-button size="small" type="danger" plain :disabled="!hasStepSelection" @click="batchDeleteSteps">批量删除</el-button>
-                                </span>
-                              </el-tooltip>
-                              <el-button size="small" @click="openFindReplace">查找替换</el-button>
-                              <el-button size="small" type="danger" plain :disabled="!steps.length" @click="clearAllSteps">清空步骤</el-button>
-                              <el-button size="small" type="primary" plain @click="showImportCommon = true">导入公共步骤</el-button>
-                              <el-button size="small" type="success" plain @click="goCreateCommonStep">新建公共步骤</el-button>
-                              <el-button size="small" @click="showInvokeCase = true">调用用例</el-button>
-                              <el-button size="small" @click="addBranchStep">添加分支判断</el-button>
-                              <el-button size="small" @click="addLoopStep">添加循环步骤</el-button>
-                            </div>
-                          </div>
+              <div ref="stepsAreaRef" class="steps-body">
+                <div class="steps-toolbar-panel">
+                  <div class="toolbar-row toolbar-row--search">
+                    <el-input
+                      v-model="stepKeyword"
+                      clearable
+                      prefix-icon="Search"
+                      placeholder="搜索步骤类型 / 摘要 / 控件"
+                      class="step-search"
+                    />
+                    <span class="steps-count">共 {{ filteredSteps.length }} / {{ steps.length }} 步</span>
+                    <span class="steps-drag-hint">可拖拽排序</span>
+                  </div>
 
-              <div class="steps-body">
-                          <div class="steps-toolbar">
-                            <el-input
-                              v-model="stepKeyword"
-                              clearable
-                              prefix-icon="Search"
-                              placeholder="搜索步骤类型 / 摘要 / 控件"
-                              style="max-width:280px"
-                            />
-                            <span class="steps-count">共 {{ filteredSteps.length }} / {{ steps.length }} 步</span>
-                          </div>
+                  <div class="toolbar-row toolbar-groups">
+                    <div class="tb-group">
+                      <span class="tb-label">顺序</span>
+                      <el-button-group>
+                        <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
+                          <span>
+                            <el-button size="small" :disabled="!hasStepSelection" @click="batchIndent(1)">增加缩进</el-button>
+                          </span>
+                        </el-tooltip>
+                        <el-tooltip content="请先勾选步骤" :disabled="hasStepSelection" placement="top">
+                          <span>
+                            <el-button size="small" :disabled="!hasStepSelection" @click="batchIndent(-1)">减少缩进</el-button>
+                          </span>
+                        </el-tooltip>
+                      </el-button-group>
+                    </div>
 
-                          <div class="steps-scroll">
-                            <div v-if="!steps.length" class="steps-empty">
-                              <p class="empty-title">暂无测试步骤</p>
-                              <div class="empty-actions">
-                                <el-button type="primary" @click="focusAddPanel('click')">① 去新增步骤</el-button>
-                                <el-button @click="showImportCommon = true">② 从公共步骤库导入</el-button>
-                                <el-button @click="rightTab = 'add'; openPoolPicker()">③ 从元素库选择</el-button>
-                              </div>
-                            </div>
+                    <div class="tb-group">
+                      <span class="tb-label">块结构</span>
+                      <el-button-group>
+                        <el-button size="small" :disabled="!hasBlockSteps" @click="expandAllBlocks">全部展开</el-button>
+                        <el-button size="small" :disabled="!hasBlockSteps" @click="collapseAllBlocks">全部收起</el-button>
+                      </el-button-group>
+                    </div>
 
-                            <div v-else class="steps-list">
-                              <div
-                                v-for="item in filteredStepItems"
-                                :key="item.step.id"
-                                class="step-item"
-                                :class="[stepToneClass(item.step.type), { disabled: item.step.enabled === false, selected: selectedStepIds.has(item.step.id), 'is-dragging': dragStepId === item.step.id }]"
-                                :style="{ marginLeft: `${(item.depth || 0) * 20}px` }"
-                                draggable="true"
-                                @dragstart="onStepDragStart($event, item.index)"
-                                @dragover.prevent="onStepDragOver($event, item.index)"
-                                @drop.prevent="onStepDrop($event, item.index)"
-                                @dragend="onStepDragEnd"
-                              >
-                                <span class="drag-handle" title="拖拽排序">⋮⋮</span>
-                                <el-checkbox
-                                  :model-value="selectedStepIds.has(item.step.id)"
-                                  @change="(v) => toggleStepSelect(item.step.id, v)"
-                                />
-                                <div class="step-index">{{ item.index + 1 }}</div>
-                                <div class="step-body">
-                                  <el-switch v-if="item.step.type !== 'end_block'" v-model="item.step.enabled" size="small" />
-                                  <el-tag size="small" :type="stepTagType(item.step.type)" effect="plain">
-                                    {{ stepTypeLabel(item.step) }}
-                                  </el-tag>
-                                  <span class="step-desc">{{ stepSummary(item.step) }}</span>
-                                  <span v-if="item.step.remark" class="step-remark" :title="item.step.remark">{{ item.step.remark }}</span>
-                                  <span v-if="stepLocator(item.step)" class="step-locator">{{ stepLocator(item.step) }}</span>
-                                  <el-tag v-if="item.step.enabled === false" size="small" type="info">
-                                    {{ item.step.disable_reason || '已禁用' }}
-                                  </el-tag>
-                                </div>
-                                <div class="step-actions">
-                                  <el-button v-if="item.step.type !== 'end_block'" size="small" type="primary" plain @click="editStep(item.index)">编辑</el-button>
-                                  <el-button size="small" class="btn-copy" @click="copyStep(item.index)">复制</el-button>
-                                  <el-button size="small" plain :disabled="item.index === 0" @click="moveStep(item.index, -1)">上移</el-button>
-                                  <el-button size="small" plain :disabled="item.index === steps.length - 1" @click="moveStep(item.index, 1)">下移</el-button>
-                                  <el-button size="small" type="danger" plain @click="removeStep(item.index)">删除</el-button>
-                                </div>
-                              </div>
-                              <el-empty v-if="!filteredStepItems.length" description="未找到匹配步骤" :image-size="64" />
-                            </div>
-                          </div>
+                    <div class="tb-group">
+                      <span class="tb-label">批量</span>
+                      <el-button-group>
+                        <el-button size="small" :disabled="!hasStepSelection" @click="batchSetStepsEnabled(true)">启用</el-button>
+                        <el-button size="small" :disabled="!hasStepSelection" @click="batchSetStepsEnabled(false)">禁用</el-button>
+                        <el-button size="small" :disabled="!hasStepSelection" @click="batchCopySteps">复制</el-button>
+                        <el-button size="small" type="danger" plain :disabled="!hasStepSelection" @click="batchDeleteSteps">删除</el-button>
+                      </el-button-group>
+                      <el-button size="small" @click="openFindReplace">查找替换</el-button>
+                      <el-button size="small" type="danger" plain :disabled="!steps.length" @click="clearAllSteps">清空</el-button>
+                      <el-button size="small" :disabled="!hasStepSelection" @click="saveSelectionAsCommon">另存公共</el-button>
+                    </div>
+
+                    <div class="tb-group">
+                      <span class="tb-label">公共</span>
+                      <el-button size="small" type="primary" plain @click="showImportCommon = true">导入公共步骤</el-button>
+                      <el-button size="small" @click="goCreateCommonStep">新建公共步骤</el-button>
+                    </div>
+
+                    <div class="tb-group">
+                      <span class="tb-label">逻辑</span>
+                      <el-button size="small" @click="showInvokeCase = true">调用用例</el-button>
+                      <el-button size="small" @click="addBranchStep">if判断</el-button>
+                      <el-button size="small" @click="addElseIfStep">else if</el-button>
+                      <el-button size="small" @click="addElseStep">else</el-button>
+                      <el-button size="small" @click="addLoopStep">while循环</el-button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="steps-scroll">
+                  <div v-if="!steps.length" class="steps-empty">
+                    <p class="empty-title">暂无测试步骤</p>
+                    <p class="empty-sub">选择一种方式开始编排，推荐可视化新增</p>
+                    <div class="empty-entries">
+                      <button type="button" class="empty-entry empty-entry--primary" @click="focusAddPanel('click')">
+                        <span class="entry-badge">① 主推</span>
+                        <strong>可视化新增步骤</strong>
+                        <span>投屏拾取控件，拖拽编排点击 / 输入 / 滑动等基础动作</span>
+                      </button>
+                      <button type="button" class="empty-entry" @click="showImportCommon = true">
+                        <span class="entry-badge">②</span>
+                        <strong>公共步骤库导入</strong>
+                        <span>复用登录、初始化等全局 / 项目公共流程</span>
+                      </button>
+                      <button type="button" class="empty-entry" @click="openPoolFromEmpty">
+                        <span class="entry-badge">③</span>
+                        <strong>元素库选取搭建</strong>
+                        <span>从控件库选取预设元素，快速组装步骤</span>
+                      </button>
+                    </div>
+                    <p class="empty-advanced">进阶：顶部「更多 → 同屏编写」可手写脚本</p>
+                  </div>
+
+                  <div v-else class="steps-list">
+                    <div
+                      v-for="item in filteredStepItems"
+                      :key="item.step.id"
+                      class="step-item"
+                      :class="[
+                        stepToneClass(item.step.type),
+                        {
+                          disabled: item.step.enabled === false,
+                          selected: selectedStepIds.has(item.step.id),
+                          'is-dragging': isStepDraggingIndex(item.index),
+                          'is-nested': (item.depth || 0) > 0,
+                          'is-block': isFlowHeaderStep(item.step)
+                        }
+                      ]"
+                      :style="{ paddingLeft: `${10 + (item.depth || 0) * 20}px` }"
+                      draggable="true"
+                      @dragstart="onStepDragStart($event, item.index)"
+                      @dragover.prevent="onStepDragOver($event, item.index)"
+                      @drop.prevent="onStepDrop($event, item.index)"
+                      @dragend="onStepDragEnd"
+                    >
+                      <span class="drag-handle" title="按住此处或整行拖拽排序">⋮⋮</span>
+                      <el-checkbox
+                        :model-value="selectedStepIds.has(item.step.id)"
+                        @change="(v) => toggleStepSelect(item.step.id, v)"
+                      />
+                      <div class="step-index">{{ item.index + 1 }}</div>
+                      <button
+                        v-if="isFlowHeaderStep(item.step)"
+                        type="button"
+                        class="block-toggle"
+                        :title="collapsedBlockIds.has(item.step.id) ? '展开块内步骤' : '收起块内步骤'"
+                        @click.stop="toggleBlockCollapse(item.step.id)"
+                      >{{ collapsedBlockIds.has(item.step.id) ? '▶' : '▼' }}</button>
+                      <div class="step-body">
+                        <div class="step-main-row">
+                          <el-switch v-if="item.step.type !== 'end_block'" v-model="item.step.enabled" size="small" />
+                          <el-tag size="small" :type="stepTagType(item.step.type)" effect="plain">
+                            {{ stepTypeLabel(item.step) }}
+                          </el-tag>
+                          <span class="step-desc">{{ stepSummary(item.step) }}</span>
+                          <el-tag
+                            v-if="collapsedBlockIds.has(item.step.id) && item.collapsedCount > 0"
+                            size="small"
+                            type="info"
+                            effect="plain"
+                            class="block-collapsed-tag"
+                          >已收起 {{ item.collapsedCount }} 步</el-tag>
+                          <span v-if="stepLocator(item.step)" class="step-locator">{{ stepLocator(item.step) }}</span>
+                          <el-tag v-if="item.step.enabled === false" size="small" type="info">
+                            {{ item.step.disable_reason || '已禁用' }}
+                          </el-tag>
                         </div>
-
+                        <div
+                          class="step-remark-row"
+                          @click.stop
+                          @mousedown="onRemarkMouseDown"
+                          @dragstart.stop.prevent
+                        >
+                          <span class="step-remark-label">描述</span>
+                          <el-input
+                            v-model="item.step.remark"
+                            size="small"
+                            clearable
+                            maxlength="200"
+                            placeholder=""
+                          />
+                        </div>
+                      </div>
+                      <div class="step-actions">
+                        <el-button v-if="item.step.type !== 'end_block'" size="small" type="primary" plain @click="editStep(item.index)">编辑</el-button>
+                        <el-button
+                          size="small"
+                          plain
+                          @click="beginInsertAt(item.index, item.step.type === 'end_block' ? 'before' : 'after')"
+                        >{{ item.step.type === 'end_block' ? '块内插入' : '此后插入' }}</el-button>
+                        <el-button
+                          v-if="item.step.type === 'invoke_common'"
+                          size="small"
+                          type="warning"
+                          plain
+                          @click="viewCommonStep(item.step)"
+                        >查看步骤</el-button>
+                        <el-button
+                          v-if="item.step.type !== 'end_block' && !ASSERT_TYPES.has(item.step.type)"
+                          size="small"
+                          type="success"
+                          plain
+                          @click="addAssertAfter(item.index)"
+                        >添加断言</el-button>
+                        <el-button size="small" class="btn-copy" @click="copyStep(item.index)">复制</el-button>
+                        <el-button size="small" plain :disabled="item.index === 0" @click="moveStep(item.index, -1)">上移</el-button>
+                        <el-button size="small" plain :disabled="item.index === steps.length - 1" @click="moveStep(item.index, 1)">下移</el-button>
+                        <el-button size="small" type="danger" plain @click="removeStep(item.index)">删除</el-button>
+                      </div>
+                    </div>
+                    <el-empty v-if="!filteredStepItems.length" description="未找到匹配步骤" :image-size="64" />
+                  </div>
+                </div>
+              </div>
             </el-tab-pane>
             <el-tab-pane name="add" label="新增步骤">
               <StepAddPanel
@@ -348,6 +336,7 @@
                 :catalog-id="selectedCatalogId"
                 :expanded-keys="treeExpandedKeys"
                 :editing-index="editingIndex"
+                :insert-at-index="insertAtIndex"
                 :common-steps="commonSteps"
                 :locator-hint="locatorHint"
                 @update:model-value="onNewStepUpdate"
@@ -357,7 +346,7 @@
                 @submit="submitStepForm"
                 @cancel="cancelEdit"
                 @pick="goElementPicker"
-                @pool="openPoolPicker"
+                @pool="onOpenPool"
                 @create-common="goCreateCommonStep"
               />
             </el-tab-pane>
@@ -367,6 +356,24 @@
     </el-row>
 
     <button class="vce-fab-record" type="button" title="一键录制" @click="goQuickRecord">一键录制</button>
+
+    <el-dialog v-model="showFolderDialog" title="新建目录" width="400px">
+      <el-form label-width="80px" @submit.prevent>
+        <el-form-item label="目录名" required>
+          <el-input v-model="folderForm.name" placeholder="请输入目录名" maxlength="40" />
+        </el-form-item>
+        <el-form-item label="上级目录">
+          <el-select v-model="folderForm.parent_id" placeholder="根目录" clearable style="width:100%">
+            <el-option label="根目录" :value="null" />
+            <el-option v-for="f in flatFolders" :key="f.id" :label="f.label" :value="f.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showFolderDialog = false">取消</el-button>
+        <el-button type="primary" :loading="folderSaving" @click="saveFolder">创建</el-button>
+      </template>
+    </el-dialog>
 
     <ScriptPreviewDialog
       v-model="showPreview"
@@ -384,30 +391,94 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showPoolPicker" title="从元素库选择控件" width="680px" destroy-on-close @closed="selectedPoolRows = []">
-      <el-input v-model="poolKeyword" clearable placeholder="搜索控件名称 / 页面 / 定位" style="margin-bottom:12px" />
+    <el-dialog
+      v-model="showCommonView"
+      :title="commonViewTitle"
+      width="720px"
+      destroy-on-close
+      class="common-view-dialog"
+      @closed="commonViewStack = []; commonViewRow = null; commonViewSteps = []"
+    >
+      <div v-loading="commonViewLoading" class="common-view-body">
+        <p v-if="commonViewRow?.description" class="common-view-desc">{{ commonViewRow.description }}</p>
+        <el-empty v-if="!commonViewLoading && !commonViewSteps.length" description="该公共步骤暂无内部步骤" :image-size="72" />
+        <div v-else class="common-view-list">
+          <div v-for="(s, i) in commonViewSteps" :key="i" class="common-view-item">
+            <span class="common-view-idx">{{ i + 1 }}</span>
+            <el-tag size="small" :type="stepTagType(s.type)" effect="plain">{{ stepTypeLabel(s) }}</el-tag>
+            <span class="common-view-summary">{{ stepSummary(s) }}</span>
+            <span v-if="stepLocator(s)" class="common-view-locator">{{ stepLocator(s) }}</span>
+            <el-button
+              v-if="s.type === 'invoke_common' && s.common_step"
+              size="small"
+              type="warning"
+              plain
+              class="common-view-drill"
+              @click="viewCommonStep(s)"
+            >查看步骤</el-button>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button v-if="commonViewStack.length" @click="backCommonView">返回上级</el-button>
+        <el-button @click="closeCommonView">关闭</el-button>
+        <el-button
+          v-if="commonViewRow?.id"
+          type="primary"
+          plain
+          @click="goEditViewedCommonStep"
+        >去编辑公共步骤</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="showPoolPicker"
+      :title="poolPickerTitle"
+      width="720px"
+      destroy-on-close
+      @closed="onPoolPickerClosed"
+    >
+      <div class="pool-picker-toolbar">
+        <el-input v-model="poolKeyword" clearable placeholder="搜索控件名称 / 页面 / 定位" style="flex:1" />
+        <el-checkbox v-if="isCoordPoolMode" v-model="poolBoundsOnly">仅坐标定位</el-checkbox>
+      </div>
       <el-table
         ref="poolTableRef"
         :data="filteredPoolItems"
         height="360"
         row-key="id"
+        highlight-current-row
+        :row-class-name="poolRowClassName"
+        @row-click="onPoolRowClick"
         @selection-change="onPoolSelectionChange"
       >
-        <el-table-column type="selection" width="48" />
+        <el-table-column v-if="!isCoordPoolMode" type="selection" width="48" />
+        <el-table-column v-else width="48" align="center">
+          <template #default="{ row }">
+            <span class="pool-radio" :class="{ checked: selectedPoolRow?.id === row.id }" />
+          </template>
+        </el-table-column>
         <el-table-column prop="element_name" label="控件名称" min-width="140" show-overflow-tooltip />
         <el-table-column prop="page_name" label="页面" width="120" show-overflow-tooltip />
         <el-table-column prop="locator_type" label="定位类型" width="100" />
         <el-table-column prop="locator_value" label="定位表达式" min-width="180" show-overflow-tooltip />
       </el-table>
+      <p v-if="!filteredPoolItems.length" class="pool-empty">暂无匹配控件，可先在控件库录入坐标/定位条目</p>
       <template #footer>
         <div class="pool-picker-footer">
-          <span class="pool-pick-count">已选 {{ selectedPoolRows.length }} 项</span>
+          <span class="pool-pick-count">
+            {{ isCoordPoolMode
+              ? (selectedPoolRow ? `已选：${selectedPoolRow.element_name || '未命名'}` : '请点击一行选择')
+              : `已选 ${selectedPoolRows.length} 项` }}
+          </span>
           <div>
-            <el-button plain @click="saveStepToPool" :disabled="!canSaveToPool">另存元素库</el-button>
+            <el-button v-if="!isCoordPoolMode" plain @click="saveStepToPool" :disabled="!canSaveToPool">另存控件库</el-button>
             <el-button @click="showPoolPicker = false">取消</el-button>
-            <el-button type="primary" :disabled="!selectedPoolRows.length" @click="confirmPoolSelection">
-              确认选用
-            </el-button>
+            <el-button
+              type="primary"
+              :disabled="isCoordPoolMode ? !selectedPoolRow : !selectedPoolRows.length"
+              @click="confirmPoolSelection"
+            >确认选用</el-button>
           </div>
         </div>
       </template>
@@ -511,13 +582,27 @@ import { formatTime } from '@/utils/status'
 import ScriptPreviewDialog from '@/components/ScriptPreviewDialog.vue'
 import StepAddPanel from '@/components/case-editor/StepAddPanel.vue'
 import { getCatalogLeaf, resolveLeafFields, normalizeOnFail } from '@/config/stepCatalog'
+import {
+  conditionLabel,
+  conditionNeedsLocator,
+  conditionNeedsExpected,
+  conditionNeedsVarName,
+  normalizeVarKey
+} from '@/config/commonStepCatalog'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const MODULE_OPTIONS = ['登录', '首页', '商品', '结算', '支付', '个人中心', '消息', '设置', '其他']
+const MODULE_OPTIONS = ['清扫', '回充', '建图', '地图管理', '禁区', '语音交互', '固件升级', '账号登录', '其他']
+
+const ASSERT_TYPES = new Set([
+  'assert_text', 'assert_exists', 'assert_not_exists', 'assert_ocr', 'assert_toast', 'assert_http', 'assert_analytics',
+  'assert_composite', 'check_anomaly', 'assert_process', 'clipboard_assert', 'assert_screen',
+  'assert_key', 'assert_volume', 'assert_volume_change', 'assert_image', 'assert_cold_start',
+  'assert_compare', 'assert_element_count', 'assert_attribute'
+])
 
 const route = useRoute()
 const router = useRouter()
-const taskId = route.params.id || null
+const taskId = computed(() => route.params.id || null)
 const folderId = route.query.folder_id ? Number(route.query.folder_id) : null
 const isAssetMode = route.query.asset === '1' || route.path.startsWith('/cases/')
 const saving = ref(false)
@@ -531,11 +616,23 @@ const poolItems = ref([])
 const flatFolders = ref([])
 const stepKeyword = ref('')
 const selectedStepIds = ref(new Set())
+const collapsedBlockIds = ref(new Set())
 const showImportCommon = ref(false)
 const importCommonNames = ref([])
+const showCommonView = ref(false)
+const commonViewLoading = ref(false)
+const commonViewRow = ref(null)
+const commonViewSteps = ref([])
+const commonViewStack = ref([])
+const commonViewTitle = computed(() =>
+  commonViewRow.value?.name ? `查看公共步骤 · ${commonViewRow.value.name}` : '查看公共步骤'
+)
 const showPoolPicker = ref(false)
 const poolKeyword = ref('')
+const poolPickMode = ref('locator') // locator | tap | swipe_start | swipe_end
+const poolBoundsOnly = ref(true)
 const selectedPoolRows = ref([])
+const selectedPoolRow = ref(null)
 const poolTableRef = ref(null)
 const showFindReplace = ref(false)
 const findReplace = reactive({
@@ -556,17 +653,145 @@ const newComment = ref('')
 const commentSaving = ref(false)
 const dragFromIndex = ref(-1)
 const dragStepId = ref(null)
+const dragStepRange = ref(null) // { start, end }
 const editingIndex = ref(null)
+const insertAtIndex = ref(null)
 const rightTab = ref('list')
 const selectedCatalogId = ref('ctrl.android.click')
-const treeExpandedKeys = ref(['ctrl', 'ctrl.android', 'ctrl.ios', 'ctrl.webview'])
+const treeExpandedKeys = ref(['ctrl', 'ctrl.android'])
 const stepAddPanelRef = ref(null)
 const autoSaveHint = ref('')
 const locatorHint = ref('')
+const basicInfoRef = ref(null)
+const stepsAreaRef = ref(null)
+const justSaved = ref(false)
+const showFolderDialog = ref(false)
+const folderSaving = ref(false)
+const folderForm = reactive({ name: '', parent_id: null })
 let stepSeq = 1
 let autoSaveTimer = null
 let dirty = false
 let lastSavedSnapshot = ''
+let justSavedTimer = null
+
+const FLOW_STAGES = [
+  { key: 'basic', label: '基础信息填写' },
+  { key: 'steps', label: '步骤可视化编排' },
+  { key: 'assert', label: '断言配置' },
+  { key: 'debug', label: '调试执行' },
+  { key: 'save', label: '保存定稿' }
+]
+const FLOW_STAGE_ORDER = FLOW_STAGES.map(s => s.key)
+
+const hasAssertStep = computed(() => steps.value.some(s => ASSERT_TYPES.has(s.type)))
+
+const flowStage = computed(() => {
+  if (justSaved.value) return 'save'
+  if (!(meta.name || '').trim()) return 'basic'
+  if (!steps.value.length) return 'steps'
+  if (!hasAssertStep.value) return 'assert'
+  if (taskId.value) return 'debug'
+  return 'assert'
+})
+
+function goToFlowStage(key) {
+  if (key === 'basic') {
+    basicInfoRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  if (key === 'steps') {
+    rightTab.value = 'list'
+    nextTick(() => stepsAreaRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    return
+  }
+  if (key === 'assert') {
+    rightTab.value = 'list'
+    nextTick(() => {
+      stepsAreaRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (!steps.value.length) focusAddPanel('assert_exists')
+    })
+    return
+  }
+  if (key === 'debug') {
+    document.querySelector('.btn-debug')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    return
+  }
+  if (key === 'save') {
+    document.querySelector('.btn-save')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+}
+
+function onMoreCommand(cmd) {
+  if (cmd === 'author') goAuthorWorkspace()
+  else if (cmd === 'versions') openVersionHistory()
+  else if (cmd === 'comments') openComments()
+  else if (cmd === 'back') router.back()
+}
+
+function openFolderDialog() {
+  folderForm.name = ''
+  folderForm.parent_id = meta.folder_id || null
+  showFolderDialog.value = true
+}
+
+async function saveFolder() {
+  if (!folderForm.name?.trim()) {
+    ElMessage.warning('请输入目录名')
+    return
+  }
+  folderSaving.value = true
+  try {
+    const res = await caseApi.createFolder({
+      name: folderForm.name.trim(),
+      parent_id: folderForm.parent_id || null
+    })
+    await loadFolders()
+    const newId = res?.data?.id
+    if (newId) meta.folder_id = newId
+    showFolderDialog.value = false
+    ElMessage.success('目录已创建')
+  } catch (e) {
+    ElMessage.error(e?.message || '创建目录失败')
+  } finally {
+    folderSaving.value = false
+  }
+}
+
+function openPoolFromEmpty() {
+  rightTab.value = 'add'
+  openPoolPicker()
+}
+
+function addAssertAfter(idx) {
+  const src = steps.value[idx]
+  if (!src) return
+  const assertStep = {
+    id: stepSeq++,
+    enabled: true,
+    disable_reason: '',
+    disable_mode: '',
+    ...newStepDefaults(),
+    type: 'assert_exists',
+    element_name: src.element_name || '',
+    display_name: src.display_name || src.element_name || '',
+    locator_type: src.locator_type || '',
+    locator_value: src.locator_value || '',
+    catalog_id: 'ctrl.android.exists',
+    remark: ''
+  }
+  steps.value.splice(idx + 1, 0, assertStep)
+  editingIndex.value = idx + 1
+  Object.assign(newStep, newStepDefaults(), JSON.parse(JSON.stringify(assertStep)))
+  selectedCatalogId.value = 'ctrl.android.exists'
+  rightTab.value = 'add'
+  ElMessage.success('已插入断言步骤，请完善断言条件')
+}
+
+function markJustSaved() {
+  justSaved.value = true
+  if (justSavedTimer) clearTimeout(justSavedTimer)
+  justSavedTimer = setTimeout(() => { justSaved.value = false }, 4000)
+}
 
 const meta = reactive({
   name: '',
@@ -591,6 +816,40 @@ const meta = reactive({
 
 const steps = ref([])
 
+/** 清除历史自动填入 / 控件流默认描述 */
+const AUTO_REMARK_RE = /^(来自控件库|来自控件拾取|断言[：:]|结束\s*(if|else if|else|while)|否则分支)$/
+function normalizeStepRemark(remark) {
+  const t = String(remark || '').trim()
+  if (!t) return ''
+  if (AUTO_REMARK_RE.test(t)) return ''
+  return String(remark || '')
+}
+function mapLoadedStep(s) {
+  const remark = normalizeStepRemark(s.remark)
+  // 截图：历史把名称写在 remark/描述里 → 迁到 element_name，描述清空
+  let elementName = s.element_name
+  let nextRemark = remark
+  if (s.type === 'screenshot') {
+    const name = String(s.element_name || s.name || '').trim()
+    const fromRemark = String(s.remark || '').trim()
+    if (!name && fromRemark && !AUTO_REMARK_RE.test(fromRemark)) {
+      elementName = fromRemark
+      nextRemark = ''
+    } else if (name && fromRemark && name === fromRemark) {
+      nextRemark = ''
+    }
+  }
+  return {
+    id: stepSeq++,
+    enabled: s.enabled !== false,
+    disable_reason: s.disable_reason || '',
+    ...s,
+    element_name: elementName ?? s.element_name,
+    remark: nextRemark,
+    on_fail: normalizeOnFail(s.on_fail)
+  }
+}
+
 const newStepDefaults = () => ({
   type: 'wait',
   seconds: 2,
@@ -614,6 +873,11 @@ const newStepDefaults = () => ({
   context: '',
   x: 0, y: 0,
   x1: 500, y1: 800, x2: 500, y2: 400,
+  swipe_start_name: '',
+  swipe_end_name: '',
+  swipe_start_pool_id: null,
+  swipe_end_pool_id: null,
+  pool_id: null,
   duration_ms: 300,
   common_step: '', input_params_json: '', check_types: 'all', mode: 'disk',
   case_id: null, case_name: '',
@@ -646,6 +910,9 @@ print("demo var=", var("TIME_HM", ""))`
 })
 
 const hasStepSelection = computed(() => selectedStepIds.value.size > 0)
+const hasBlockSteps = computed(() =>
+  steps.value.some(s => isFlowBlockStart(s))
+)
 
 const canSaveToPool = computed(() => {
   const name = (newStep.element_name || '').trim()
@@ -654,13 +921,28 @@ const canSaveToPool = computed(() => {
 })
 
 const filteredPoolItems = computed(() => {
+  let list = poolItems.value || []
+  if (isCoordPoolMode.value && poolBoundsOnly.value) {
+    list = list.filter(isCoordinateControl)
+  }
   const k = poolKeyword.value.trim().toLowerCase()
-  if (!k) return poolItems.value
-  return poolItems.value.filter(p => {
+  if (!k) return list
+  return list.filter(p => {
     const hay = [p.element_name, p.page_name, p.locator_type, p.locator_value, p.device_element_value]
       .join(' ').toLowerCase()
     return hay.includes(k)
   })
+})
+
+const isCoordPoolMode = computed(() =>
+  ['tap', 'swipe_start', 'swipe_end'].includes(poolPickMode.value)
+)
+
+const poolPickerTitle = computed(() => {
+  if (poolPickMode.value === 'swipe_start') return '选择起点坐标控件'
+  if (poolPickMode.value === 'swipe_end') return '选择终点坐标控件'
+  if (poolPickMode.value === 'tap') return '选择坐标控件'
+  return '从控件库选择控件'
 })
 
 const filteredSteps = computed(() => {
@@ -683,16 +965,79 @@ const filteredSteps = computed(() => {
 })
 
 const filteredStepItems = computed(() => {
-  const depths = computeStepDepths(steps.value)
+  const list = steps.value
+  const depths = computeStepDepths(list)
+  const searching = !!stepKeyword.value.trim()
+  const hidden = searching ? new Set() : computeCollapsedHiddenIndices(list, collapsedBlockIds.value)
   return filteredSteps.value.map(step => {
-    const index = steps.value.findIndex(s => s.id === step.id)
+    const index = list.findIndex(s => s.id === step.id)
+    const collapsedCount = isFlowBlockStart(step) && collapsedBlockIds.value.has(step.id)
+      ? Math.max(0, findBlockEndIndex(list, index) - index)
+      : 0
     return {
       step,
       index,
-      depth: index >= 0 ? depths[index] : 0
+      depth: index >= 0 ? depths[index] : 0,
+      collapsedCount
     }
-  }).filter(x => x.index >= 0)
+  }).filter(x => x.index >= 0 && !hidden.has(x.index))
 })
+
+function findBlockEndIndex(list, startIdx) {
+  const start = list[startIdx]
+  if (!start || !isFlowBlockStart(start)) return -1
+  let depth = 1
+  for (let i = startIdx + 1; i < list.length; i++) {
+    const t = list[i].type
+    if (isFlowBlockStartType(t)) depth += 1
+    else if (t === 'end_block') {
+      depth -= 1
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
+function isFlowBlockStartType(t) {
+  return t === 'branch' || t === 'loop' || t === 'else_if' || t === 'elif' || t === 'else'
+}
+
+function isFlowBlockStart(step) {
+  return !!step && isFlowBlockStartType(step.type) && step.branch_mode !== 'try_catch'
+}
+
+function computeCollapsedHiddenIndices(list, collapsedIds) {
+  const hidden = new Set()
+  if (!collapsedIds?.size) return hidden
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i]
+    if (!isFlowBlockStart(s) || !collapsedIds.has(s.id)) continue
+    const end = findBlockEndIndex(list, i)
+    if (end <= i) continue
+    for (let j = i + 1; j <= end; j++) hidden.add(j)
+  }
+  return hidden
+}
+
+function toggleBlockCollapse(stepId) {
+  if (stepId == null) return
+  const next = new Set(collapsedBlockIds.value)
+  if (next.has(stepId)) next.delete(stepId)
+  else next.add(stepId)
+  collapsedBlockIds.value = next
+}
+
+function expandAllBlocks() {
+  collapsedBlockIds.value = new Set()
+}
+
+function collapseAllBlocks() {
+  const next = new Set()
+  for (const s of steps.value) {
+    if (isFlowBlockStart(s) && s.id != null) next.add(s.id)
+  }
+  collapsedBlockIds.value = next
+}
 
 function computeStepDepths(list) {
   const depths = []
@@ -705,11 +1050,15 @@ function computeStepDepths(list) {
     }
     const d = typeof s.indent === 'number' ? s.indent : depth
     depths.push(d)
-    if (s.type === 'branch' || s.type === 'loop') {
+    if (isFlowBlockStartType(s.type)) {
       depth = Math.min(6, (typeof s.indent === 'number' ? s.indent : depth) + 1)
     }
   }
   return depths
+}
+
+function isFlowHeaderStep(step) {
+  return isFlowBlockStart(step)
 }
 
 const typeLabels = {
@@ -726,7 +1075,7 @@ const typeLabels = {
   assert_image: '图像断言', data_factory: '动态造数', use_account_pool: '账号池',
   manual_wait: '人工介入', network_profile: '弱网模拟', reset_network: '恢复网络', capture_crash: '崩溃捕获',
   set_locale: '切换语言', collect_performance: '性能采集', assert_cold_start: '冷启动',
-  install_apk: '安装包', branch: '分支判断', loop: '循环', end_block: '结束块',
+  install_apk: '安装包', branch: 'if判断', else_if: 'else if', else: 'else', loop: 'while循环', end_block: '结束块',
   set_relative_time: '设置相对时间',
   custom_script: '自定义脚本',
   screenshot: '获取截图',
@@ -754,16 +1103,10 @@ const typeLabels = {
 
 const WAIT_TYPES = new Set(['wait', 'manual_wait'])
 const CLICK_TYPES = new Set(['click', 'tap_xy', 'long_press', 'tap_ocr', 'input', 'clear_input', 'swipe', 'set_relative_time'])
-const ASSERT_TYPES = new Set([
-  'assert_text', 'assert_exists', 'assert_not_exists', 'assert_ocr', 'assert_toast', 'assert_http', 'assert_analytics',
-  'assert_composite', 'check_anomaly', 'assert_process', 'clipboard_assert', 'assert_screen',
-  'assert_key', 'assert_volume', 'assert_volume_change', 'assert_image', 'assert_cold_start',
-  'assert_compare', 'assert_element_count', 'assert_attribute'
-])
 const APP_TYPES = new Set([
   'launch', 'clear_cache', 'force_stop', 'install_apk', 'switch_context', 'revoke_permissions',
   'press_key', 'clipboard_set', 'wake_screen', 'lock_screen', 'dismiss_popup', 'custom_script',
-  'invoke_common', 'invoke_case', 'branch', 'loop', 'end_block'
+  'invoke_common', 'invoke_case', 'branch', 'else_if', 'else', 'loop', 'end_block'
 ])
 
 function stepTypeLabel(stepOrType, step) {
@@ -789,7 +1132,7 @@ function stepToneClass(type) {
   if (WAIT_TYPES.has(type)) return 'tone-wait'
   if (CLICK_TYPES.has(type)) return 'tone-click'
   if (ASSERT_TYPES.has(type)) return 'tone-assert'
-  if (APP_TYPES.has(type) || type === 'branch' || type === 'loop') return 'tone-app'
+  if (APP_TYPES.has(type) || type === 'branch' || type === 'else_if' || type === 'else' || type === 'loop') return 'tone-app'
   return 'tone-default'
 }
 
@@ -798,7 +1141,7 @@ function stepTagType(type) {
   if (CLICK_TYPES.has(type)) return 'primary'
   if (ASSERT_TYPES.has(type)) return 'success'
   if (APP_TYPES.has(type)) return 'warning'
-  if (type === 'branch' || type === 'loop') return 'warning'
+  if (type === 'branch' || type === 'else_if' || type === 'else' || type === 'loop') return 'warning'
   return ''
 }
 
@@ -827,22 +1170,30 @@ function stepSummary(step) {
     case 'assert_compare': return `${step.actual || ''} ${step.op || 'contains'} ${step.expected || ''}`
     case 'assert_attribute': return `${step.element_name || ''} · ${step.attr_name || 'attr'}=${step.expected || ''}`
     case 'get_text': return `${step.element_name || ''} → $${step.var_name || 'VAR'}`
-    case 'screenshot': return step.save_path || '默认任务目录'
+    case 'screenshot': return step.element_name || step.name || step.remark || step.save_path || ''
     case 'set_relative_time': {
       const mins = step.offset_minutes ?? 5
       return `+${mins}分钟 → TIME_HM${step.confirm ? ' · 并点确定' : ''}`
     }
     case 'launch': return step.app_package || meta.app_package
     case 'install_apk': return step.app_package || '安装包'
-    case 'swipe': return target || `${step.x1},${step.y1}→${step.x2},${step.y2}`
+    case 'swipe': {
+      if (step.swipe_start_name && step.swipe_end_name) {
+        return `${step.swipe_start_name} → ${step.swipe_end_name}`
+      }
+      return target || `${step.x1},${step.y1}→${step.x2},${step.y2}`
+    }
     case 'assert_text': return `${step.element_name || ''} = ${step.expected}`
     case 'invoke_common': return step.common_step || '(未选)'
     case 'invoke_case': return step.case_name || (step.case_id ? `#${step.case_id}` : '(未选)')
     case 'custom_script': {
-      const lang = (step.script_lang || 'python').toUpperCase()
+      const lang = (step.script_lang || step.language || 'python').toUpperCase()
       const name = step.element_name || step.display_name || ''
-      const lines = (step.script_code || '').split('\n').filter(Boolean).length
-      return name ? `${lang} · ${name}` : `${lang} · ${lines} 行`
+      const code = step.script_code || step.script || ''
+      const lines = String(code).split('\n').filter(l => l.trim()).length
+      if (name) return lines ? `${lang} · ${name}（${lines} 行）` : `${lang} · ${name}（未填脚本）`
+      if (!lines) return `${lang} · 未填写脚本内容`
+      return `${lang} · ${lines} 行`
     }
     case 'check_anomaly': return step.check_types || 'all'
     case 'assert_process': return meta.app_package || '当前应用'
@@ -873,9 +1224,35 @@ function stepSummary(step) {
     case 'set_locale': return step.locale || 'zh_cn'
     case 'collect_performance': return '内存/性能'
     case 'assert_cold_start': return `≤${step.max_ms || 5000}ms`
-    case 'branch': return step.condition || '条件分支'
-    case 'loop': return `循环 ${step.loop_count || 1} 次`
-    case 'end_block': return step.block_type === 'loop' ? '结束循环' : '结束分支'
+    case 'branch': {
+      if (step.condition_kind === 'var_equals' || step.condition_kind === 'var_not_equals') {
+        return conditionLabel(step.condition_kind, step.condition, {
+          var_name: step.var_name,
+          expected: step.expected
+        })
+      }
+      return step.condition || 'if 条件'
+    }
+    case 'else_if':
+    case 'elif': {
+      if (step.condition_kind === 'var_equals' || step.condition_kind === 'var_not_equals') {
+        return conditionLabel(step.condition_kind, step.condition, {
+          var_name: step.var_name,
+          expected: step.expected
+        })
+      }
+      return step.condition || 'else if 条件'
+    }
+    case 'else': return step.remark || '否则分支'
+    case 'loop': {
+      if (step.loop_mode === 'while') return step.condition || `while · 最多 ${step.loop_count || 10} 次`
+      return `循环 ${step.loop_count || 1} 次`
+    }
+    case 'end_block': {
+      if (step.remark) return step.remark
+      if (step.block_type === 'loop') return '结束 while'
+      return '结束分支'
+    }
     default: return target || step.element_name || step.expected || stepTypeLabel(step.type)
   }
 }
@@ -964,7 +1341,7 @@ const TYPE_TO_CATALOG = {
   'assert_exists': 'ctrl.android.exists',
   'assert_text': 'ctrl.android.assert_text',
   'clear_cache': 'app.basic.clear_cache',
-  'clear_input': 'ctrl.webview.clear',
+  'clear_input': 'ctrl.android.clear',
   'click': 'ctrl.android.click',
   'custom_script': 'script.custom',
   'drag_element': 'ctrl.android.drag',
@@ -996,7 +1373,12 @@ const TYPE_TO_CATALOG = {
   'tap_xy': 'ctrl.coord.tap',
   'uninstall_app': 'app.basic.uninstall',
   'wait': 'flow.wait',
-  'wake_screen': 'device.screen.unlock'
+  'wake_screen': 'device.screen.unlock',
+  'branch': 'flow.if',
+  'else_if': 'flow.else_if',
+  'elif': 'flow.else_if',
+  'else': 'flow.else',
+  'end_block': 'flow.end_if'
 }
 
 const IOS_TYPE_TO_CATALOG = {
@@ -1067,8 +1449,8 @@ function buildStepFromForm() {
     enabled: true,
     disable_reason: '',
     disable_mode: '',
-    ...JSON.parse(JSON.stringify(newStep)),
     ...(leaf?.extras || {}),
+    ...JSON.parse(JSON.stringify(newStep)),
     catalog_id: selectedCatalogId.value || newStep.catalog_id || ''
   }
   if (step.type === 'invoke_common' && step.input_params_json) {
@@ -1088,6 +1470,17 @@ function buildStepFromForm() {
     step.element_name = name
     step.display_name = name
   }
+  if (step.condition_kind) {
+    if (conditionNeedsVarName(step.condition_kind)) {
+      step.var_name = normalizeVarKey(step.var_name)
+    }
+    if (step.condition_kind !== 'custom') {
+      step.condition = conditionLabel(step.condition_kind, step.condition, {
+        var_name: step.var_name,
+        expected: step.expected
+      })
+    }
+  }
   return step
 }
 
@@ -1098,13 +1491,49 @@ function validateStepForm() {
     return false
   }
   const fields = resolveLeafFields(leaf)
-  if (fields.includes('element_name') && !(newStep.element_name || '').trim()) {
-    ElMessage.warning('请填写控件名')
-    return false
-  }
-  if (fields.includes('locator_value') && !(newStep.locator_value || '').trim()) {
-    ElMessage.warning('请填写定位表达式')
-    return false
+  const coordsMode = leaf.needsCoords
+    || (fields.some(k => ['x', 'y'].includes(k)) ? 'tap' : '')
+    || (fields.some(k => ['swipe_start_name', 'x1'].includes(k)) ? 'swipe' : '')
+
+  if (coordsMode === 'tap') {
+    if (!(newStep.element_name || '').trim()) {
+      ElMessage.warning('请从控件库选择坐标控件')
+      return false
+    }
+  } else if (coordsMode === 'swipe') {
+    if (!(newStep.swipe_start_name || '').trim() || !(newStep.swipe_end_name || '').trim()) {
+      ElMessage.warning('请从控件库分别选择起点、终点坐标控件')
+      return false
+    }
+  } else if (fields.includes('condition_kind')) {
+    const kind = newStep.condition_kind || 'exists'
+    if (conditionNeedsLocator(kind)) {
+      if (!(newStep.locator_value || '').trim() || !(newStep.element_name || '').trim()) {
+        ElMessage.warning('请从控件库选择目标控件')
+        return false
+      }
+    }
+    if (conditionNeedsVarName(kind) && !normalizeVarKey(newStep.var_name)) {
+      ElMessage.warning('请填写变量名，例如 product_id')
+      return false
+    }
+    if (conditionNeedsExpected(kind) && !(newStep.expected || '').trim()) {
+      ElMessage.warning(conditionNeedsVarName(kind) ? '请填写期望值，例如 AX17' : '请填写期望文案')
+      return false
+    }
+    if (kind === 'custom' && !(newStep.condition || '').trim()) {
+      ElMessage.warning('请填写自定义判断条件')
+      return false
+    }
+  } else if (leaf.needsLocator || fields.includes('locator_value')) {
+    if (!(newStep.locator_value || '').trim()) {
+      ElMessage.warning('请从控件库选择目标控件')
+      return false
+    }
+    if (!(newStep.element_name || '').trim()) {
+      ElMessage.warning('请从控件库选择目标控件')
+      return false
+    }
   }
   if (fields.includes('text') && newStep.type === 'input' && newStep.text == null) {
     ElMessage.warning('请填写输入文本')
@@ -1135,23 +1564,52 @@ function submitStepForm() {
     step.id = id ?? step.id
     steps.value[editingIndex.value] = step
     editingIndex.value = null
+    insertAtIndex.value = null
     resetNewStep()
     ElMessage.success('步骤已更新')
     rightTab.value = 'list'
     return
   }
   addStep()
-  rightTab.value = 'list'
+  // 定点插入模式：留在新增页便于连续往中间加步骤
+  if (insertAtIndex.value == null) rightTab.value = 'list'
 }
 
 function addStep() {
   const step = buildStepFromForm()
   if (!step) return
-  steps.value.push(step)
-  ElMessage.success('步骤已添加')
+  const at = insertAtIndex.value
+  let insertedAt
+  if (at != null && at >= 0 && at <= steps.value.length) {
+    if (step.indent == null) step.indent = suggestIndentForInsert(at)
+    steps.value.splice(at, 0, step)
+    insertedAt = at
+    insertAtIndex.value = at + 1
+    ElMessage.success(`已插入到第 ${at + 1} 步`)
+  } else {
+    steps.value.push(step)
+    insertedAt = steps.value.length - 1
+    ElMessage.success('步骤已添加')
+  }
+  // if / else if / else / while 各自带独立结束块
+  if (isFlowBlockStart(step)) {
+    const endAt = insertedAt + 1
+    const endStep = {
+      id: stepSeq++,
+      enabled: true,
+      disable_reason: '',
+      disable_mode: '',
+      ...newStepDefaults(),
+      type: 'end_block',
+      block_type: step.type === 'loop' ? 'loop' : 'branch',
+      remark: '',
+      indent: typeof step.indent === 'number' ? step.indent : 0
+    }
+    steps.value.splice(endAt, 0, endStep)
+    if (insertAtIndex.value != null) insertAtIndex.value = endAt + 1
+  }
   resetNewStep(step.type)
   if (selectedCatalogId.value) {
-    // 保持当前指令，清空业务字段便于连续添加
     const leaf = getCatalogLeaf(selectedCatalogId.value)
     if (leaf && stepAddPanelRef.value?.applyLeaf) {
       stepAddPanelRef.value.applyLeaf(leaf, { keepCurrent: false })
@@ -1159,9 +1617,41 @@ function addStep() {
   }
 }
 
+function suggestIndentForInsert(at) {
+  const list = steps.value
+  if (!list.length) return 0
+  // 插在 end_block 前：跟前一条子步骤同缩进；插在 branch/loop/else 后：块内缩进
+  const prev = list[at - 1]
+  const next = list[at]
+  if (prev && (prev.type === 'branch' || prev.type === 'loop' || prev.type === 'else_if' || prev.type === 'elif' || prev.type === 'else')) {
+    const base = typeof prev.indent === 'number' ? prev.indent : 0
+    return Math.min(6, base + 1)
+  }
+  if (next?.type === 'end_block' && prev) {
+    return typeof prev.indent === 'number' ? prev.indent : 1
+  }
+  if (prev && typeof prev.indent === 'number') return prev.indent
+  const depths = computeStepDepths(list)
+  if (at > 0 && depths[at - 1] != null) return depths[at - 1]
+  return 0
+}
+
+function beginInsertAt(idx, mode = 'after') {
+  editingIndex.value = null
+  const at = mode === 'before' ? idx : idx + 1
+  insertAtIndex.value = Math.max(0, Math.min(steps.value.length, at))
+  resetNewStep()
+  rightTab.value = 'add'
+  ElMessage.info(`将插入到第 ${insertAtIndex.value + 1} 步位置（可连续添加）`)
+  nextTick(() => {
+    document.querySelector('.workspace-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
+
 function editStep(idx) {
   const step = steps.value[idx]
   if (!step) return
+  insertAtIndex.value = null
   editingIndex.value = idx
   Object.assign(newStep, newStepDefaults(), JSON.parse(JSON.stringify(step)), {
     input_params_json: step.input_params ? JSON.stringify(step.input_params, null, 2) : (step.input_params_json || '')
@@ -1176,6 +1666,7 @@ function editStep(idx) {
 
 function cancelEdit() {
   editingIndex.value = null
+  insertAtIndex.value = null
   resetNewStep()
 }
 
@@ -1229,18 +1720,88 @@ function applyFindReplace() {
   ElMessage.success(count ? `已替换 ${count} 处` : '未找到匹配内容')
 }
 
-async function openPoolPicker() {
-  showPoolPicker.value = true
+function onOpenPool(mode = 'locator') {
+  openPoolPicker(typeof mode === 'string' ? mode : 'locator')
+}
+
+function isCoordinateControl(row) {
+  const t = String(row?.locator_type || '').toLowerCase()
+  if (['bounds', 'coordinate', 'xy', 'screen_ratio'].includes(t)) return true
+  return /\[\d+,\d+\]\[\d+,\d+\]/.test(String(row?.locator_value || ''))
+}
+
+function parseBounds(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/\[(\d+)\s*,\s*(\d+)\]\s*\[(\d+)\s*,\s*(\d+)\]/)
+  if (m) {
+    return {
+      x1: Number(m[1]),
+      y1: Number(m[2]),
+      x2: Number(m[3]),
+      y2: Number(m[4])
+    }
+  }
+  const pair = s.match(/^(\d+)\s*,\s*(\d+)$/)
+  if (pair) {
+    const x = Number(pair[1])
+    const y = Number(pair[2])
+    return { x1: x, y1: y, x2: x, y2: y }
+  }
+  return null
+}
+
+function pointFromBounds(bounds) {
+  return {
+    x: Math.round((bounds.x1 + bounds.x2) / 2),
+    y: Math.round((bounds.y1 + bounds.y2) / 2)
+  }
+}
+
+function poolLocatorTypeLabel(type) {
+  const map = {
+    id: 'ID',
+    resource_id: 'ID',
+    accessibility: '文案',
+    content_desc: '文案',
+    text: '文本',
+    xpath: 'xpath',
+    bounds: '坐标定位',
+    coordinate: '坐标定位',
+    xy: '坐标定位'
+  }
+  return map[type] || type || '—'
+}
+
+async function openPoolPicker(mode = 'locator') {
+  poolPickMode.value = mode || 'locator'
   poolKeyword.value = ''
   selectedPoolRows.value = []
+  selectedPoolRow.value = null
+  poolBoundsOnly.value = isCoordPoolMode.value
+  showPoolPicker.value = true
   if (poolItems.value.length) return
   try {
     const res = await controlApi.listPool({ page: 1, page_size: 500, status: 'active' })
     poolItems.value = res.data?.list || res.data?.items || res.data || []
   } catch {
     poolItems.value = []
-    ElMessage.warning('加载元素库失败')
+    ElMessage.warning('加载控件库失败')
   }
+}
+
+function onPoolPickerClosed() {
+  selectedPoolRows.value = []
+  selectedPoolRow.value = null
+}
+
+function onPoolRowClick(row) {
+  if (!isCoordPoolMode.value) return
+  selectedPoolRow.value = row || null
+  nextTick(() => poolTableRef.value?.setCurrentRow?.(row || undefined))
+}
+
+function poolRowClassName({ row }) {
+  return selectedPoolRow.value?.id === row?.id ? 'is-pool-selected' : ''
 }
 
 function onPoolSelectionChange(rows) {
@@ -1254,10 +1815,45 @@ function fillStepFromPool(row) {
   newStep.locator_type = row.locator_type || ''
   newStep.locator_value = row.locator_value || ''
   newStep.pool_id = row.id
-  if (row.page_name) {
-    newStep.remark = `来自元素库 · ${row.page_name}`
-  }
   onLocatorFieldChange()
+}
+
+function fillTapFromPool(row) {
+  const bounds = parseBounds(row.locator_value)
+  if (!bounds) {
+    ElMessage.warning('该控件不是有效坐标定位，请选择 bounds / x,y 类型')
+    return false
+  }
+  const pt = pointFromBounds(bounds)
+  newStep.x = pt.x
+  newStep.y = pt.y
+  newStep.element_name = row.element_name || ''
+  newStep.display_name = row.element_name || ''
+  newStep.locator_type = row.locator_type || 'bounds'
+  newStep.locator_value = row.locator_value || ''
+  newStep.pool_id = row.id
+  return true
+}
+
+function fillSwipePointFromPool(row, which) {
+  const bounds = parseBounds(row.locator_value)
+  if (!bounds) {
+    ElMessage.warning('该控件不是有效坐标定位，请选择 bounds / x,y 类型')
+    return false
+  }
+  const pt = pointFromBounds(bounds)
+  if (which === 'start') {
+    newStep.x1 = pt.x
+    newStep.y1 = pt.y
+    newStep.swipe_start_name = row.element_name || ''
+    newStep.swipe_start_pool_id = row.id
+  } else {
+    newStep.x2 = pt.x
+    newStep.y2 = pt.y
+    newStep.swipe_end_name = row.element_name || ''
+    newStep.swipe_end_pool_id = row.id
+  }
+  return true
 }
 
 function buildClickStepFromPool(row) {
@@ -1273,19 +1869,36 @@ function buildClickStepFromPool(row) {
     locator_type: row.locator_type || '',
     locator_value: row.locator_value || '',
     pool_id: row.id,
-    remark: row.page_name ? `来自元素库 · ${row.page_name}` : ''
+    remark: ''
   }
 }
 
 function confirmPoolSelection() {
+  if (isCoordPoolMode.value) {
+    const row = selectedPoolRow.value
+    if (!row) {
+      ElMessage.warning('请先选择一条控件')
+      return
+    }
+    const mode = poolPickMode.value
+    let ok = true
+    if (mode === 'tap') ok = fillTapFromPool(row)
+    else if (mode === 'swipe_start') ok = fillSwipePointFromPool(row, 'start')
+    else if (mode === 'swipe_end') ok = fillSwipePointFromPool(row, 'end')
+    if (!ok) return
+    showPoolPicker.value = false
+    ElMessage.success(`已选用控件「${row.element_name || '未命名'}」`)
+    return
+  }
+
   const rows = selectedPoolRows.value
   if (!rows.length) {
     ElMessage.warning('请先勾选控件')
     return
   }
   if (rows.length === 1) {
-    // 单选：回填到当前步骤表单，便于继续编辑动作类型
-    if (!['click', 'input', 'clear_input', 'assert_text', 'assert_exists', 'assert_not_exists', 'assert_ocr', 'tap_ocr', 'wait'].includes(newStep.type)) {
+    // 单选：回填到当前步骤表单
+    if (!['click', 'input', 'clear_input', 'assert_text', 'assert_exists', 'assert_not_exists', 'assert_ocr', 'tap_ocr', 'wait', 'long_press', 'get_text', 'scroll_to_element', 'assert_element_count', 'assert_attribute'].includes(newStep.type)) {
       newStep.type = 'click'
     }
     fillStepFromPool(rows[0])
@@ -1385,17 +1998,108 @@ function moveStep(idx, delta) {
 function addBranchStep() {
   const depths = computeStepDepths(steps.value)
   const base = depths.length ? depths[depths.length - 1] : 0
-  quickAddStep('branch', { condition: '控件存在', branch_true: '执行成立分支', branch_false: '执行否则分支', indent: base })
-  quickAddStep('end_block', { block_type: 'branch', remark: '结束分支', indent: base })
-  ElMessage.info('已插入分支块：请在「分支判断」与「结束块」之间添加子步骤，可勾选后点「增加缩进」')
+  quickAddStep('branch', {
+    condition: '控件存在',
+    condition_kind: 'exists',
+    timeout: 5,
+    branch_true: '执行成立分支',
+    branch_false: '执行否则分支',
+    indent: base
+  })
+  quickAddStep('end_block', { block_type: 'branch', remark: '', indent: base })
+  ElMessage.info('已插入独立 if 块。条件不成立时，在该结束块之后紧挨添加 else if / else 块')
+}
+
+/** 找到可衔接的最近 if / else if 结束块下标（else 之后不能再接） */
+function findNearestChainEndIndex() {
+  const list = steps.value
+  let from = list.length - 1
+  if (insertAtIndex.value != null) {
+    from = Math.min(Math.max(0, insertAtIndex.value), list.length - 1)
+  }
+  const scan = (start) => {
+    for (let i = start; i >= 0; i--) {
+      const s = list[i]
+      if ((s.type === 'branch' && s.branch_mode !== 'try_catch') || s.type === 'else_if' || s.type === 'elif') {
+        const end = findBlockEndIndex(list, i)
+        if (end > i) return end
+      }
+    }
+    return -1
+  }
+  const hit = scan(from)
+  if (hit >= 0) return hit
+  return scan(list.length - 1)
+}
+
+function insertIndependentBlockAfter(endIdx, headerType, headerExtra) {
+  const depths = computeStepDepths(steps.value)
+  const indent = depths[endIdx] ?? 0
+  const mk = (type, extra = {}) => ({
+    id: stepSeq++,
+    enabled: true,
+    disable_reason: '',
+    disable_mode: '',
+    ...newStepDefaults(),
+    type,
+    indent,
+    ...extra
+  })
+  const header = mk(headerType, headerExtra)
+  const end = mk('end_block', { block_type: 'branch', remark: '' })
+  steps.value.splice(endIdx + 1, 0, header, end)
+  return header
+}
+
+function addElseIfStep() {
+  const endIdx = findNearestChainEndIndex()
+  if (endIdx < 0) {
+    ElMessage.warning('请先添加 if 判断块，再在其结束块之后添加 else if')
+    return
+  }
+  insertIndependentBlockAfter(endIdx, 'else_if', {
+    condition: '控件存在',
+    condition_kind: 'exists',
+    timeout: 5
+  })
+  ElMessage.success('已在上一分支结束块后插入独立 else if 块：请在中间编排子步骤')
+}
+
+function addElseStep() {
+  const endIdx = findNearestChainEndIndex()
+  if (endIdx < 0) {
+    ElMessage.warning('请先添加 if / else if 块，再添加 else')
+    return
+  }
+  // 若链尾已是 else，禁止再加
+  const start = (() => {
+    for (let i = endIdx - 1; i >= 0; i--) {
+      if (isFlowBlockStart(steps.value[i]) && findBlockEndIndex(steps.value, i) === endIdx) {
+        return steps.value[i]
+      }
+    }
+    return null
+  })()
+  if (start?.type === 'else') {
+    ElMessage.warning('else 已是链路末尾，不能再追加')
+    return
+  }
+  insertIndependentBlockAfter(endIdx, 'else', {})
+  ElMessage.success('已在上一分支结束块后插入独立 else 块：请在中间编排子步骤')
 }
 
 function addLoopStep() {
   const depths = computeStepDepths(steps.value)
   const base = depths.length ? depths[depths.length - 1] : 0
-  quickAddStep('loop', { loop_count: 3, loop_body: '循环体步骤', indent: base })
-  quickAddStep('end_block', { block_type: 'loop', remark: '结束循环', indent: base })
-  ElMessage.info('已插入循环块：请在「循环」与「结束块」之间添加子步骤，可勾选后点「增加缩进」')
+  quickAddStep('loop', {
+    loop_mode: 'while',
+    loop_count: 10,
+    condition: '条件成立',
+    loop_body: '循环体步骤',
+    indent: base
+  })
+  quickAddStep('end_block', { block_type: 'loop', remark: '', indent: base })
+  ElMessage.info('已插入 while 块：请点「while循环」行的「此后插入」，或点「结束块」的「块内插入」，在中间编排子步骤')
 }
 
 function batchIndent(delta) {
@@ -1439,14 +2143,14 @@ async function saveSelectionAsCommon() {
 }
 
 async function openComments() {
-  if (!taskId) {
+  if (!taskId.value) {
     ElMessage.warning('请先保存用例后再添加批注')
     return
   }
   showCommentDialog.value = true
   newComment.value = ''
   try {
-    const res = await commentApi.list('test_case', taskId)
+    const res = await commentApi.list('test_case', taskId.value)
     comments.value = res.data || []
   } catch {
     comments.value = []
@@ -1454,16 +2158,16 @@ async function openComments() {
 }
 
 async function submitComment() {
-  if (!newComment.value.trim() || !taskId) return
+  if (!newComment.value.trim() || !taskId.value) return
   commentSaving.value = true
   try {
     await commentApi.create({
       asset_type: 'test_case',
-      asset_id: Number(taskId),
+      asset_id: Number(taskId.value),
       content: newComment.value.trim()
     })
     newComment.value = ''
-    const res = await commentApi.list('test_case', taskId)
+    const res = await commentApi.list('test_case', taskId.value)
     comments.value = res.data || []
     ElMessage.success('批注已发表')
   } catch (e) {
@@ -1488,10 +2192,66 @@ async function deleteComment(c) {
   }
 }
 
+function findBlockStartIndex(list, endIdx) {
+  if (!list[endIdx] || list[endIdx].type !== 'end_block') return -1
+  let depth = 1
+  for (let i = endIdx - 1; i >= 0; i--) {
+    const t = list[i].type
+    if (t === 'end_block') depth += 1
+    else if (isFlowBlockStartType(t)) {
+      depth -= 1
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
+/** 拖 if / else if / else / while 或其结束块时，整块（含嵌套步骤）一起移动 */
+function getStepMoveRange(list, index) {
+  const step = list[index]
+  if (!step) return { start: index, end: index }
+  if (isFlowBlockStart(step)) {
+    const end = findBlockEndIndex(list, index)
+    if (end >= index) return { start: index, end }
+  }
+  if (step.type === 'end_block') {
+    const start = findBlockStartIndex(list, index)
+    if (start >= 0) return { start, end: index }
+  }
+  return { start: index, end: index }
+}
+
+function isStepDraggingIndex(index) {
+  const r = dragStepRange.value
+  return !!(r && index >= r.start && index <= r.end)
+}
+
+function onRemarkMouseDown(e) {
+  // 描述框内选中/复制时，临时关闭整行拖拽，避免抢手势
+  e.stopPropagation()
+  const row = e.currentTarget?.closest?.('.step-item')
+  if (!row) return
+  row.setAttribute('draggable', 'false')
+  const restore = () => {
+    row.setAttribute('draggable', 'true')
+    window.removeEventListener('mouseup', restore)
+    window.removeEventListener('dragend', restore)
+  }
+  window.addEventListener('mouseup', restore)
+  window.addEventListener('dragend', restore)
+}
+
 function onStepDragStart(e, index) {
-  dragFromIndex.value = index
-  dragStepId.value = steps.value[index]?.id ?? null
-  try { e.dataTransfer.setData('text/plain', String(index)) } catch { /* ignore */ }
+  const t = e.target
+  if (t?.closest?.('input, textarea, .el-input, .step-remark-row, .el-checkbox, .el-switch, button, a')) {
+    e.preventDefault()
+    return
+  }
+  const range = getStepMoveRange(steps.value, index)
+  dragFromIndex.value = range.start
+  dragStepRange.value = range
+  dragStepId.value = steps.value[range.start]?.id ?? null
+  try { e.dataTransfer.setData('text/plain', String(range.start)) } catch { /* ignore */ }
   e.dataTransfer.effectAllowed = 'move'
 }
 
@@ -1500,22 +2260,37 @@ function onStepDragOver(e, index) {
 }
 
 function onStepDrop(e, toIndex) {
-  const from = dragFromIndex.value
-  if (from < 0 || from === toIndex) return
+  const range = dragStepRange.value || getStepMoveRange(steps.value, dragFromIndex.value)
+  const fromStart = range.start
+  const fromEnd = range.end
+  if (fromStart < 0 || toIndex < 0) return
+  if (toIndex >= fromStart && toIndex <= fromEnd) return
+
   const arr = [...steps.value]
-  const [moved] = arr.splice(from, 1)
-  arr.splice(toIndex, 0, moved)
+  const count = fromEnd - fromStart + 1
+  const chunk = arr.splice(fromStart, count)
+  let insertAt = toIndex
+  if (toIndex > fromEnd) insertAt = toIndex - count
+  arr.splice(insertAt, 0, ...chunk)
   steps.value = arr
-  if (editingIndex.value === from) editingIndex.value = toIndex
-  else if (editingIndex.value !== null) {
-    if (from < editingIndex.value && toIndex >= editingIndex.value) editingIndex.value -= 1
-    else if (from > editingIndex.value && toIndex <= editingIndex.value) editingIndex.value += 1
+
+  const edit = editingIndex.value
+  if (edit != null) {
+    if (edit >= fromStart && edit <= fromEnd) {
+      editingIndex.value = insertAt + (edit - fromStart)
+    } else {
+      let next = edit
+      if (edit > fromEnd) next -= count
+      if (next >= insertAt) next += count
+      editingIndex.value = next
+    }
   }
 }
 
 function onStepDragEnd() {
   dragFromIndex.value = -1
   dragStepId.value = null
+  dragStepRange.value = null
 }
 
 async function clearAllSteps() {
@@ -1531,14 +2306,14 @@ async function clearAllSteps() {
 }
 
 async function openVersionHistory() {
-  if (!taskId) {
+  if (!taskId.value) {
     ElMessage.warning('请先保存用例后再查看版本')
     return
   }
   showVersionDialog.value = true
   versionLoading.value = true
   try {
-    const res = await caseApi.versions(taskId)
+    const res = await caseApi.versions(taskId.value)
     versionList.value = res.data || []
   } catch {
     versionList.value = []
@@ -1559,7 +2334,7 @@ async function rollbackVersion(ver) {
     return
   }
   try {
-    await caseApi.rollback(taskId, ver.id)
+    await caseApi.rollback(taskId.value, ver.id)
     ElMessage.success(`已回滚至 v${ver.version_num}`)
     showVersionDialog.value = false
     await loadTask()
@@ -1591,7 +2366,7 @@ function confirmInvokeCase() {
     ElMessage.warning('请选择用例')
     return
   }
-  if (String(c.id) === String(taskId)) {
+  if (String(c.id) === String(taskId.value)) {
     ElMessage.warning('不能调用当前用例自身')
     return
   }
@@ -1615,6 +2390,91 @@ function confirmImportCommon() {
 function goCreateCommonStep() {
   const returnTo = route.fullPath
   router.push({ path: '/common-steps/new', query: { returnTo } })
+}
+
+function parseCommonStepsContent(text) {
+  try {
+    const obj = JSON.parse(text || '{}')
+    if (Array.isArray(obj)) return obj
+    if (obj && Array.isArray(obj.steps)) return obj.steps
+  } catch { /* ignore */ }
+  return []
+}
+
+async function resolveCommonStepRow(name) {
+  const n = String(name || '').trim()
+  if (!n) return null
+  let row = (commonSteps.value || []).find(s => s.name === n) || null
+  if (!row) {
+    try {
+      commonSteps.value = (await commonStepApi.list()).data || []
+      row = commonSteps.value.find(s => s.name === n) || null
+    } catch { /* ignore */ }
+  }
+  if (row?.id) {
+    try {
+      const res = await commonStepApi.get(row.id)
+      if (res.data) row = res.data
+    } catch { /* keep list row */ }
+  }
+  return row
+}
+
+async function viewCommonStep(step) {
+  const name = step?.common_step
+  if (!name) {
+    ElMessage.warning('未绑定公共步骤名称')
+    return
+  }
+  const keepPrev = showCommonView.value && commonViewRow.value
+  if (keepPrev) {
+    commonViewStack.value.push({
+      row: commonViewRow.value,
+      steps: commonViewSteps.value
+    })
+  } else {
+    commonViewStack.value = []
+  }
+  showCommonView.value = true
+  commonViewLoading.value = true
+  if (!keepPrev) {
+    commonViewRow.value = null
+    commonViewSteps.value = []
+  }
+  try {
+    const row = await resolveCommonStepRow(name)
+    if (!row) {
+      if (keepPrev) commonViewStack.value.pop()
+      else showCommonView.value = false
+      ElMessage.warning(`未找到公共步骤「${name}」`)
+      return
+    }
+    commonViewRow.value = row
+    commonViewSteps.value = parseCommonStepsContent(row.steps_content)
+  } finally {
+    commonViewLoading.value = false
+  }
+}
+
+function backCommonView() {
+  const prev = commonViewStack.value.pop()
+  if (!prev) return
+  commonViewRow.value = prev.row
+  commonViewSteps.value = prev.steps
+}
+
+function closeCommonView() {
+  showCommonView.value = false
+  commonViewStack.value = []
+  commonViewRow.value = null
+  commonViewSteps.value = []
+}
+
+function goEditViewedCommonStep() {
+  const id = commonViewRow.value?.id
+  if (!id) return
+  closeCommonView()
+  router.push({ path: `/common-steps/${id}/edit`, query: { returnTo: route.fullPath } })
 }
 
 function consumeInvokeCommonQuery() {
@@ -1704,7 +2564,7 @@ function consumePickFromElementPicker() {
     catalog_id: catalogId,
     x: Number(data.x) || 0,
     y: Number(data.y) || 0,
-    remark: data.device_label ? `来自控件拾取 · ${data.device_label}` : '来自控件拾取'
+    remark: ''
   })
   if (data.locator_type === 'ocr' || data.suggested_step_type === 'tap_ocr') {
     newStep.locator_type = data.locator_type || 'ocr'
@@ -1798,9 +2658,9 @@ async function autoSaveDraft() {
     const prevStatus = meta.case_status
     // 自动保存只落数据，不改变用户选择的正式/草稿状态语义；新建时按草稿创建
     const payload = buildCasePayload()
-    if (!taskId) payload.case_status = 'draft'
-    if (taskId) {
-      await caseApi.update(taskId, payload)
+    if (!taskId.value) payload.case_status = 'draft'
+    if (taskId.value) {
+      await caseApi.update(taskId.value, payload)
     } else {
       const res = await caseApi.create(payload)
       await router.replace(`/cases/editor/${res.data.id}?asset=1`)
@@ -1844,7 +2704,7 @@ async function debugRun(mode = 'full') {
   if (!validateCaseRequired({ forActive: true })) return
   debugging.value = true
   try {
-    let caseId = taskId
+    let caseId = taskId.value
     if (isAssetMode) {
       if (caseId) {
         await caseApi.update(caseId, buildCasePayload())
@@ -1875,8 +2735,8 @@ async function saveTask(mode = 'keep') {
   saving.value = true
   try {
     if (isAssetMode) {
-      if (taskId) {
-        await caseApi.update(taskId, buildCasePayload())
+      if (taskId.value) {
+        await caseApi.update(taskId.value, buildCasePayload())
         ElMessage.success(mode === 'active' ? '已提交生效' : mode === 'draft' ? '草稿已保存' : '用例已更新')
       } else {
         const res = await caseApi.create(buildCasePayload())
@@ -1886,12 +2746,15 @@ async function saveTask(mode = 'keep') {
       lastSavedSnapshot = takeEditorSnapshot()
       dirty = false
       autoSaveHint.value = `已保存 ${new Date().toLocaleTimeString()}`
-    } else if (taskId) {
-      await taskApi.update(taskId, buildPayload())
+      markJustSaved()
+    } else if (taskId.value) {
+      await taskApi.update(taskId.value, buildPayload())
       ElMessage.success('任务已更新')
+      markJustSaved()
     } else {
       const res = await taskApi.create(buildPayload())
       ElMessage.success('任务已创建')
+      markJustSaved()
       router.replace(`/cases/editor/${res.data.id}`)
     }
   } finally {
@@ -1937,7 +2800,7 @@ async function goAuthorWorkspace() {
     ElMessage.info('请先保存为用例资产后再使用同屏编写')
     return
   }
-  let id = taskId
+  let id = taskId.value
   if (!id) {
     if (!meta.name?.trim()) {
       ElMessage.warning('请先填写用例名称')
@@ -1970,12 +2833,12 @@ async function goAuthorWorkspace() {
 }
 
 async function loadTask() {
-  if (!taskId) {
+  if (!taskId.value) {
     lastSavedSnapshot = takeEditorSnapshot()
     return
   }
   if (isAssetMode) {
-    const res = await caseApi.get(taskId)
+    const res = await caseApi.get(taskId.value)
     const c = res.data
     meta.name = c.name
     meta.platform = c.platform
@@ -1996,19 +2859,13 @@ async function loadTask() {
       meta.wait_template = parsed.wait_template || 'standard'
       meta.on_fail = parsed.on_fail || 'fail'
       meta.screenshot_policy = parsed.screenshot_policy || 'on_fail'
-      steps.value = (parsed.steps || []).map(s => ({
-        id: stepSeq++,
-        enabled: s.enabled !== false,
-        disable_reason: s.disable_reason || '',
-        ...s,
-        on_fail: normalizeOnFail(s.on_fail)
-      }))
+      steps.value = (parsed.steps || []).map(mapLoadedStep)
     } catch { steps.value = [] }
     lastSavedSnapshot = takeEditorSnapshot()
     dirty = false
     return
   }
-  const res = await taskApi.get(taskId)
+  const res = await taskApi.get(taskId.value)
   const task = res.data
   meta.name = task.name
   meta.platform = task.platform
@@ -2022,12 +2879,7 @@ async function loadTask() {
     meta.wait_template = parsed.wait_template || 'standard'
     meta.on_fail = parsed.on_fail || 'fail'
     meta.screenshot_policy = parsed.screenshot_policy || 'on_fail'
-    steps.value = (parsed.steps || []).map(s => ({
-      id: stepSeq++,
-      enabled: s.enabled !== false,
-      ...s,
-      on_fail: normalizeOnFail(s.on_fail)
-    }))
+    steps.value = (parsed.steps || []).map(mapLoadedStep)
   } catch {
     steps.value = []
   }
@@ -2059,10 +2911,22 @@ onMounted(async () => {
     startAutoSave()
     watch([meta, steps], () => { markDirty() }, { deep: true })
   }
+  // 路由名合并后组件不重挂载：仅在切换到「另一条已有用例」时重新拉取
+  watch(
+    () => route.params.id,
+    async (id, prev) => {
+      if (!prev && id) return // 新建自动保存后补 id，保持当前编辑态
+      if (String(id || '') === String(prev || '')) return
+      await loadTask()
+      consumePickFromElementPicker()
+      consumeInvokeCommonQuery()
+    }
+  )
 })
 
 onBeforeUnmount(() => {
   stopAutoSave()
+  if (justSavedTimer) clearTimeout(justSavedTimer)
 })
 </script>
 
@@ -2085,20 +2949,102 @@ export default {
 </script>
 
 <style scoped>
-.header-actions {
+.vce-page {
+  max-width: none;
+  padding-top: 16px;
+}
+
+.vce-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: var(--atp-bg-elevated, #fff);
+  border: 1px solid var(--atp-border-neutral, #e8edf3);
+  border-radius: 12px;
+}
+.vce-topbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.vce-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--atp-text, #0f172a);
+  line-height: 1.3;
+}
+.flow-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 2px;
+  align-items: center;
+}
+.flow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: background 0.15s, color 0.15s;
+}
+.flow-step:hover { background: #f1f5f9; color: #64748b; }
+.flow-step.done { color: var(--atp-accent, #6366f1); }
+.flow-step.current,
+.flow-step.active {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--atp-accent, #6366f1);
+  font-weight: 600;
+}
+.flow-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #64748b;
+}
+.flow-step.done .flow-dot,
+.flow-step.current .flow-dot {
+  background: var(--atp-accent, #6366f1);
+  color: #fff;
+}
+.flow-label { font-size: 12px; white-space: nowrap; }
+.flow-step:not(:last-child)::after {
+  content: '';
+  width: 12px;
+  height: 1px;
+  background: #e2e8f0;
+  margin-left: 2px;
+}
+
+.vce-topbar-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  justify-content: flex-end;
   align-items: center;
+  justify-content: flex-end;
 }
-.btn-secondary {
-  --el-button-bg-color: #f1f5f9;
+.btn-more {
+  --el-button-bg-color: #f8fafc;
   --el-button-border-color: #e2e8f0;
-  --el-button-text-color: #475569;
-  --el-button-hover-bg-color: #e2e8f0;
-  --el-button-hover-border-color: #cbd5e1;
+  --el-button-text-color: #64748b;
 }
+.more-caret { font-size: 10px; margin-left: 2px; }
 
 .main-row {
   margin-bottom: 16px;
@@ -2109,7 +3055,6 @@ export default {
   flex-direction: column;
 }
 .meta-card,
-.steps-card,
 .workspace-card {
   flex: 1;
   width: 100%;
@@ -2117,20 +3062,78 @@ export default {
   flex-direction: column;
   height: 100%;
   margin-bottom: 0 !important;
-}
-.meta-card :deep(.el-card__header),
-.steps-card :deep(.el-card__header),
-.workspace-card :deep(.el-card__header) {
-  flex-shrink: 0;
+  border-radius: 12px !important;
+  border: 1px solid var(--atp-border-neutral, #e8edf3) !important;
+  box-shadow: none !important;
 }
 .meta-card :deep(.el-card__body),
-.steps-card :deep(.el-card__body),
 .workspace-card :deep(.el-card__body) {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  padding: 14px 16px 16px;
+}
+
+.meta-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+.meta-form :deep(.el-form-item__label) {
+  font-size: 12px;
+  color: #64748b;
+  padding-bottom: 4px !important;
+  line-height: 1.3;
+}
+.meta-form :deep(.el-input__wrapper),
+.meta-form :deep(.el-select .el-select__wrapper) {
+  min-height: 32px;
+}
+.meta-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--atp-text);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eef2f7;
+}
+.req-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #f87171;
+  margin-left: 6px;
+}
+.req-label::after {
+  content: ' *';
+  color: #ef4444;
+}
+.is-required-strong :deep(.el-form-item__label)::before { display: none; }
+.folder-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.folder-select { flex: 1; min-width: 0; }
+.priority-group :deep(.el-radio-button__inner) {
+  padding: 6px 12px;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  border: 1px solid #e2e8f0 !important;
+  margin-right: 4px;
+  background: #fff;
+}
+.priority-group :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: var(--atp-accent, #6366f1) !important;
+  border-color: var(--atp-accent, #6366f1) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+.compact-textarea :deep(textarea) {
+  min-height: 32px !important;
+  resize: vertical;
+}
+.compact-textarea :deep(.el-textarea__inner::placeholder) {
+  color: #cbd5e1;
 }
 
 .steps-body {
@@ -2139,116 +3142,177 @@ export default {
   flex-direction: column;
   min-height: 0;
 }
-.steps-toolbar {
+.steps-toolbar-panel {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef2f7;
+}
+.toolbar-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-  flex-shrink: 0;
+  gap: 10px;
+  flex-wrap: wrap;
 }
+.toolbar-row--search { margin-bottom: 10px; }
+.step-search { width: 280px; max-width: 100%; }
 .steps-count { font-size: 12px; color: var(--atp-text-secondary); }
+.steps-drag-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-left: auto;
+}
+.toolbar-groups { gap: 12px 16px; }
+.tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-right: 12px;
+  border-right: 1px solid #eef2f7;
+}
+.tb-group:last-child { border-right: none; padding-right: 0; }
+.tb-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
 
 .steps-scroll {
   flex: 1;
   min-height: 0;
+  /* 含描述行后约 10 步可视，超出滚动 */
+  max-height: calc(10 * 92px);
   overflow-y: auto;
   padding-right: 4px;
 }
+.steps-scroll:has(.steps-empty) {
+  min-height: 360px;
+  max-height: none;
+}
 
 .steps-empty {
-  min-height: 100%;
+  min-height: 360px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 24px 16px;
-}
-
-.form-group { margin-bottom: 8px; }
-.form-group--advanced {
-  margin-top: 8px;
-  padding-top: 16px;
-  border-top: 1px solid var(--atp-border-light, #eef2f7);
-}
-.form-group-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--atp-text);
-  margin-bottom: 12px;
-}
-.pkg-row {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-}
-.pkg-row .el-input { flex: 1; }
-.switch-with-hint {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.field-hint {
-  font-size: 12px;
-  color: var(--atp-text-secondary);
-  line-height: 1.4;
-}
-
-.steps-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-  width: 100%;
-}
-.steps-header-left { display: flex; flex-direction: column; gap: 2px; }
-.steps-title { font-weight: 600; }
-.steps-hint { font-size: 12px; color: var(--atp-text-secondary); }
-.steps-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
+  padding: 32px 16px;
 }
 .empty-title {
-  margin: 0 0 16px;
-  font-size: 15px;
-  color: var(--atp-text-secondary);
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--atp-text);
 }
-.empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.empty-sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.empty-entries {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 220px));
+  gap: 12px;
+  width: 100%;
+  max-width: 720px;
   justify-content: center;
+}
+.empty-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 14px 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.empty-entry:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.08);
+  transform: translateY(-1px);
+}
+.empty-entry--primary {
+  border-color: #a5b4fc;
+  background: linear-gradient(180deg, #eef2ff 0%, #fff 70%);
+}
+.empty-entry strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+.empty-entry > span:last-child {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+.entry-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--atp-accent, #6366f1);
+}
+.empty-advanced {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: #cbd5e1;
 }
 
 .step-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 12px 10px;
+  padding: 10px;
   margin-bottom: 8px;
   border-radius: 10px;
   border: 1px solid transparent;
   transition: box-shadow 0.15s, transform 0.15s;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
 }
 .step-item:hover { box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06); }
-.step-item.is-dragging {
-  opacity: 0.55;
-}
+.step-item.is-dragging { opacity: 0.55; }
 .step-item.disabled { opacity: 0.55; }
-.step-item.selected {
-  outline: 1px solid var(--el-color-primary);
+.step-item.selected { outline: 1px solid var(--el-color-primary); }
+.step-item.is-nested {
+  border-left: 3px solid #c7d2fe;
+}
+.step-item.is-block {
+  border-left: 3px solid var(--atp-accent, #6366f1);
+}
+.block-toggle {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-top: 4px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: var(--atp-accent, #6366f1);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.block-toggle:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+.block-collapsed-tag {
+  flex-shrink: 0;
 }
 .drag-handle {
   cursor: grab;
   color: #94a3b8;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   user-select: none;
-  padding: 0 2px;
+  padding: 8px 6px 0;
+  flex-shrink: 0;
 }
 .drag-handle:active { cursor: grabbing; }
 .step-item.tone-wait { background: #f8fafc; border-color: #e2e8f0; }
@@ -2257,10 +3321,7 @@ export default {
 .step-item.tone-app { background: #fff7ed; border-color: #fed7aa; }
 .step-item.tone-default { background: #f8fafc; border-color: #e2e8f0; }
 
-.comment-list {
-  max-height: 320px;
-  overflow-y: auto;
-}
+.comment-list { max-height: 320px; overflow-y: auto; }
 .comment-empty {
   color: #94a3b8;
   font-size: 13px;
@@ -2291,7 +3352,7 @@ export default {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--atp-primary), var(--atp-brand-400, #38bdf8));
+  background: linear-gradient(135deg, var(--atp-accent, #6366f1), var(--atp-primary, #0284c7));
   color: #fff;
   display: flex;
   align-items: center;
@@ -2299,14 +3360,55 @@ export default {
   font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 .step-body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.step-main-row {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
+}
+.step-remark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 固定等宽，左对齐 */
+  width: 260px;
+  max-width: 100%;
+  margin-right: auto;
+  flex-shrink: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.step-remark-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #94a3b8;
+  width: 28px;
+}
+.step-remark-row :deep(.el-input) {
+  flex: 1;
+  min-width: 0;
+}
+.step-remark-row :deep(.el-input__wrapper),
+.step-remark-row :deep(.el-input__inner) {
+  background: rgba(255, 255, 255, 0.72);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.step-item :deep(.el-checkbox) {
+  margin-top: 6px;
 }
 .step-desc {
   color: var(--atp-text-secondary);
@@ -2318,15 +3420,6 @@ export default {
 .step-locator {
   color: var(--el-color-info);
   font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.step-remark {
-  color: #64748b;
-  font-size: 12px;
-  font-style: italic;
-  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2343,21 +3436,6 @@ export default {
   line-height: 1.4;
 }
 
-.workspace-card {
-  flex: 1;
-  width: 100%;
-  display: flex !important;
-  flex-direction: column;
-  height: 100%;
-  margin-bottom: 0 !important;
-}
-.workspace-card :deep(.el-card__body) {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
 .right-tabs {
   display: flex;
   flex-direction: column;
@@ -2368,14 +3446,23 @@ export default {
   flex-shrink: 0;
   margin-bottom: 12px;
 }
+.right-tabs :deep(.el-tabs__item.is-active) {
+  color: var(--atp-accent, #6366f1);
+  font-weight: 600;
+}
+.right-tabs :deep(.el-tabs__active-bar) {
+  background-color: var(--atp-accent, #6366f1);
+}
+.right-tabs :deep(.el-tabs__item:hover) {
+  color: var(--atp-accent, #6366f1);
+}
 .right-tabs :deep(.el-tabs__content) {
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
-.right-tabs :deep(.el-tab-pane) {
-  height: 100%;
-}
+.right-tabs :deep(.el-tab-pane) { height: 100%; }
+
 .vce-fab-record {
   position: fixed;
   right: 28px;
@@ -2391,9 +3478,7 @@ export default {
   box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
   cursor: pointer;
 }
-.vce-fab-record:hover {
-  filter: brightness(1.05);
-}
+.vce-fab-record:hover { filter: brightness(1.05); }
 
 .pool-picker-footer {
   display: flex;
@@ -2401,15 +3486,52 @@ export default {
   justify-content: space-between;
   width: 100%;
 }
+.pool-picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.pool-empty {
+  margin: 12px 0 0;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+.pool-radio {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.pool-radio.checked {
+  border-color: var(--atp-primary, #8B6CF0);
+  background: #fff;
+  box-shadow: inset 0 0 0 3px var(--atp-primary, #8B6CF0);
+}
+:deep(.el-table .is-pool-selected > td) {
+  background: rgba(99, 102, 241, 0.08) !important;
+}
 .pool-pick-count {
   font-size: 13px;
   color: var(--atp-text-secondary, #64748b);
 }
 .step-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   flex-shrink: 0;
+  width: 292px;
+  max-width: 100%;
+  padding-top: 2px;
+}
+.step-actions :deep(.el-button) {
+  margin: 0;
+  width: 100%;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 .btn-copy {
   --el-button-bg-color: #f1f5f9;
@@ -2417,57 +3539,69 @@ export default {
   --el-button-text-color: #64748b;
 }
 
-.add-panel { margin-top: 4px; }
-.add-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-.quick-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px dashed var(--atp-border-light, #e2e8f0);
-}
-.quick-group {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.quick-label {
-  flex-shrink: 0;
-  width: 88px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--atp-text-secondary);
-  line-height: 28px;
-}
-.quick-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  flex: 1;
-}
-.add-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
-}
-.add-tip {
-  font-size: 12px;
-  color: #94a3b8;
-}
 .form-hint {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-text-color-secondary);
+}
+.common-view-desc {
+  margin: 0 0 12px;
+  color: var(--atp-text-secondary, #64748b);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.common-view-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+.common-view-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  min-width: 0;
+}
+.common-view-drill {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.common-view-idx {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--atp-primary, #8b6cf0);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.common-view-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.common-view-locator {
+  flex-shrink: 0;
+  max-width: 220px;
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .script-code-input :deep(textarea) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -2475,8 +3609,14 @@ export default {
   line-height: 1.5;
 }
 
+@media (max-width: 1200px) {
+  .empty-entries { grid-template-columns: 1fr; max-width: 360px; }
+  .steps-drag-hint { margin-left: 0; }
+  .tb-group { border-right: none; padding-right: 0; }
+}
 @media (max-width: 992px) {
-  .steps-header-actions { justify-content: flex-start; }
-  .quick-label { width: 100%; }
+  .vce-topbar-actions { width: 100%; justify-content: flex-start; }
+  .flow-label { display: none; }
 }
 </style>
+

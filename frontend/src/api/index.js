@@ -371,7 +371,7 @@ export const reportApi = {
 
 export const controlApi = {
   listPool: (params) => request.get('/controls/pool', { params }),
-  createPool: (data) => request.post('/controls/pool', data),
+  createPool: (data, config) => request.post('/controls/pool', data, config),
   updatePool: (id, data) => request.put(`/controls/pool/${id}`, data),
   scanDependencies: (id) => request.get(`/controls/pool/${id}/dependencies`),
   changeLogs: (id, params) => request.get(`/controls/pool/${id}/change-logs`, { params }),
@@ -667,4 +667,32 @@ export const checkpointApi = {
   pauseRun: (runId) => request.post(`/suite-runs/${runId}/pause`),
   resumeRun: (runId) => request.post(`/suite-runs/${runId}/resume`),
   resumeTask: (taskId, fromStep) => request.post(`/tasks/${taskId}/resume`, fromStep ? { from_step: fromStep } : {})
+}
+
+/** 机型适配：机型档案 / 功能标签 / 智能筛选 */
+export const machineAdaptationApi = {
+  listMachines: () => request.get('/machine-adaptation/machines'),
+  getMachine: (id) => request.get(`/machine-adaptation/machines/${id}`),
+  createMachine: (data) => request.post('/machine-adaptation/machines', data),
+  updateMachine: (id, data) => request.put(`/machine-adaptation/machines/${id}`, data),
+  deleteMachine: (id) => request.delete(`/machine-adaptation/machines/${id}`),
+  listMachineTags: (id) => request.get(`/machine-adaptation/machines/${id}/tags`),
+  replaceMachineTags: (id, items) => request.put(`/machine-adaptation/machines/${id}/tags`, items),
+  upsertMachineTag: (id, data) => request.post(`/machine-adaptation/machines/${id}/tags`, data),
+  removeMachineTag: (machineId, tagId) => request.delete(`/machine-adaptation/machines/${machineId}/tags/${tagId}`),
+  compatibleCases: (id, params) => request.get(`/machine-adaptation/machines/${id}/compatible-cases`, { params }),
+  featureTree: (params) => request.get('/machine-adaptation/feature-tree', { params }),
+  casesByFeatures: (data) => request.post('/machine-adaptation/cases/by-features', data),
+  composeCase: (data) => request.post('/machine-adaptation/cases/compose', data),
+  listTags: (params) => request.get('/machine-adaptation/tags', { params }),
+  createTag: (data) => request.post('/machine-adaptation/tags', data),
+  updateTag: (id, data) => request.put(`/machine-adaptation/tags/${id}`, data),
+  deleteTag: (id) => request.delete(`/machine-adaptation/tags/${id}`),
+  listCaseTags: (caseId) => request.get(`/machine-adaptation/cases/${caseId}/tags`),
+  replaceCaseTags: (caseId, tagIds) => request.put(`/machine-adaptation/cases/${caseId}/tags`, { tag_ids: tagIds }),
+  addCaseTag: (caseId, tagId) => request.post(`/machine-adaptation/cases/${caseId}/tags`, { tag_id: tagId }),
+  removeCaseTag: (caseId, tagId) => request.delete(`/machine-adaptation/cases/${caseId}/tags/${tagId}`),
+  batch: (data) => request.post('/machine-adaptation/batch', data),
+  loadDemo: () => request.post('/machine-adaptation/load-demo'),
+  loadFullDemo: () => request.post('/machine-adaptation/load-full-demo')
 }

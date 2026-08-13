@@ -34,6 +34,8 @@ public class BackupService {
     private final DataSetRepository dataSetRepository;
     private final SecureCredentialRepository credentialRepository;
     private final TestAccountRepository accountRepository;
+    private final ControlPoolRepository controlPoolRepository;
+    private final GlobalParameterRepository globalParameterRepository;
 
     private final ObjectMapper backupMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -73,8 +75,9 @@ public class BackupService {
                 writeEntry(zos, "environments.json", environmentRepository.findAll());
                 writeEntry(zos, "data_sets.json", dataSetRepository.findAll());
                 writeEntry(zos, "secure_credentials.json", credentialRepository.findAll());
-                writeEntry(zos, "test_suites.json", suiteRepository.findAll());
                 writeEntry(zos, "test_accounts.json", accountRepository.findAll());
+                writeEntry(zos, "control_pools.json", controlPoolRepository.findAll());
+                writeEntry(zos, "global_parameters.json", globalParameterRepository.findAll());
             }
             return toMeta(zipPath);
         } catch (IOException e) {
@@ -103,6 +106,8 @@ public class BackupService {
                     case "data_sets.json" -> restoreDataSets(data);
                     case "secure_credentials.json" -> restoreCredentials(data);
                     case "test_accounts.json" -> restoreAccounts(data);
+                    case "control_pools.json" -> restoreControlPools(data);
+                    case "global_parameters.json" -> restoreGlobalParameters(data);
                     default -> 0;
                 };
                 if (count > 0) {
@@ -221,6 +226,24 @@ public class BackupService {
                 .constructCollectionType(List.class, TestAccount.class));
         for (TestAccount a : list) {
             accountRepository.save(a);
+        }
+        return list.size();
+    }
+
+    private int restoreControlPools(byte[] data) throws IOException {
+        List<ControlPool> list = backupMapper.readValue(data, backupMapper.getTypeFactory()
+                .constructCollectionType(List.class, ControlPool.class));
+        for (ControlPool c : list) {
+            controlPoolRepository.save(c);
+        }
+        return list.size();
+    }
+
+    private int restoreGlobalParameters(byte[] data) throws IOException {
+        List<GlobalParameter> list = backupMapper.readValue(data, backupMapper.getTypeFactory()
+                .constructCollectionType(List.class, GlobalParameter.class));
+        for (GlobalParameter p : list) {
+            globalParameterRepository.save(p);
         }
         return list.size();
     }

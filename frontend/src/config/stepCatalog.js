@@ -97,6 +97,10 @@ export const STEP_CATALOG = [
             fields: ['element_name', 'locator_type', 'locator_value', 'text'],
             extras: { input_mode: 'actions' }
           }),
+          leaf('ctrl.android.clear', '清空输入框', 'clear_input', {
+            needsLocator: true,
+            extras: { platform: 'android' }
+          }),
           leaf('ctrl.android.drag', '拖拽控件元素', 'drag_element', { needsLocator: true, fields: ['element_name', 'x2', 'y2'] }),
           leaf('ctrl.android.scroll_to', '滚动到控件元素', 'scroll_to_element', { needsLocator: true }),
           leaf('ctrl.android.long_press', '长按控件元素', 'long_press', { needsLocator: true }),
@@ -169,9 +173,18 @@ export const STEP_CATALOG = [
         id: 'ctrl.coord',
         label: '坐标控件',
         children: [
-          leaf('ctrl.coord.tap', '点击坐标', 'tap_xy', { fields: ['x', 'y'] }),
-          leaf('ctrl.coord.long_press', '长按坐标', 'long_press', { fields: ['x', 'y', 'duration_ms'] }),
-          leaf('ctrl.coord.swipe', '滑动拖拽', 'swipe', { fields: ['x1', 'y1', 'x2', 'y2', 'duration_ms'] })
+          leaf('ctrl.coord.tap', '点击坐标', 'tap_xy', {
+            fields: ['element_name'],
+            needsCoords: 'tap'
+          }),
+          leaf('ctrl.coord.long_press', '长按坐标', 'long_press', {
+            fields: ['element_name', 'duration_ms'],
+            needsCoords: 'tap'
+          }),
+          leaf('ctrl.coord.swipe', '滑动拖拽', 'swipe', {
+            fields: ['swipe_start_name', 'swipe_end_name', 'duration_ms'],
+            needsCoords: 'swipe'
+          })
         ]
       },
       {
@@ -282,7 +295,10 @@ export const STEP_CATALOG = [
         id: 'image.capture',
         label: '屏幕捕获',
         children: [
-          leaf('image.screenshot', '获取截图', 'screenshot', { fields: ['save_path'] })
+          leaf('image.screenshot', '获取截图', 'screenshot', {
+            fields: ['element_name', 'save_path'],
+            extras: {}
+          })
         ]
       }
     ]
@@ -305,6 +321,20 @@ export const STEP_CATALOG = [
           leaf('flow.wait', '强制等待', 'wait', {
             fields: ['seconds'],
             extras: { wait_mode: 'fixed' }
+          }),
+          leaf('flow.if', 'if 判断', 'branch', {
+            fields: ['condition_kind', 'var_name', 'condition', 'element_name', 'locator_type', 'locator_value', 'expected', 'timeout'],
+            extras: { condition: '控件存在', condition_kind: 'exists', timeout: 5 }
+          }),
+          leaf('flow.else_if', 'else if', 'else_if', {
+            fields: ['condition_kind', 'var_name', 'condition', 'element_name', 'locator_type', 'locator_value', 'expected', 'timeout'],
+            extras: { condition: '控件存在', condition_kind: 'exists', timeout: 5 }
+          }),
+          leaf('flow.else', 'else 否则', 'else', {
+            extras: { remark: '否则分支' }
+          }),
+          leaf('flow.end_if', '结束分支', 'end_block', {
+            extras: { block_type: 'branch', remark: '结束分支' }
           })
         ]
       }
@@ -435,13 +465,13 @@ export function normalizeOnFail(value) {
 }
 
 export const FIELD_META = {
-  remark: { label: '步骤备注', kind: 'text', placeholder: '标注步骤业务意图' },
+  remark: { label: '描述信息', kind: 'textarea', placeholder: '' },
   on_fail: {
     label: '失败处理策略',
     kind: 'select',
     options: ON_FAIL_OPTIONS
   },
-  element_name: { label: '控件名', kind: 'text', placeholder: '业务控件名 / 元素库名称' },
+  element_name: { label: '控件', kind: 'text', placeholder: '从控件库选择' },
   locator_type: {
     label: '定位方式',
     kind: 'select',
@@ -450,10 +480,13 @@ export const FIELD_META = {
       { label: 'XPath', value: 'xpath' },
       { label: '文本描述', value: 'accessibility' },
       { label: '文本内容', value: 'text' },
-      { label: 'className', value: 'class' }
+      { label: 'className', value: 'class' },
+      { label: '坐标定位', value: 'bounds' }
     ]
   },
-  locator_value: { label: '定位表达式', kind: 'textarea', placeholder: '手动输入或从拾取/元素库回填' },
+  locator_value: { label: '定位表达式', kind: 'textarea', placeholder: '从控件库选择后自动回填' },
+  swipe_start_name: { label: '起点控件', kind: 'text', placeholder: '从控件库选择起点' },
+  swipe_end_name: { label: '终点控件', kind: 'text', placeholder: '从控件库选择终点' },
   text: { label: '输入文本', kind: 'text', placeholder: '支持 ${变量名}' },
   expected: { label: '期望值', kind: 'text' },
   actual: { label: '实际值来源', kind: 'text', placeholder: '文本或 ${变量名}' },
@@ -538,6 +571,19 @@ export const FIELD_META = {
       { label: '默认', value: 'default' },
       { label: '真人模拟', value: 'human' },
       { label: '高速', value: 'fast' }
+    ]
+  },
+  condition: { label: '条件说明', kind: 'text', placeholder: '自定义条件文案' },
+  condition_kind: {
+    label: '判断类型',
+    kind: 'select',
+    options: [
+      { label: '控件存在', value: 'exists' },
+      { label: '控件不存在', value: 'not_exists' },
+      { label: '文本包含', value: 'text_contains' },
+      { label: '变量等于', value: 'var_equals' },
+      { label: '变量不等于', value: 'var_not_equals' },
+      { label: '自定义条件', value: 'custom' }
     ]
   },
   firmware_path: { label: '固件路径', kind: 'text' },

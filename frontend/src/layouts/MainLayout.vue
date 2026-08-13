@@ -79,7 +79,7 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">
-                  <el-icon><User /></el-icon> 个人中心
+                  <el-icon><User /></el-icon> 个人设置
                 </el-dropdown-item>
                 <el-dropdown-item command="logout" divided>
                   <el-icon><SwitchButton /></el-icon> 退出登录
@@ -196,75 +196,54 @@ const avatarLetter = computed(() => {
 })
 
 const menuGroups = computed(() => {
-  return [
+  const groups = [
     {
-      label: '首页概览',
+      label: '首页总览',
       items: [
-        { path: '/dashboard', title: '总览', icon: 'Odometer' }
+        { path: '/dashboard', title: '总览概览', icon: 'Odometer' }
       ]
     },
     {
-      label: '设备管理',
+      label: '测试核心',
       items: [
-        { path: '/devices', title: '设备列表', icon: 'Iphone' },
-        { path: '/element-picker', title: '控件拾取', icon: 'Aim' }
-      ]
-    },
-    {
-      label: 'AI 测试助手',
-      items: [
-        { path: '/testbrain', title: 'TestBrain', icon: 'Monitor' }
-      ]
-    },
-    {
-      label: '测试用例',
-      items: [
-        { path: '/cases', title: '用例列表', icon: 'DocumentCopy' },
-        { path: '/suites', title: '测试套件', icon: 'Collection' }
-      ]
-    },
-    {
-      label: '公共组件',
-      items: [
-        { path: '/public-assets', title: '组件中心', icon: 'Box' },
-        { path: '/controls', title: '元素定位库', icon: 'Grid' },
-        { path: '/platform-config', title: '公共步骤', icon: 'Connection', query: { tab: 'steps' } },
-        { path: '/platform-config', title: '全局参数', icon: 'SetUp', query: { tab: 'global-params' }, adminOnly: true }
-      ].filter(i => !i.adminOnly || userStore.isAdmin)
-    },
-    {
-      label: '测试任务',
-      items: [
-        { path: '/tasks', title: '任务执行', icon: 'VideoPlay' },
+        { path: '/cases', title: '用例管理', icon: 'DocumentCopy' },
+        { path: '/suites', title: '套件编排', icon: 'Collection' },
+        { path: '/machine-adaptation', title: '机型适配', icon: 'Cpu' },
+        { path: '/testbrain', title: '智能助手', icon: 'Monitor' },
         { path: '/platform-config', title: '定时任务', icon: 'Timer', query: { tab: 'schedule' } }
       ]
     },
     {
-      label: '项目管理',
+      label: '资源管理',
       items: [
-        { path: '/project-hub', title: '项目中心', icon: 'FolderOpened' },
-        { path: '/app-packages', title: '应用包版本', icon: 'Box' },
-        { path: '/platform-config', title: '环境配置', icon: 'Monitor', query: { tab: 'env' } }
+        { path: '/devices', title: '设备管理', icon: 'Iphone' },
+        { path: '/element-picker', title: '控件拾取', icon: 'Aim' },
+        { path: '/controls', title: '控件库', icon: 'Grid' },
+        { path: '/public-assets', title: '公共组件', icon: 'Box' },
+        { path: '/project-hub', title: '项目中心', icon: 'FolderOpened' }
       ]
     },
     {
-      label: '测试报告',
+      label: '数据管理',
       items: [
-        { path: '/reports', title: '运行报告', icon: 'Document' },
-        { path: '/recordings', title: '录屏回放', icon: 'VideoCamera' },
+        { path: '/reports', title: '测试报告', icon: 'Document' },
         { path: '/recording-quality', title: '录制质量', icon: 'DataAnalysis' },
+        { path: '/cases', title: '用例评审', icon: 'View', query: { status: 'review' } },
         { path: '/wallboard', title: '执行大屏', icon: 'DataBoard' }
       ]
     },
     {
-      label: '系统设置',
+      label: '系统配置',
       items: [
-        { path: '/settings-hub', title: '设置中心', icon: 'Setting' },
-        ...(userStore.isAdmin ? [{ path: '/ci', title: 'CI/CD', icon: 'Connection' }] : []),
+        { path: '/platform-config', title: '成员权限', icon: 'User', query: { tab: 'teams' }, adminOnly: true },
+        { path: '/settings-hub', title: '全局设置', icon: 'Setting' },
+        { path: '/platform-config', title: '日志中心', icon: 'Notebook', query: { tab: 'audit' }, adminOnly: true },
+        { path: '/ci', title: 'CI/CD流水', icon: 'Connection', adminOnly: true },
         { path: '/profile', title: '个人中心', icon: 'User' }
-      ]
+      ].filter(i => !i.adminOnly || userStore.isAdmin)
     }
   ]
+  return groups.filter(g => g.items.length)
 })
 
 /** 分组展开状态：默认只展开当前路由所在分组 */
@@ -304,6 +283,13 @@ watch(menuGroups, () => {
 function viewInstanceKey(r) {
   // 仅路径 / 名称变化时重建页面；query（如 ?tab=）变化不整页重挂载
   if (r.name === 'DeviceScreen') return `screen-${r.params.id}`
+  // 用例编辑：新建(/cases/editor) → 自动保存后带 id 时勿整页重挂载
+  if (r.name === 'VisualCaseEditor' || r.name === 'VisualCaseEditorEdit') {
+    return 'VisualCaseEditor'
+  }
+  if (r.name === 'CaseAuthor' || r.name === 'CaseAuthorNew') {
+    return 'CaseAuthorWorkspace'
+  }
   return r.name || r.path
 }
 
@@ -313,21 +299,34 @@ function isActive(item) {
   if (query?.tab) {
     return route.path === path && route.query.tab === query.tab
   }
-  if (path === '/cases') {
-    return route.path === '/cases' || route.path.startsWith('/cases/editor') || route.path.includes('/debug')
+  if (query?.status) {
+    return route.path === path && route.query.status === query.status
+  }
+  if (path === '/cases' && !query?.status) {
+    return (route.path === '/cases' && !route.query.status)
+      || route.path.startsWith('/cases/editor')
+      || route.path.includes('/debug')
   }
   if (path === '/suites') return route.path.startsWith('/suites')
-  if (path === '/public-assets') return route.path === '/public-assets'
+  if (path === '/machine-adaptation') return route.path.startsWith('/machine-adaptation')
+  if (path === '/public-assets') {
+    return route.path === '/public-assets' || route.path.startsWith('/common-steps')
+  }
+  if (path === '/controls') return route.path.startsWith('/controls')
+  if (path === '/element-picker') return route.path.startsWith('/element-picker')
+  if (path === '/app-packages') return route.path.startsWith('/app-packages')
   if (path === '/project-hub') return route.path === '/project-hub'
   if (path === '/settings-hub') return route.path === '/settings-hub'
+  if (path === '/profile') return route.path === '/profile'
   if (path === '/tasks') return route.path.startsWith('/tasks')
   if (path === '/devices') return route.path.startsWith('/devices')
-  if (path === '/element-picker') return route.path.startsWith('/element-picker')
+  if (path === '/recordings') return route.path.startsWith('/recordings')
+  if (path === '/testbrain') return route.path.startsWith('/testbrain')
   if (path === '/reports') return route.path.startsWith('/reports')
-  if (path === '/controls') return route.path.startsWith('/controls')
   if (path === '/recording-quality') return route.path === '/recording-quality'
   if (path === '/wallboard') return route.path === '/wallboard'
   if (path === '/platform-config') return route.path === '/platform-config' && !route.query.tab
+  if (path === '/ci') return route.path.startsWith('/ci')
   return route.path === path || route.path.startsWith(path + '/')
 }
 
@@ -452,11 +451,11 @@ onUnmounted(() => {
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #070B14 0%, var(--atp-sidebar) 50%, #111827 100%);
+  background: var(--atp-sidebar);
   display: flex;
   flex-direction: column;
   transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  border-right: 1px solid rgba(56, 189, 248, 0.08);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
 
@@ -476,14 +475,14 @@ onUnmounted(() => {
 .logo-icon {
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: linear-gradient(135deg, var(--atp-brand-400), var(--atp-primary));
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(8, 145, 178, 0.35);
+  box-shadow: 0 4px 14px rgba(139, 108, 240, 0.35);
 }
 
 .logo-text {
@@ -565,11 +564,11 @@ onUnmounted(() => {
   gap: 12px;
   padding: 11px 14px;
   margin-bottom: 4px;
-  border-radius: 10px;
+  border-radius: 6px;
   color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease;
   position: relative;
 
   .el-icon {
@@ -585,7 +584,11 @@ onUnmounted(() => {
   &.active {
     background: var(--atp-sidebar-active);
     color: #fff;
-    font-weight: 500;
+    font-weight: 600;
+
+    .el-icon {
+      color: var(--atp-brand-300);
+    }
 
     &::before {
       content: '';
@@ -595,7 +598,7 @@ onUnmounted(() => {
       transform: translateY(-50%);
       width: 3px;
       height: 20px;
-      background: var(--atp-brand-400);
+      background: var(--atp-primary);
       border-radius: 0 3px 3px 0;
     }
   }
@@ -665,7 +668,7 @@ onUnmounted(() => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .role-tag {

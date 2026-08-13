@@ -80,6 +80,7 @@
             <el-option label="文案定位" value="accessibility" />
             <el-option label="文本定位" value="text" />
             <el-option label="xpath" value="xpath" />
+            <el-option label="坐标定位" value="bounds" />
           </el-select>
           <div v-if="errors.locator_type" class="field-error">{{ errors.locator_type }}</div>
         </div>
@@ -391,11 +392,21 @@ function normalizeLocatorType(t) {
     accessibility: 'accessibility',
     accessibility_id: 'accessibility',
     content_desc: 'accessibility',
+    desc: 'accessibility',
     text: 'text',
+    xpath_text: 'text',
+    ocr: 'text',
     xpath: 'xpath',
     xpath_desc: 'xpath',
+    xpath_desc_contains: 'xpath',
     absolute_xpath: 'xpath',
-    relative_xpath: 'xpath'
+    relative_xpath: 'xpath',
+    class_name: 'xpath',
+    uiselector: 'xpath',
+    bounds: 'bounds',
+    coordinate: 'bounds',
+    xy: 'bounds',
+    screen_ratio: 'bounds'
   }
   return map[t] || 'id'
 }
@@ -449,6 +460,13 @@ function validateLocatorExpr(type, value, { soft = false } = {}) {
   if (type === 'xpath') {
     if (!(v.startsWith('/') || v.startsWith('(') || v.startsWith('./') || v.startsWith('.//'))) {
       return '路径定位表达式格式异常，通常以 /、// 或 ( 开头'
+    }
+  }
+  if (type === 'bounds') {
+    if (!/\[\d+,\d+\]\[\d+,\d+\]/.test(v) && !/^\d+\s*,\s*\d+$/.test(v)) {
+      return soft
+        ? '坐标建议格式：[x1,y1][x2,y2] 或 x,y'
+        : '坐标定位表达式格式异常，请使用 [x1,y1][x2,y2] 或 x,y'
     }
   }
   if (type === 'text' && v.length > 200) {
@@ -585,6 +603,14 @@ function tryConsumeFillPayload() {
       control_tag: normalizeGrade(data.control_tag),
       is_core: !!data.is_core
     })
+    // 兼容历史错误回填：类型写成 xpath 但值不是路径
+    if (form.locator_type === 'xpath' && form.locator_value) {
+      const v = String(form.locator_value).trim()
+      if (!(v.startsWith('/') || v.startsWith('(') || v.startsWith('./') || v.startsWith('.//'))) {
+        if (/^\[\d+,\d+\]\[\d+,\d+\]/.test(v) || /^\d+\s*,\s*\d+$/.test(v)) form.locator_type = 'bounds'
+        else form.locator_type = 'text'
+      }
+    }
     ElMessage.success('已从控件拾取回填定位信息')
     onNameInput()
     onLocatorInput()
@@ -663,6 +689,7 @@ async function submit() {
     }
     if (form.id) {
       await controlApi.updatePool(form.id, {
+        element_name: payload.element_name,
         locator_type: payload.locator_type,
         locator_value: payload.locator_value,
         device_element_value: payload.device_element_value || null,
@@ -673,7 +700,7 @@ async function submit() {
         is_core: form.is_core,
         control_tag: form.control_tag || null,
         reason: '编辑控件池条目',
-        propagate_bindings: false
+        propagate_bindings: true
       })
       ElMessage.success('控件池条目已更新')
     } else {

@@ -142,20 +142,6 @@
             脚本中可使用 <code>from atp_controls import get, get_locator</code> 读取已解析的控件定位
           </el-alert>
         </AppCard>
-
-        <AppCard title="执行日志" :hover="false" style="margin-top:20px">
-          <div style="margin-bottom:12px;display:flex;gap:8px">
-            <el-input v-model="logKeyword" placeholder="关键词检索" clearable style="max-width:220px" @keyup.enter="searchLogs" />
-            <el-button size="small" @click="searchLogs">检索</el-button>
-            <el-button size="small" @click="logKeyword=''; loadData()">重置</el-button>
-          </div>
-          <el-timeline v-if="logs.length">
-            <el-timeline-item v-for="log in logs" :key="log.id" :type="log.level === 'error' ? 'danger' : 'primary'" :timestamp="fmtTime(log.created_at)">
-              [{{ log.log_type }}] {{ log.message }}
-            </el-timeline-item>
-          </el-timeline>
-          <el-empty v-else description="暂无日志" />
-        </AppCard>
       </el-col>
 
       <el-col :span="8">
@@ -168,7 +154,28 @@
           </div>
         </AppCard>
 
-        <AppCard title="执行实例" :hover="false" :style="{ marginTop: isRunning ? '16px' : '0' }">
+        <AppCard
+          title="实时日志"
+          :hover="false"
+          class="live-log-card"
+          :style="{ marginTop: isRunning ? '16px' : '0' }"
+        >
+          <div class="live-log-toolbar">
+            <el-input v-model="logKeyword" placeholder="关键词检索" clearable style="flex:1" @keyup.enter="searchLogs" />
+            <el-button size="small" @click="searchLogs">检索</el-button>
+            <el-button size="small" @click="logKeyword=''; loadData()">重置</el-button>
+          </div>
+          <el-scrollbar class="live-log-scroll">
+            <el-timeline v-if="logs.length">
+              <el-timeline-item v-for="log in logs" :key="log.id" :type="log.level === 'error' ? 'danger' : 'primary'" :timestamp="fmtTime(log.created_at)">
+                [{{ log.log_type }}] {{ log.message }}
+              </el-timeline-item>
+            </el-timeline>
+            <el-empty v-else description="暂无日志" :image-size="56" />
+          </el-scrollbar>
+        </AppCard>
+
+        <AppCard title="执行实例" :hover="false" style="margin-top:16px">
           <div v-for="exec in executions" :key="exec.id" class="exec-item">
             <div class="exec-header">
               <span>设备 #{{ exec.device_id }}</span>
@@ -211,7 +218,7 @@
         <AppCard title="调试指引" :hover="false" style="margin-top:16px">
           <ol class="debug-guide">
             <li>点击「打开投屏」在设备上实时观察执行过程</li>
-            <li>失败后查看下方日志与异常快照，定位失败步骤</li>
+            <li>失败后查看右侧实时日志与异常快照，定位失败步骤</li>
             <li>修改用例步骤后，使用「断点续跑」从失败处继续</li>
             <li>可视化用例可点「编辑用例」返回步骤编辑器</li>
           </ol>
@@ -572,6 +579,22 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.live-log-card {
+  position: sticky;
+  top: 12px;
+  z-index: 2;
+}
+.live-log-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.live-log-scroll {
+  max-height: calc(100vh - 280px);
+  min-height: 280px;
+  padding-right: 4px;
+}
 .script-content {
   background: var(--atp-code-bg);
   color: var(--atp-screen-text);

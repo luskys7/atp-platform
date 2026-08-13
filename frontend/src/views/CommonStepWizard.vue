@@ -68,7 +68,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.wizard-page { max-width: 1100px; }
+.wizard-page {
+  max-width: none;
+  width: 100%;
+  padding-left: 16px;
+  padding-right: 16px;
+}
 .wizard-card { padding: 8px 4px 16px; }
 .loading { padding: 40px; text-align: center; color: #94a3b8; }
 </style>

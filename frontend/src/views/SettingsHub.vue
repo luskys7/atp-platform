@@ -67,10 +67,10 @@ function go(card) {
   color: #fff;
   margin-bottom: 4px;
 }
-.hub-icon.primary { background: linear-gradient(135deg, #38bdf8, #0891b2); }
-.hub-icon.success { background: linear-gradient(135deg, #34d399, #059669); }
-.hub-icon.warning { background: linear-gradient(135deg, #fbbf24, #d97706); }
-.hub-icon.info { background: linear-gradient(135deg, #818cf8, #4f46e5); }
+.hub-icon.primary { background: linear-gradient(135deg, var(--atp-brand-400), var(--atp-primary)); }
+.hub-icon.success { background: linear-gradient(135deg, #5dd98f, var(--atp-success)); }
+.hub-icon.warning { background: linear-gradient(135deg, #ffb366, var(--atp-warning)); }
+.hub-icon.info { background: linear-gradient(135deg, var(--atp-brand-300), var(--atp-primary)); }
 .hub-card-inner h3 { margin: 0; font-size: 16px; }
 .hub-card-inner p {
   margin: 0;

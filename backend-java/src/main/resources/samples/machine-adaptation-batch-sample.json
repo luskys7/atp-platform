@@ -1,0 +1,50 @@
+{
+  "machines": [
+    {
+      "machine_name": "CX2",
+      "hard_version": "HW-C",
+      "firm_version": "3.0.0",
+      "remark": "批量导入示例机型"
+    }
+  ],
+  "tags": [
+    {
+      "tag_type": "通知体系",
+      "tag_name": "通知",
+      "content_name": "任务完成通知"
+    },
+    {
+      "tag_type": "通知体系",
+      "tag_name": "通知",
+      "content_name": "推送设置"
+    },
+    {
+      "tag_type": "清洁功能",
+      "tag_name": "清洁",
+      "content_name": "清扫"
+    }
+  ],
+  "machine_tags": [
+    {
+      "machine_name": "CX2",
+      "content_name": "清扫",
+      "is_support": 1
+    },
+    {
+      "machine_name": "CX2",
+      "content_name": "任务完成通知",
+      "is_support": 1
+    },
+    {
+      "machine_name": "AX17",
+      "content_name": "推送设置",
+      "is_support": 1
+    }
+  ],
+  "case_tags": [
+    {
+      "case_id": 1,
+      "content_name": "清扫"
+    }
+  ]
+}

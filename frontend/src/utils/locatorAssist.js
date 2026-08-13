@@ -370,20 +370,75 @@ export function chainToLocators(chain) {
 export function primaryFromChain(chain) {
   const enabled = (chain || []).filter(i => i.enabled !== false)
   const primary = enabled.find(i => i.primary) || enabled[0]
-  if (!primary) return { locator_type: '', locator_value: '' }
-  const lt = primary.type === 'resource_id' ? 'id'
-    : ['xpath_desc', 'xpath_desc_contains', 'xpath_text', 'relative_xpath', 'absolute_xpath', 'parent_index', 'anchor_adjacent', 'region_locator'].includes(primary.type) ? 'xpath'
-      : primary.type
-  return { locator_type: lt, locator_value: primary.value }
+  if (!primary) return { locator_type: '', locator_value: '', raw_type: '' }
+  const raw = primary.type || ''
+  const value = primary.value || ''
+  return {
+    locator_type: normalizeSemanticLocatorType(raw, value),
+    locator_value: value,
+    raw_type: raw
+  }
 }
 
-export function mapLocatorTypeForPool(type) {
-  const t = type === 'resource_id' ? 'id' : type
-  if (['id', 'xpath', 'accessibility', 'ai', 'image'].includes(t)) return t
-  if (['text', 'content_desc', 'xpath_desc', 'xpath_text', 'relative_xpath', 'absolute_xpath', 'class_name', 'bounds', 'screen_ratio', 'ocr',
-    'parent_index', 'anchor_adjacent', 'region_locator'].includes(t)) {
+function looksLikeXPath(value) {
+  const v = String(value || '').trim()
+  return /^(\/|\.\/|\.\/\/|\()/.test(v)
+}
+
+function looksLikeBounds(value) {
+  const v = String(value || '').trim()
+  return /\[\d+\s*,\s*\d+\]\s*\[\d+\s*,\s*\d+\]/.test(v) || /^\d+\s*,\s*\d+$/.test(v)
+}
+
+/** 统一语义定位类型（供用例步骤 / 控件池等复用） */
+export function normalizeSemanticLocatorType(type, value = '') {
+  const t = type === 'resource_id' ? 'id' : String(type || '')
+  const v = String(value || '').trim()
+  if (t === 'id') return 'id'
+  if (t === 'text') return 'text'
+  if (['content_desc', 'accessibility', 'accessibility_id', 'desc'].includes(t)) return 'content_desc'
+  if (['bounds', 'coordinate', 'xy', 'screen_ratio'].includes(t)) return 'bounds'
+  if (t === 'ocr') return 'ocr'
+  if (t === 'class_name') return 'class_name'
+  if (t === 'xpath_text') return looksLikeXPath(v) ? 'xpath' : 'text'
+  if (t === 'xpath_desc' || t === 'xpath_desc_contains') return looksLikeXPath(v) ? 'xpath' : 'content_desc'
+  if (['xpath', 'relative_xpath', 'absolute_xpath', 'uiselector', 'parent_index', 'anchor_adjacent', 'region_locator'].includes(t)) {
     return 'xpath'
   }
-  if (t === 'uiselector') return 'xpath'
-  return 'xpath'
+  if (looksLikeXPath(v)) return 'xpath'
+  if (looksLikeBounds(v)) return 'bounds'
+  return t || 'id'
+}
+
+/**
+ * 控件池表单支持的主定位类型：id / accessibility / text / xpath / bounds
+ */
+export function mapLocatorTypeForPool(type, value = '') {
+  const semantic = normalizeSemanticLocatorType(type, value)
+  if (semantic === 'id') return 'id'
+  if (semantic === 'text' || semantic === 'ocr') return 'text'
+  if (semantic === 'content_desc') return 'accessibility'
+  if (semantic === 'bounds') return 'bounds'
+  if (semantic === 'class_name') return 'xpath'
+  if (['xpath', 'uiselector'].includes(semantic)) return 'xpath'
+  if (['ai', 'image'].includes(semantic)) return semantic
+  if (looksLikeXPath(value)) return 'xpath'
+  if (looksLikeBounds(value)) return 'bounds'
+  return 'id'
+}
+
+/** 写入控件池时的表达式：非路径值若被迫落为 xpath，则补成合法 xpath */
+export function mapLocatorValueForPool(type, value) {
+  const rawType = type === 'resource_id' ? 'id' : String(type || '')
+  const v = String(value || '').trim()
+  const poolType = mapLocatorTypeForPool(rawType, v)
+  if (poolType !== 'xpath' || !v || looksLikeXPath(v)) return v
+  const q = JSON.stringify(v)
+  if (rawType === 'class_name') return `//*[@class=${q}]`
+  if (rawType === 'xpath_text' || rawType === 'text') return `//*[@text=${q}]`
+  if (rawType === 'xpath_desc' || rawType === 'content_desc' || rawType === 'accessibility') {
+    return `//*[@content-desc=${q}]`
+  }
+  if (rawType === 'xpath_desc_contains') return `//*[contains(@content-desc,${q})]`
+  return v
 }
