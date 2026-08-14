@@ -143,7 +143,7 @@
                       placeholder="搜索步骤类型 / 摘要 / 控件"
                       class="step-search"
                     />
-                    <span class="steps-count">共 {{ filteredSteps.length }} / {{ steps.length }} 步</span>
+                    <span class="steps-count">共 {{ topLevelStepItems.length }} / {{ topLevelStepCount }} 步</span>
                     <span class="steps-drag-hint">可拖拽排序</span>
                   </div>
 
@@ -227,103 +227,315 @@
                   </div>
 
                   <div v-else class="steps-list">
-                    <div
-                      v-for="item in filteredStepItems"
-                      :key="item.step.id"
-                      class="step-item"
-                      :class="[
-                        stepToneClass(item.step.type),
-                        {
-                          disabled: item.step.enabled === false,
-                          selected: selectedStepIds.has(item.step.id),
-                          'is-dragging': isStepDraggingIndex(item.index),
-                          'is-nested': (item.depth || 0) > 0,
-                          'is-block': isFlowHeaderStep(item.step)
-                        }
-                      ]"
-                      :style="{ paddingLeft: `${10 + (item.depth || 0) * 20}px` }"
-                      draggable="true"
-                      @dragstart="onStepDragStart($event, item.index)"
-                      @dragover.prevent="onStepDragOver($event, item.index)"
-                      @drop.prevent="onStepDrop($event, item.index)"
-                      @dragend="onStepDragEnd"
-                    >
-                      <span class="drag-handle" title="按住此处或整行拖拽排序">⋮⋮</span>
-                      <el-checkbox
-                        :model-value="selectedStepIds.has(item.step.id)"
-                        @change="(v) => toggleStepSelect(item.step.id, v)"
-                      />
-                      <div class="step-index">{{ item.index + 1 }}</div>
-                      <button
-                        v-if="isFlowHeaderStep(item.step)"
-                        type="button"
-                        class="block-toggle"
-                        :title="collapsedBlockIds.has(item.step.id) ? '展开块内步骤' : '收起块内步骤'"
-                        @click.stop="toggleBlockCollapse(item.step.id)"
-                      >{{ collapsedBlockIds.has(item.step.id) ? '▶' : '▼' }}</button>
-                      <div class="step-body">
-                        <div class="step-main-row">
-                          <el-switch v-if="item.step.type !== 'end_block'" v-model="item.step.enabled" size="small" />
-                          <el-tag size="small" :type="stepTagType(item.step.type)" effect="plain">
-                            {{ stepTypeLabel(item.step) }}
-                          </el-tag>
-                          <span class="step-desc">{{ stepSummary(item.step) }}</span>
-                          <el-tag
-                            v-if="collapsedBlockIds.has(item.step.id) && item.collapsedCount > 0"
-                            size="small"
-                            type="info"
-                            effect="plain"
-                            class="block-collapsed-tag"
-                          >已收起 {{ item.collapsedCount }} 步</el-tag>
-                          <span v-if="stepLocator(item.step)" class="step-locator">{{ stepLocator(item.step) }}</span>
-                          <el-tag v-if="item.step.enabled === false" size="small" type="info">
-                            {{ item.step.disable_reason || '已禁用' }}
-                          </el-tag>
-                        </div>
+                    <template v-for="item in topLevelStepItems" :key="item.step.id ?? item.index">
+                      <!-- 公共步骤 -->
+                      <div v-if="item.step.type === 'invoke_common'" class="step-block">
                         <div
-                          class="step-remark-row"
+                          class="step-meta-row"
                           @click.stop
                           @mousedown="onRemarkMouseDown"
                           @dragstart.stop.prevent
                         >
-                          <span class="step-remark-label">描述</span>
+                          <span class="step-index-label">步骤{{ item.displayNo }}：</span>
                           <el-input
                             v-model="item.step.remark"
+                            class="step-remark-input"
                             size="small"
-                            clearable
                             maxlength="200"
-                            placeholder=""
+                            placeholder="添加描述"
                           />
                         </div>
+                        <div
+                          class="step-item invoke-common-card"
+                          :class="{
+                            disabled: item.step.enabled === false,
+                            selected: selectedStepIds.has(item.step.id),
+                            'is-dragging': isStepDraggingIndex(item.index)
+                          }"
+                          draggable="true"
+                          @dragstart="onStepDragStart($event, item.index)"
+                          @dragover.prevent="onStepDragOver($event, item.index)"
+                          @drop.prevent="onStepDrop($event, item.index)"
+                          @dragend="onStepDragEnd"
+                        >
+                          <div class="icc-top">
+                            <span v-if="item.step.enabled === false" class="icc-disabled-hint">{{ item.step.disable_reason || '已禁用' }}</span>
+                            <div class="icc-top-actions">
+                              <el-switch v-model="item.step.enabled" size="small" @click.stop />
+                              <el-button size="small" link type="primary" @click="editStep(item.index)">编辑</el-button>
+                              <el-button size="small" link @click="beginInsertAt(item.index, 'after')">此后插入</el-button>
+                              <el-button size="small" link class="btn-copy" @click="copyStep(item.index)">复制</el-button>
+                              <el-button size="small" link :disabled="item.index === 0" @click="moveStep(item.index, -1)">上移</el-button>
+                              <el-button size="small" link :disabled="item.index === steps.length - 1" @click="moveStep(item.index, 1)">下移</el-button>
+                              <el-button size="small" link type="danger" @click="removeStep(item.index)">删除</el-button>
+                            </div>
+                          </div>
+                          <div class="icc-main">
+                            <span class="common-step-use-tag">使用公共步骤</span>
+                            <span class="common-step-name-box" :title="stepSummary(item.step)">{{ stepSummary(item.step) }}</span>
+                            <el-button class="icc-view-btn" size="small" @click="viewCommonStep(item.step)">查看步骤</el-button>
+                          </div>
+                        </div>
                       </div>
-                      <div class="step-actions">
-                        <el-button v-if="item.step.type !== 'end_block'" size="small" type="primary" plain @click="editStep(item.index)">编辑</el-button>
-                        <el-button
-                          size="small"
-                          plain
-                          @click="beginInsertAt(item.index, item.step.type === 'end_block' ? 'before' : 'after')"
-                        >{{ item.step.type === 'end_block' ? '块内插入' : '此后插入' }}</el-button>
-                        <el-button
-                          v-if="item.step.type === 'invoke_common'"
-                          size="small"
-                          type="warning"
-                          plain
-                          @click="viewCommonStep(item.step)"
-                        >查看步骤</el-button>
-                        <el-button
-                          v-if="item.step.type !== 'end_block' && !ASSERT_TYPES.has(item.step.type)"
-                          size="small"
-                          type="success"
-                          plain
-                          @click="addAssertAfter(item.index)"
-                        >添加断言</el-button>
-                        <el-button size="small" class="btn-copy" @click="copyStep(item.index)">复制</el-button>
-                        <el-button size="small" plain :disabled="item.index === 0" @click="moveStep(item.index, -1)">上移</el-button>
-                        <el-button size="small" plain :disabled="item.index === steps.length - 1" @click="moveStep(item.index, 1)">下移</el-button>
-                        <el-button size="small" type="danger" plain @click="removeStep(item.index)">删除</el-button>
+
+                      <!-- 判断 / 循环 -->
+                      <div v-else-if="isFlowHeaderStep(item.step)" class="step-block">
+                        <div
+                          class="step-meta-row"
+                          @click.stop
+                          @mousedown="onRemarkMouseDown"
+                          @dragstart.stop.prevent
+                        >
+                          <span class="step-index-label">步骤{{ item.displayNo }}：</span>
+                          <el-input
+                            v-model="item.step.remark"
+                            class="step-remark-input"
+                            size="small"
+                            maxlength="200"
+                            placeholder="添加描述"
+                          />
+                        </div>
+                        <div
+                          class="step-item judge-list-card"
+                          :class="{
+                            disabled: item.step.enabled === false,
+                            selected: selectedStepIds.has(item.step.id),
+                            'is-dragging': isStepDraggingIndex(item.index),
+                            'is-collapsed': collapsedBlockIds.has(item.collapseKey)
+                          }"
+                          @dragover.prevent="onStepDragOver($event, item.index)"
+                          @drop.prevent="onStepDrop($event, item.index)"
+                        >
+                        <div
+                          v-if="item.step.type === 'loop'"
+                          class="jlc-loop-bar"
+                          @click="toggleBlockCollapse(item.collapseKey)"
+                        >
+                          <span class="jlc-loop-tag">循环结构</span>
+                          <span class="jlc-loop-hint">点击展开/收起循环体</span>
+                          <span class="jlc-chevron" :class="{ open: !collapsedBlockIds.has(item.collapseKey) }">▾</span>
+                        </div>
+                        <div class="jlc-head" @click="toggleBlockCollapse(item.collapseKey)">
+                          <span
+                            class="drag-handle jlc-drag"
+                            title="拖拽排序"
+                            draggable="true"
+                            @click.stop
+                            @dragstart.stop="onStepDragStart($event, item.index)"
+                            @dragend="onStepDragEnd"
+                          >⋮⋮</span>
+                          <el-checkbox
+                            class="jlc-check"
+                            :model-value="selectedStepIds.has(item.step.id)"
+                            @click.stop
+                            @change="(v) => toggleStepSelect(item.step.id, v)"
+                          />
+                          <span class="jlc-if-icon">{{ timelineBlockTag(item.step) }}</span>
+                          <div class="jlc-mid">
+                            <span class="jlc-action-pill">{{ timelineJudgeActionText(item.step) }}</span>
+                            <span class="jlc-assert-label">断言：</span>
+                            <span
+                              v-if="judgeNeedsElement(item.step)"
+                              class="jlc-pill"
+                              :class="{ 'jlc-pill-warn': !judgeDisplayElement(item) }"
+                              :title="judgeDisplayElement(item) || '请编辑 if 步骤并选择要判断的控件'"
+                            >{{ judgeDisplayElement(item) || '未指定控件' }}</span>
+                            <span v-if="judgeDisplayAssertText(item)" class="jlc-assert-state">{{ judgeDisplayAssertText(item) }}</span>
+                            <span class="jlc-status">无异常</span>
+                            <el-tag
+                              v-if="collapsedBlockIds.has(item.collapseKey) && item.collapsedCount > 0"
+                              size="small"
+                              type="info"
+                              effect="plain"
+                            >已收起 {{ item.collapsedCount }} 步</el-tag>
+                          </div>
+                          <el-switch v-model="item.step.enabled" size="small" @click.stop />
+                          <span class="jlc-chevron" :class="{ open: !collapsedBlockIds.has(item.collapseKey) }">▾</span>
+                        </div>
+                        <div
+                          v-show="!collapsedBlockIds.has(item.collapseKey)"
+                          class="jlc-body"
+                          @click.stop
+                        >
+                          <div
+                            v-for="(child, cIdx) in judgeBodyChildren(item)"
+                            :key="child.step.id ?? `c-${child.index}`"
+                            class="jlc-child"
+                          >
+                            <div class="jlc-child-rail">
+                              <span
+                                class="jlc-child-dot"
+                                :class="{ 'dot-block': isFlowHeaderStep(child.step) }"
+                              />
+                            </div>
+                            <div class="jlc-child-content">
+                              <!-- 嵌套判断 -->
+                              <div
+                                v-if="isFlowHeaderStep(child.step)"
+                                class="judge-list-card jlc-nested-judge"
+                                :class="{ 'is-collapsed': collapsedBlockIds.has(child.collapseKey) }"
+                              >
+                                <div class="jlc-head" @click="toggleBlockCollapse(child.collapseKey)">
+                                  <span class="jlc-if-icon">{{ timelineBlockTag(child.step) }}</span>
+                                  <div class="jlc-mid">
+                                    <span class="jlc-action-pill">{{ timelineJudgeActionText(child.step) }}</span>
+                                    <span class="jlc-assert-label">断言：</span>
+                                    <span
+                                      v-if="judgeNeedsElement(child.step)"
+                                      class="jlc-pill"
+                                      :class="{ 'jlc-pill-warn': !judgeDisplayElement(child) }"
+                                    >{{ judgeDisplayElement(child) || '未指定控件' }}</span>
+                                    <span v-if="judgeDisplayAssertText(child)" class="jlc-assert-state">{{ judgeDisplayAssertText(child) }}</span>
+                                    <span class="jlc-status">无异常</span>
+                                  </div>
+                                  <el-switch v-model="child.step.enabled" size="small" @click.stop />
+                                  <span class="jlc-chevron" :class="{ open: !collapsedBlockIds.has(child.collapseKey) }">▾</span>
+                                </div>
+                                <div v-show="!collapsedBlockIds.has(child.collapseKey)" class="jlc-body">
+                                  <div
+                                    v-for="(g, gIdx) in judgeBodyChildren(child)"
+                                    :key="g.step.id ?? `g-${g.index}`"
+                                    class="jlc-child"
+                                  >
+                                    <div class="jlc-child-rail">
+                                      <span class="jlc-child-dot" />
+                                    </div>
+                                    <div class="jlc-child-content">
+                                      <div class="jlc-child-step">
+                                        <div class="jlc-child-label">步骤{{ gIdx + 1 }}:</div>
+                                        <div class="jlc-child-main">
+                                          <template v-for="(p, pIdx) in timelineChildParts(g.step)" :key="`${g.index}-${pIdx}`">
+                                            <span v-if="p.kind === 'action'" class="jlc-action-pill">{{ p.text }}</span>
+                                            <span v-else-if="p.kind === 'param'" class="jlc-pill" :title="p.text">{{ p.text }}</span>
+                                            <span v-else class="jlc-child-text">{{ p.text }}</span>
+                                          </template>
+                                          <el-button
+                                            v-if="g.step.type === 'invoke_common'"
+                                            size="small"
+                                            plain
+                                            @click="viewCommonStep(g.step)"
+                                          >查看步骤</el-button>
+                                          <el-button size="small" link type="primary" @click="editStep(g.index)">编辑</el-button>
+                                          <el-button size="small" link type="danger" @click="removeStep(g.index)">删除</el-button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              <!-- 普通嵌套步骤 -->
+                              <div v-else class="jlc-child-step">
+                                <div class="jlc-child-label">步骤{{ cIdx + 1 }}:</div>
+                                <div class="jlc-child-main">
+                                  <template v-for="(p, pIdx) in timelineChildParts(child.step)" :key="`${child.index}-${pIdx}`">
+                                    <span v-if="p.kind === 'action'" class="jlc-action-pill">{{ p.text }}</span>
+                                    <span v-else-if="p.kind === 'param'" class="jlc-pill" :title="p.text">{{ p.text }}</span>
+                                    <span v-else class="jlc-child-text">{{ p.text }}</span>
+                                  </template>
+                                  <el-button
+                                    v-if="child.step.type === 'invoke_common'"
+                                    class="icc-view-btn"
+                                    size="small"
+                                    @click="viewCommonStep(child.step)"
+                                  >查看步骤</el-button>
+                                  <el-button size="small" link type="primary" @click="editStep(child.index)">编辑</el-button>
+                                  <el-button size="small" link type="danger" @click="removeStep(child.index)">删除</el-button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div v-if="!judgeBodyChildren(item).length" class="jlc-empty">块内暂无步骤，可点「块内插入」添加</div>
+                        </div>
+                        <div class="jlc-actions" @click.stop>
+                          <el-button size="small" link type="primary" @click="editStep(item.index)">编辑</el-button>
+                          <el-button size="small" link @click="beginInsertAt(item.index, 'after')">块内插入</el-button>
+                          <el-button size="small" link class="btn-copy" @click="copyStep(item.index)">复制</el-button>
+                          <el-button size="small" link :disabled="item.index === 0" @click="moveStep(item.index, -1)">上移</el-button>
+                          <el-button size="small" link :disabled="item.index === steps.length - 1" @click="moveStep(item.index, 1)">下移</el-button>
+                          <el-button size="small" link type="danger" @click="removeStep(item.index)">删除</el-button>
+                        </div>
+                        </div>
                       </div>
-                    </div>
-                    <el-empty v-if="!filteredStepItems.length" description="未找到匹配步骤" :image-size="64" />
+
+                      <!-- 普通顶层步骤 -->
+                      <div v-else class="step-block">
+                        <div
+                          class="step-meta-row"
+                          @click.stop
+                          @mousedown="onRemarkMouseDown"
+                          @dragstart.stop.prevent
+                        >
+                          <span class="step-index-label">步骤{{ item.displayNo }}：</span>
+                          <el-input
+                            v-model="item.step.remark"
+                            class="step-remark-input"
+                            size="small"
+                            maxlength="200"
+                            placeholder="添加描述"
+                          />
+                        </div>
+                        <div
+                          class="step-item"
+                          :class="[
+                            stepToneClass(item.step.type),
+                            {
+                              disabled: item.step.enabled === false,
+                              selected: selectedStepIds.has(item.step.id),
+                              'is-dragging': isStepDraggingIndex(item.index)
+                            }
+                          ]"
+                          draggable="true"
+                          @dragstart="onStepDragStart($event, item.index)"
+                          @dragover.prevent="onStepDragOver($event, item.index)"
+                          @drop.prevent="onStepDrop($event, item.index)"
+                          @dragend="onStepDragEnd"
+                        >
+                          <span class="drag-handle" title="按住此处或整行拖拽排序">⋮⋮</span>
+                          <el-checkbox
+                            :model-value="selectedStepIds.has(item.step.id)"
+                            @change="(v) => toggleStepSelect(item.step.id, v)"
+                          />
+                          <div class="step-body">
+                            <div class="step-main-row">
+                              <el-tag size="small" :type="stepTagType(item.step.type)" effect="plain">
+                                {{ stepTypeLabel(item.step) }}
+                              </el-tag>
+                              <span class="step-desc">{{ stepSummary(item.step) }}</span>
+                              <span v-if="stepLocator(item.step)" class="step-locator">{{ stepLocator(item.step) }}</span>
+                              <el-tag v-if="item.step.enabled === false" size="small" type="info">
+                                {{ item.step.disable_reason || '已禁用' }}
+                              </el-tag>
+                              <el-switch
+                                v-if="item.step.type !== 'end_block'"
+                                v-model="item.step.enabled"
+                                size="small"
+                                class="step-enable-switch"
+                              />
+                            </div>
+                          </div>
+                          <div class="step-actions">
+                            <el-button v-if="item.step.type !== 'end_block'" size="small" type="primary" plain @click="editStep(item.index)">编辑</el-button>
+                            <el-button
+                              size="small"
+                              plain
+                              @click="beginInsertAt(item.index, item.step.type === 'end_block' ? 'before' : 'after')"
+                            >{{ item.step.type === 'end_block' ? '块内插入' : '此后插入' }}</el-button>
+                            <el-button
+                              v-if="item.step.type !== 'end_block' && !ASSERT_TYPES.has(item.step.type)"
+                              size="small"
+                              type="success"
+                              plain
+                              @click="addAssertAfter(item.index)"
+                            >添加断言</el-button>
+                            <el-button size="small" class="btn-copy" @click="copyStep(item.index)">复制</el-button>
+                            <el-button size="small" plain :disabled="item.index === 0" @click="moveStep(item.index, -1)">上移</el-button>
+                            <el-button size="small" plain :disabled="item.index === steps.length - 1" @click="moveStep(item.index, 1)">下移</el-button>
+                            <el-button size="small" type="danger" plain @click="removeStep(item.index)">删除</el-button>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                    <el-empty v-if="!topLevelStepItems.length" description="未找到匹配步骤" :image-size="64" />
                   </div>
                 </div>
               </div>
@@ -394,30 +606,32 @@
     <el-dialog
       v-model="showCommonView"
       :title="commonViewTitle"
-      width="720px"
+      width="760px"
       destroy-on-close
       class="common-view-dialog"
       @closed="commonViewStack = []; commonViewRow = null; commonViewSteps = []"
     >
       <div v-loading="commonViewLoading" class="common-view-body">
         <p v-if="commonViewRow?.description" class="common-view-desc">{{ commonViewRow.description }}</p>
-        <el-empty v-if="!commonViewLoading && !commonViewSteps.length" description="该公共步骤暂无内部步骤" :image-size="72" />
-        <div v-else class="common-view-list">
-          <div v-for="(s, i) in commonViewSteps" :key="i" class="common-view-item">
-            <span class="common-view-idx">{{ i + 1 }}</span>
-            <el-tag size="small" :type="stepTagType(s.type)" effect="plain">{{ stepTypeLabel(s) }}</el-tag>
-            <span class="common-view-summary">{{ stepSummary(s) }}</span>
-            <span v-if="stepLocator(s)" class="common-view-locator">{{ stepLocator(s) }}</span>
-            <el-button
-              v-if="s.type === 'invoke_common' && s.common_step"
-              size="small"
-              type="warning"
-              plain
-              class="common-view-drill"
-              @click="viewCommonStep(s)"
-            >查看步骤</el-button>
-          </div>
-        </div>
+        <el-empty
+          v-if="!commonViewLoading && !commonViewTimelineNodes.length"
+          description="该公共步骤暂无内部步骤"
+          :image-size="72"
+        />
+        <CommonStepTimeline
+          v-else-if="commonViewTimelineNodes.length"
+          :nodes="commonViewTimelineNodes"
+          :type-label="stepTypeLabel"
+          :step-summary="stepSummary"
+          :param-text="timelineParamText"
+          :assert-text="timelineAssertText"
+          :block-tag="timelineBlockTag"
+          :judge-action-text="timelineJudgeActionText"
+          :element-name="flowElementName"
+          :child-parts="timelineChildParts"
+          @view-common="viewCommonStep"
+          @save-script="saveCommonViewScript"
+        />
       </div>
       <template #footer>
         <el-button v-if="commonViewStack.length" @click="backCommonView">返回上级</el-button>
@@ -581,6 +795,7 @@ import { formatStepTarget, formatStepLocator } from '@/utils/stepDisplay'
 import { formatTime } from '@/utils/status'
 import ScriptPreviewDialog from '@/components/ScriptPreviewDialog.vue'
 import StepAddPanel from '@/components/case-editor/StepAddPanel.vue'
+import CommonStepTimeline from '@/components/case-editor/CommonStepTimeline.vue'
 import { getCatalogLeaf, resolveLeafFields, normalizeOnFail } from '@/config/stepCatalog'
 import {
   conditionLabel,
@@ -627,6 +842,239 @@ const commonViewStack = ref([])
 const commonViewTitle = computed(() =>
   commonViewRow.value?.name ? `查看公共步骤 · ${commonViewRow.value.name}` : '查看公共步骤'
 )
+const commonViewTimelineNodes = computed(() => buildCommonViewTimeline(commonViewSteps.value))
+
+function buildCommonViewTimeline(steps) {
+  const list = Array.isArray(steps) ? steps : []
+  const nodes = []
+  let i = 0
+  let seq = 0
+  while (i < list.length) {
+    const step = list[i]
+    if (!step || step.type === 'end_block') {
+      i += 1
+      continue
+    }
+    if (isFlowBlockStart(step)) {
+      const end = findBlockEndIndex(list, i)
+      // 有闭合块：子步骤为 (i, end)；无闭合块时 end 可能落在最后一个更深步骤上
+      let innerEnd = end > i ? end : i + 1
+      if (end > i && list[end]?.type === 'end_block') {
+        // end 指向 end_block，slice 不含它
+      } else if (end > i) {
+        // 无 end_block：end 是最后一个子步骤，slice 需包含它
+        innerEnd = end + 1
+      }
+      const childSteps = list.slice(i + 1, innerEnd)
+      const children = buildCommonViewTimeline(childSteps)
+      seq += 1
+      nodes.push({
+        key: `b-${i}-${step.id || seq}`,
+        kind: 'block',
+        index: seq,
+        step,
+        children
+      })
+      i = end > i ? end + 1 : i + 1
+      continue
+    }
+    seq += 1
+    nodes.push({
+      key: `s-${i}-${step.id || seq}`,
+      kind: 'step',
+      index: seq,
+      step
+    })
+    i += 1
+  }
+  return nodes
+}
+
+function timelineParamText(step) {
+  if (!step) return ''
+  if (step.type === 'wait' || step.type === 'manual_wait') {
+    const ms = step.timeout ?? step.wait_ms ?? step.duration ?? step.ms
+    if (ms != null && ms !== '') return `等待 ${ms} ms`
+  }
+  const summary = stepSummary(step)
+  const locator = stepLocator(step)
+  if (summary && locator && summary !== locator) return summary
+  return summary || locator || ''
+}
+
+function timelineAssertText(step) {
+  if (!step) return ''
+  if (step.condition_kind === 'exists' || step.condition === 'exists' || step.condition === '控件存在') return '存在'
+  if (step.condition_kind === 'not_exists' || step.condition === 'not_exists' || step.condition === '控件不存在') return '不存在'
+  if (step.condition_kind === 'text_contains') return step.expected ? `包含 ${step.expected}` : '文本包含'
+  if (step.condition_kind === 'var_equals' || step.condition_kind === 'var_not_equals') {
+    return conditionLabel(step.condition_kind, step.condition, {
+      var_name: step.var_name,
+      expected: step.expected
+    })
+  }
+  if (step.expected != null && String(step.expected).trim()) return String(step.expected)
+  return ''
+}
+
+function flowElementName(step) {
+  if (!step) return ''
+  return (
+    step.element_name ||
+    step.target_name ||
+    step.name ||
+    formatStepTarget(step) ||
+    (step.locator_value ? String(step.locator_value) : '') ||
+    ''
+  )
+}
+
+/** 判断块是否需要展示控件名 */
+function judgeNeedsElement(step) {
+  const kind = step?.condition_kind || ''
+  if (kind === 'var_equals' || kind === 'var_not_equals' || kind === 'custom') return false
+  if (kind === 'exists' || kind === 'not_exists' || kind === 'text_contains') return true
+  const cond = String(step?.condition || '')
+  if (cond.includes('变量') || cond.includes('{{')) return false
+  return true
+}
+
+/** 块内首条「断言存在/不存在」可视为 if 条件的控件来源（历史写法） */
+function findJudgeConditionAssert(parentItem) {
+  const children = directBlockChildren(parentItem)
+  const first = children[0]
+  if (!first?.step) return null
+  const t = first.step.type
+  if (t === 'assert_exists' || t === 'assert_not_exists') return first
+  return null
+}
+
+/** 表头断言控件：优先 if 自身，否则取块内首条断言步骤的控件 */
+function judgeDisplayElement(parentItem) {
+  const own = flowElementName(parentItem?.step)
+  if (own) return own
+  const assertChild = findJudgeConditionAssert(parentItem)
+  return assertChild ? flowElementName(assertChild.step) : ''
+}
+
+function judgeDisplayAssertText(parentItem) {
+  const own = timelineAssertText(parentItem?.step)
+  const assertChild = findJudgeConditionAssert(parentItem)
+  if (assertChild && !flowElementName(parentItem?.step)) {
+    if (assertChild.step.type === 'assert_not_exists') return '不存在'
+    if (assertChild.step.type === 'assert_exists') return '存在'
+  }
+  return own
+}
+
+/** 块内列表：若首条断言已提升到表头展示，则不再重复列出 */
+function judgeBodyChildren(parentItem) {
+  const children = directBlockChildren(parentItem)
+  if (flowElementName(parentItem?.step)) return children
+  const first = children[0]
+  if (first && (first.step.type === 'assert_exists' || first.step.type === 'assert_not_exists')) {
+    return children.slice(1)
+  }
+  return children
+}
+
+/** 判断块标题：明确「在判断什么」 */
+function timelineJudgeActionText(step) {
+  if (!step) return '条件判断'
+  const kind = step.condition_kind || ''
+  const cond = String(step.condition || '')
+  if (kind === 'exists' || cond === 'exists' || cond === '控件存在') return '判断原生控件元素是否存在'
+  if (kind === 'not_exists' || cond === 'not_exists' || cond === '控件不存在') return '判断原生控件元素是否不存在'
+  if (kind === 'text_contains') return '判断原生控件文本是否包含'
+  if (kind === 'var_equals') return '判断变量是否等于'
+  if (kind === 'var_not_equals') return '判断变量是否不等于'
+  if (kind === 'custom') return cond || '自定义条件判断'
+  if (cond.includes('不存在')) return '判断原生控件元素是否不存在'
+  if (cond.includes('存在')) return '判断原生控件元素是否存在'
+  if (step.type === 'loop') return step.loop_mode === 'while' ? '循环判断条件' : '循环执行'
+  return cond || '条件判断'
+}
+
+/** 嵌套子步骤展示片段：蓝动作 + 灰目标，对齐图一 */
+function timelineChildParts(step) {
+  if (!step) return []
+  const t = step.type
+  const el = flowElementName(step)
+  const parts = []
+  const action = (text) => parts.push({ kind: 'action', text })
+  const param = (text) => { if (text) parts.push({ kind: 'param', text }) }
+  const plain = (text) => { if (text) parts.push({ kind: 'text', text }) }
+
+  if (t === 'click' || t === 'tap_xy' || t === 'long_press' || t === 'tap_ocr') {
+    action('点击原生控件元素')
+    param(el)
+    return parts
+  }
+  if (t === 'input') {
+    action('原生控件元素')
+    param(el)
+    action('输入文本')
+    plain(step.text || '')
+    return parts
+  }
+  if (t === 'clear_input') {
+    action('清空输入')
+    param(el || '当前输入框')
+    return parts
+  }
+  if (t === 'wait' || t === 'manual_wait') {
+    action('等待')
+    param(stepSummary(step))
+    return parts
+  }
+  if (t === 'assert_exists') {
+    action('断言控件存在')
+    param(el)
+    return parts
+  }
+  if (t === 'assert_not_exists') {
+    action('断言控件不存在')
+    param(el)
+    return parts
+  }
+  if (t === 'assert_text') {
+    action('断言文本')
+    param(el)
+    plain(step.expected || '')
+    return parts
+  }
+  if (t === 'launch') {
+    action('启动')
+    param(stepSummary(step))
+    return parts
+  }
+  if (t === 'force_stop') {
+    action('强制停止')
+    param(stepSummary(step))
+    return parts
+  }
+  if (t === 'invoke_common') {
+    action('使用公共步骤')
+    param(step.common_step || '')
+    return parts
+  }
+  if (t === 'swipe') {
+    action('滑动')
+    param(stepSummary(step))
+    return parts
+  }
+  action(stepTypeLabel(step))
+  param(el || stepSummary(step))
+  return parts.filter(p => p.text)
+}
+
+function timelineBlockTag(step) {
+  const t = step?.type
+  if (t === 'else_if' || t === 'elif') return 'else if'
+  if (t === 'else') return 'else'
+  if (t === 'loop') return 'while'
+  return 'if'
+}
 const showPoolPicker = ref(false)
 const poolKeyword = ref('')
 const poolPickMode = ref('locator') // locator | tap | swipe_start | swipe_end
@@ -840,10 +1288,10 @@ function mapLoadedStep(s) {
     }
   }
   return {
-    id: stepSeq++,
+    ...s,
+    id: s.id != null ? s.id : stepSeq++,
     enabled: s.enabled !== false,
     disable_reason: s.disable_reason || '',
-    ...s,
     element_name: elementName ?? s.element_name,
     remark: nextRemark,
     on_fail: normalizeOnFail(s.on_fail)
@@ -970,18 +1418,89 @@ const filteredStepItems = computed(() => {
   const searching = !!stepKeyword.value.trim()
   const hidden = searching ? new Set() : computeCollapsedHiddenIndices(list, collapsedBlockIds.value)
   return filteredSteps.value.map(step => {
-    const index = list.findIndex(s => s.id === step.id)
-    const collapsedCount = isFlowBlockStart(step) && collapsedBlockIds.value.has(step.id)
+    const index = list.findIndex(s => s === step || (s.id != null && s.id === step.id))
+    const key = blockCollapseKey(step, index)
+    const collapsedCount = isFlowBlockStart(step) && collapsedBlockIds.value.has(key)
       ? Math.max(0, findBlockEndIndex(list, index) - index)
       : 0
     return {
       step,
       index,
+      collapseKey: key,
       depth: index >= 0 ? depths[index] : 0,
       collapsedCount
     }
   }).filter(x => x.index >= 0 && !hidden.has(x.index))
 })
+
+/** 顶层步骤：块内子步骤 / end_block 不单独占一行，改嵌在判断卡片内；编号不含块内步骤 */
+const topLevelStepItems = computed(() => {
+  const nested = computeIndicesInsideBlocks(steps.value)
+  let seq = 0
+  return filteredStepItems.value
+    .filter(item => {
+      if (item.step.type === 'end_block') return false
+      return !nested.has(item.index)
+    })
+    .map(item => ({
+      ...item,
+      displayNo: ++seq
+    }))
+})
+
+/** 总步骤数（不含判断/循环块内步骤与 end_block） */
+const topLevelStepCount = computed(() => {
+  const nested = computeIndicesInsideBlocks(steps.value)
+  let n = 0
+  steps.value.forEach((s, i) => {
+    if (!s || s.type === 'end_block') return
+    if (nested.has(i)) return
+    n += 1
+  })
+  return n
+})
+
+/** 按 branch/end_block 结构取直接子步骤（不依赖 indent，避免 indent:0 导致嵌套丢失） */
+function directBlockChildren(parentItem) {
+  const list = steps.value
+  const start = parentItem?.index
+  if (start == null || start < 0) return []
+  const end = findBlockEndIndex(list, start)
+  if (end <= start) return []
+  const out = []
+  let i = start + 1
+  while (i < end) {
+    const s = list[i]
+    if (!s || s.type === 'end_block') {
+      i += 1
+      continue
+    }
+    out.push({
+      step: s,
+      index: i,
+      depth: (parentItem.depth || 0) + 1,
+      collapseKey: blockCollapseKey(s, i)
+    })
+    if (isFlowBlockStart(s)) {
+      const childEnd = findBlockEndIndex(list, i)
+      i = childEnd > i ? childEnd + 1 : i + 1
+    } else {
+      i += 1
+    }
+  }
+  return out
+}
+
+function computeIndicesInsideBlocks(list) {
+  const nested = new Set()
+  for (let i = 0; i < list.length; i++) {
+    if (!isFlowBlockStart(list[i])) continue
+    const end = findBlockEndIndex(list, i)
+    if (end <= i) continue
+    for (let j = i + 1; j <= end; j++) nested.add(j)
+  }
+  return nested
+}
 
 function findBlockEndIndex(list, startIdx) {
   const start = list[startIdx]
@@ -995,7 +1514,16 @@ function findBlockEndIndex(list, startIdx) {
       if (depth === 0) return i
     }
   }
-  return -1
+  // 无闭合 end_block 时：按缩进隐藏后续更深层级，直到回到同级
+  const depths = computeStepDepths(list)
+  const base = depths[startIdx] ?? 0
+  let last = startIdx
+  for (let i = startIdx + 1; i < list.length; i++) {
+    const d = depths[i] ?? 0
+    if (d <= base) break
+    last = i
+  }
+  return last > startIdx ? last : -1
 }
 
 function isFlowBlockStartType(t) {
@@ -1011,7 +1539,7 @@ function computeCollapsedHiddenIndices(list, collapsedIds) {
   if (!collapsedIds?.size) return hidden
   for (let i = 0; i < list.length; i++) {
     const s = list[i]
-    if (!isFlowBlockStart(s) || !collapsedIds.has(s.id)) continue
+    if (!isFlowBlockStart(s) || !collapsedIds.has(blockCollapseKey(s, i))) continue
     const end = findBlockEndIndex(list, i)
     if (end <= i) continue
     for (let j = i + 1; j <= end; j++) hidden.add(j)
@@ -1019,8 +1547,12 @@ function computeCollapsedHiddenIndices(list, collapsedIds) {
   return hidden
 }
 
+function blockCollapseKey(step, index) {
+  return step?.id != null ? step.id : `idx:${index}`
+}
+
 function toggleBlockCollapse(stepId) {
-  if (stepId == null) return
+  if (stepId == null || stepId === '') return
   const next = new Set(collapsedBlockIds.value)
   if (next.has(stepId)) next.delete(stepId)
   else next.add(stepId)
@@ -1033,25 +1565,28 @@ function expandAllBlocks() {
 
 function collapseAllBlocks() {
   const next = new Set()
-  for (const s of steps.value) {
-    if (isFlowBlockStart(s) && s.id != null) next.add(s.id)
-  }
+  steps.value.forEach((s, i) => {
+    if (isFlowBlockStart(s)) next.add(blockCollapseKey(s, i))
+  })
   collapsedBlockIds.value = next
 }
 
 function computeStepDepths(list) {
+  // 以 branch/end_block 结构为准；显式 indent 仅在更大时加深（用户手动多缩进）
   const depths = []
   let depth = 0
   for (const s of list) {
     if (s.type === 'end_block') {
       depth = Math.max(0, depth - 1)
-      depths.push(typeof s.indent === 'number' ? s.indent : depth)
+      depths.push(depth)
       continue
     }
-    const d = typeof s.indent === 'number' ? s.indent : depth
+    const structural = depth
+    const indent = typeof s.indent === 'number' ? s.indent : structural
+    const d = Math.max(structural, Math.min(6, indent))
     depths.push(d)
-    if (isFlowBlockStartType(s.type)) {
-      depth = Math.min(6, (typeof s.indent === 'number' ? s.indent : depth) + 1)
+    if (isFlowBlockStartType(s.type) && s.branch_mode !== 'try_catch') {
+      depth = Math.min(6, structural + 1)
     }
   }
   return depths
@@ -2007,6 +2542,7 @@ function addBranchStep() {
     indent: base
   })
   quickAddStep('end_block', { block_type: 'branch', remark: '', indent: base })
+  nextTick(() => collapseAllBlocks())
   ElMessage.info('已插入独立 if 块。条件不成立时，在该结束块之后紧挨添加 else if / else 块')
 }
 
@@ -2048,6 +2584,11 @@ function insertIndependentBlockAfter(endIdx, headerType, headerExtra) {
   const header = mk(headerType, headerExtra)
   const end = mk('end_block', { block_type: 'branch', remark: '' })
   steps.value.splice(endIdx + 1, 0, header, end)
+  nextTick(() => {
+    const next = new Set(collapsedBlockIds.value)
+    next.add(blockCollapseKey(header, endIdx + 1))
+    collapsedBlockIds.value = next
+  })
   return header
 }
 
@@ -2099,6 +2640,7 @@ function addLoopStep() {
     indent: base
   })
   quickAddStep('end_block', { block_type: 'loop', remark: '', indent: base })
+  nextTick(() => collapseAllBlocks())
   ElMessage.info('已插入 while 块：请点「while循环」行的「此后插入」，或点「结束块」的「块内插入」，在中间编排子步骤')
 }
 
@@ -2243,7 +2785,7 @@ function onRemarkMouseDown(e) {
 
 function onStepDragStart(e, index) {
   const t = e.target
-  if (t?.closest?.('input, textarea, .el-input, .step-remark-row, .el-checkbox, .el-switch, button, a')) {
+  if (t?.closest?.('input, textarea, .el-input, .step-remark-row, .step-remark-inline, .step-meta-row, .step-remark-input, .el-checkbox, .el-switch, button, a')) {
     e.preventDefault()
     return
   }
@@ -2475,6 +3017,38 @@ function goEditViewedCommonStep() {
   if (!id) return
   closeCommonView()
   router.push({ path: `/common-steps/${id}/edit`, query: { returnTo: route.fullPath } })
+}
+
+async function saveCommonViewScript() {
+  const row = commonViewRow.value
+  if (!row?.id) {
+    ElMessage.warning('当前公共步骤无法保存')
+    return
+  }
+  // 规范化 script 字段
+  for (const s of commonViewSteps.value || []) {
+    if (s?.type === 'custom_script' && s.script_code == null && s.script != null) {
+      s.script_code = s.script
+    }
+  }
+  try {
+    let payload = { version: 1, steps: commonViewSteps.value }
+    try {
+      const raw = JSON.parse(row.steps_content || '{}')
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        payload = { ...raw, steps: commonViewSteps.value }
+      }
+    } catch { /* use default envelope */ }
+    await commonStepApi.update(row.id, {
+      name: row.name,
+      description: row.description,
+      steps_content: JSON.stringify(payload)
+    })
+    row.steps_content = JSON.stringify(payload)
+    ElMessage.success('脚本已保存到公共步骤')
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+  }
 }
 
 function consumeInvokeCommonQuery() {
@@ -2860,6 +3434,7 @@ async function loadTask() {
       meta.on_fail = parsed.on_fail || 'fail'
       meta.screenshot_policy = parsed.screenshot_policy || 'on_fail'
       steps.value = (parsed.steps || []).map(mapLoadedStep)
+      nextTick(() => collapseAllBlocks())
     } catch { steps.value = [] }
     lastSavedSnapshot = takeEditorSnapshot()
     dirty = false
@@ -2880,6 +3455,7 @@ async function loadTask() {
     meta.on_fail = parsed.on_fail || 'fail'
     meta.screenshot_policy = parsed.screenshot_policy || 'on_fail'
     steps.value = (parsed.steps || []).map(mapLoadedStep)
+    nextTick(() => collapseAllBlocks())
   } catch {
     steps.value = []
   }
@@ -3261,12 +3837,59 @@ export default {
   color: #cbd5e1;
 }
 
+.step-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 14px;
+  width: 100%;
+}
+.step-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  padding: 0 0 6px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.step-index-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #86909c;
+  line-height: 22px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.step-remark-input {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  width: auto;
+}
+.step-remark-input :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 4px !important;
+}
+.step-remark-input :deep(.el-input__inner) {
+  font-size: 13px;
+  color: #86909c;
+  line-height: 22px;
+  height: 22px;
+}
+.step-remark-input :deep(.el-input__inner::placeholder) {
+  color: #c9cdd4;
+}
+.step-remark-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: none !important;
+}
 .step-item {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   border-radius: 10px;
   border: 1px solid transparent;
   transition: box-shadow 0.15s, transform 0.15s;
@@ -3362,6 +3985,24 @@ export default {
   flex-shrink: 0;
   margin-top: 2px;
 }
+.jlc-step-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 0;
+  min-width: 0;
+}
+.jlc-step-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #86909c;
+  line-height: 22px;
+  font-weight: 500;
+}
+.step-enable-switch {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .step-body {
   flex: 1;
   display: flex;
@@ -3417,6 +4058,376 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.invoke-common-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #fff !important;
+  border: 1px solid #e5e6eb !important;
+  border-radius: 4px;
+  box-shadow: none;
+  position: relative;
+}
+.invoke-common-card .icc-top {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+}
+.invoke-common-card:hover {
+  box-shadow: none;
+  border-color: #c9cdd4 !important;
+}
+.icc-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.icc-top:empty {
+  display: none;
+}
+.icc-step-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #86909c;
+  line-height: 22px;
+  font-weight: 500;
+}
+.icc-disabled-hint {
+  font-size: 12px;
+  color: #86909c;
+}
+.icc-top-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.invoke-common-card:hover .icc-top-actions,
+.invoke-common-card.selected .icc-top-actions {
+  opacity: 1;
+}
+.icc-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+.common-step-use-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #ff7d00;
+  background: #fff;
+  border: 1px solid #ff9a2e;
+}
+.common-step-name-box {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 2px;
+  font-size: 13px;
+  line-height: 20px;
+  color: #4e5969;
+  background: #f2f3f5;
+  border: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.icc-view-btn {
+  flex-shrink: 0;
+  color: #1d2129 !important;
+  background: #fff !important;
+  border: 1px solid #c9cdd4 !important;
+  border-radius: 2px;
+  padding: 7px 14px;
+  height: auto;
+  font-size: 13px;
+}
+.icc-view-btn:hover {
+  border-color: #86909c !important;
+  color: #1d2129 !important;
+  background: #f7f8fa !important;
+}
+
+/* 主列表：判断 / 循环卡片 */
+.judge-list-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 !important;
+  background: #fff !important;
+  border: 1px solid #e5e6eb !important;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: none;
+}
+.judge-list-card:hover {
+  box-shadow: none;
+  border-color: #c9cdd4 !important;
+}
+.jlc-loop-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #fffbf5;
+  border-bottom: 1px solid #f5e6d3;
+  cursor: pointer;
+  user-select: none;
+}
+.jlc-loop-tag {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e8a054;
+  background: #fff;
+  border: 1px solid #f0c48a;
+}
+.jlc-loop-hint {
+  flex: 1;
+  font-size: 13px;
+  color: #165dff;
+}
+.jlc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+}
+.jlc-check {
+  flex-shrink: 0;
+  transform: scale(0.9);
+}
+.jlc-drag {
+  flex-shrink: 0;
+  cursor: grab;
+  color: #c9cdd4;
+  padding: 0 2px;
+  user-select: none;
+}
+.jlc-drag:active {
+  cursor: grabbing;
+}
+.jlc-if-icon {
+  flex-shrink: 0;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #d9892b;
+  background: #fff3e0;
+  border: 1px solid #f0c48a;
+}
+.jlc-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.jlc-title {
+  flex-shrink: 0;
+  max-width: 36%;
+  font-size: 14px;
+  font-weight: 500;
+  color: #165dff;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jlc-action-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  max-width: 260px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #165dff;
+  background: #e8f3ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jlc-assert-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #4e5969;
+}
+.jlc-pill {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 220px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #1d2129;
+  background: #f2f3f5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jlc-pill-warn {
+  color: #c9a227;
+  background: #fff8ee;
+  border: 1px dashed #f0c48a;
+}
+.jlc-assert-state {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #1d2129;
+}
+.jlc-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #d9892b;
+  background: #fff8ee;
+  border: 1px solid #f0c48a;
+}
+.jlc-chevron {
+  flex-shrink: 0;
+  color: #86909c;
+  font-size: 14px;
+  transition: transform 0.15s;
+}
+.jlc-chevron.open {
+  transform: rotate(180deg);
+}
+.jlc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0;
+  padding: 0 10px 8px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.judge-list-card:hover .jlc-actions,
+.judge-list-card.selected .jlc-actions {
+  opacity: 1;
+}
+.jlc-body {
+  padding: 4px 14px 12px 16px;
+  border-top: 1px solid #f2f3f5;
+  background: #fcfcfd;
+}
+.jlc-nested-judge {
+  margin: 0;
+}
+.jlc-child {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  margin-top: 0;
+  position: relative;
+  padding: 8px 0;
+}
+.jlc-child:not(:last-child) .jlc-child-rail::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  bottom: -8px;
+  width: 2px;
+  margin-left: -1px;
+  background: #e5e6eb;
+  z-index: 0;
+  pointer-events: none;
+}
+.jlc-child-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+  z-index: 1;
+}
+.jlc-child-content {
+  min-width: 0;
+}
+.jlc-child-step {
+  padding: 0;
+}
+.jlc-child-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #86909c;
+  position: relative;
+  z-index: 1;
+}
+.jlc-child-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f98981;
+  box-shadow: 0 0 0 2px rgba(249, 137, 129, 0.25);
+  flex-shrink: 0;
+  z-index: 2;
+}
+.jlc-child-dot.dot-block {
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+.jlc-child-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-left: 0;
+}
+.jlc-child-action {
+  font-size: 13px;
+  color: #165dff;
+  line-height: 22px;
+}
+.jlc-child-text {
+  font-size: 13px;
+  color: #1d2129;
+  line-height: 22px;
+}
+.jlc-empty {
+  padding: 10px 0 4px;
+  font-size: 12px;
+  color: #c9cdd4;
+}
+
 .step-locator {
   color: var(--el-color-info);
   font-size: 12px;
@@ -3551,57 +4562,8 @@ export default {
   font-size: 13px;
   line-height: 1.5;
 }
-.common-view-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 420px;
-  overflow: auto;
-}
-.common-view-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  min-width: 0;
-}
-.common-view-drill {
-  flex-shrink: 0;
-  margin-left: auto;
-}
-.common-view-idx {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--atp-primary, #8b6cf0);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.common-view-summary {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  color: #334155;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.common-view-locator {
-  flex-shrink: 0;
-  max-width: 220px;
-  font-size: 12px;
-  color: #64748b;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.common-view-body {
+  min-height: 120px;
 }
 .script-code-input :deep(textarea) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
