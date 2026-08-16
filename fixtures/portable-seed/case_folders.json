@@ -1,0 +1,36 @@
+[ {
+  "id" : 3,
+  "createdAt" : "2026-08-15T01:10:18.796855",
+  "name" : "新品适配",
+  "parentId" : null,
+  "sortOrder" : 0,
+  "teamId" : 1
+}, {
+  "id" : 4,
+  "createdAt" : "2026-08-15T01:10:27.938687",
+  "name" : "集成用例",
+  "parentId" : null,
+  "sortOrder" : 1,
+  "teamId" : 1
+}, {
+  "id" : 5,
+  "createdAt" : "2026-08-15T01:10:42.527431",
+  "name" : "冒烟用例",
+  "parentId" : null,
+  "sortOrder" : 2,
+  "teamId" : 1
+}, {
+  "id" : 10001,
+  "createdAt" : "2026-07-05T04:21:41.496201",
+  "name" : "默认模块",
+  "parentId" : null,
+  "sortOrder" : 0,
+  "teamId" : 1
+}, {
+  "id" : 10005,
+  "createdAt" : "2026-07-05T04:35:49.603467",
+  "name" : "集成用例",
+  "parentId" : null,
+  "sortOrder" : 0,
+  "teamId" : 1
+} ]

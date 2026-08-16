@@ -551,6 +551,10 @@
                 :insert-at-index="insertAtIndex"
                 :common-steps="commonSteps"
                 :locator-hint="locatorHint"
+                :added-steps="steps"
+                :type-label-fn="stepTypeLabel"
+                :summary-fn="stepSummary"
+                :tag-type-fn="stepTagType"
                 @update:model-value="onNewStepUpdate"
                 @update:catalog-id="(id) => (selectedCatalogId = id)"
                 @update:expanded-keys="(keys) => (treeExpandedKeys = keys)"
@@ -560,6 +564,8 @@
                 @pick="goElementPicker"
                 @pool="onOpenPool"
                 @create-common="goCreateCommonStep"
+                @edit="editStep"
+                @remove="removeStep"
               />
             </el-tab-pane>
           </el-tabs>
@@ -653,6 +659,21 @@
       @closed="onPoolPickerClosed"
     >
       <div class="pool-picker-toolbar">
+        <el-select
+          v-model="poolPageFilter"
+          clearable
+          filterable
+          placeholder="全部页面"
+          style="width: 160px"
+        >
+          <el-option label="全部页面" value="" />
+          <el-option
+            v-for="p in poolPageOptions"
+            :key="p"
+            :label="p"
+            :value="p"
+          />
+        </el-select>
         <el-input v-model="poolKeyword" clearable placeholder="搜索控件名称 / 页面 / 定位" style="flex:1" />
         <el-checkbox v-if="isCoordPoolMode" v-model="poolBoundsOnly">仅坐标定位</el-checkbox>
       </div>
@@ -1077,6 +1098,7 @@ function timelineBlockTag(step) {
 }
 const showPoolPicker = ref(false)
 const poolKeyword = ref('')
+const poolPageFilter = ref('')
 const poolPickMode = ref('locator') // locator | tap | swipe_start | swipe_end
 const poolBoundsOnly = ref(true)
 const selectedPoolRows = ref([])
@@ -1294,7 +1316,8 @@ function mapLoadedStep(s) {
     disable_reason: s.disable_reason || '',
     element_name: elementName ?? s.element_name,
     remark: nextRemark,
-    on_fail: normalizeOnFail(s.on_fail)
+    on_fail: normalizeOnFail(s.on_fail),
+    logic_process: s.logic_process || 'none'
   }
 }
 
@@ -1333,7 +1356,7 @@ const newStepDefaults = () => ({
   event_name: '', props_json: '{}', verify_url: '',
   conditions: '[{"type":"text","value":"首页"}]',
   enabled: true, disable_reason: '', disable_mode: '',
-  retry_count: 0, on_fail: 'fail', key: 'back', template_id: null, template_path: '', threshold: 0.85,
+  retry_count: 0, on_fail: 'fail', logic_process: 'none', key: 'back', template_id: null, template_path: '', threshold: 0.85,
   prompt: '', profile: '2g', locale: 'zh_cn', max_ms: 5000,
   stream: 'music', tolerance: 0, direction: 'up',
   condition: '', branch_true: '', branch_false: '', loop_count: 3, loop_body: '',
@@ -1368,10 +1391,23 @@ const canSaveToPool = computed(() => {
   return !!(name && (loc || newStep.locator_type))
 })
 
+const poolPageOptions = computed(() => {
+  const set = new Set()
+  for (const p of poolItems.value || []) {
+    const name = String(p.page_name || '').trim()
+    if (name) set.add(name)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
 const filteredPoolItems = computed(() => {
   let list = poolItems.value || []
   if (isCoordPoolMode.value && poolBoundsOnly.value) {
     list = list.filter(isCoordinateControl)
+  }
+  const page = poolPageFilter.value.trim()
+  if (page) {
+    list = list.filter(p => String(p.page_name || '').trim() === page)
   }
   const k = poolKeyword.value.trim().toLowerCase()
   if (!k) return list
@@ -2095,6 +2131,8 @@ function submitStepForm() {
   if (editingIndex.value !== null) {
     const step = buildStepFromForm()
     if (!step) return
+    // 编辑单步时不改结构；逻辑块请用「逻辑处理」在新增时生成
+    delete step.logic_process
     const id = steps.value[editingIndex.value]?.id
     step.id = id ?? step.id
     steps.value[editingIndex.value] = step
@@ -2102,17 +2140,218 @@ function submitStepForm() {
     insertAtIndex.value = null
     resetNewStep()
     ElMessage.success('步骤已更新')
-    rightTab.value = 'list'
+    rightTab.value = 'add'
+    return
+  }
+  const logic = newStep.logic_process || 'none'
+  if ((logic === 'else_if' || logic === 'else') && findNearestChainEndIndex() < 0) {
+    ElMessage.warning('当前没有可衔接的 if 分支，请先添加「逻辑处理 = if」的步骤')
     return
   }
   addStep()
-  // 定点插入模式：留在新增页便于连续往中间加步骤
-  if (insertAtIndex.value == null) rightTab.value = 'list'
+  rightTab.value = 'add'
+}
+
+/** 从动作步骤提取 if/while 条件（断言 / 带定位控件优先） */
+function extractConditionFromBody(body) {
+  if (!body) {
+    return { condition_kind: 'custom', condition: 'true', timeout: 5 }
+  }
+  if (body.type === 'assert_exists' || body.type === 'assert_not_exists') {
+    const not = body.type === 'assert_not_exists'
+    return {
+      condition_kind: not ? 'not_exists' : 'exists',
+      condition: not ? '控件不存在' : '控件存在',
+      element_name: body.element_name || '',
+      display_name: body.display_name || body.element_name || '',
+      locator_type: body.locator_type || '',
+      locator_value: body.locator_value || '',
+      timeout: body.timeout || body.wait_timeout || 5
+    }
+  }
+  if ((body.locator_value || '').trim() && (body.element_name || '').trim()) {
+    return {
+      condition_kind: 'exists',
+      condition: '控件存在',
+      element_name: body.element_name,
+      display_name: body.display_name || body.element_name,
+      locator_type: body.locator_type || '',
+      locator_value: body.locator_value,
+      timeout: body.wait_timeout || body.timeout || 5
+    }
+  }
+  if (body.condition_kind) {
+    return {
+      condition_kind: body.condition_kind,
+      condition: body.condition || conditionLabel(body.condition_kind, '', {
+        var_name: body.var_name,
+        expected: body.expected
+      }),
+      element_name: body.element_name || '',
+      display_name: body.display_name || '',
+      locator_type: body.locator_type || '',
+      locator_value: body.locator_value || '',
+      var_name: body.var_name || '',
+      expected: body.expected || '',
+      timeout: body.timeout || 5
+    }
+  }
+  return { condition_kind: 'custom', condition: 'true', timeout: 5 }
+}
+
+function isAssertAsConditionBody(body) {
+  return body && (body.type === 'assert_exists' || body.type === 'assert_not_exists')
+}
+
+function mkControlStep(type, extra = {}) {
+  return {
+    id: stepSeq++,
+    enabled: true,
+    disable_reason: '',
+    disable_mode: '',
+    ...newStepDefaults(),
+    type,
+    logic_process: 'none',
+    ...extra
+  }
+}
+
+/**
+ * 按「逻辑处理」生成真实 if / else if / else / while 块（与脚本生成器链式跳过约定一致）。
+ * @returns {boolean} 是否已按逻辑块处理（true 则调用方勿再普通插入）
+ */
+function addStepWithLogicProcess(bodyStep) {
+  const logic = bodyStep.logic_process || 'none'
+  if (!logic || logic === 'none') return false
+  // 本身已是流程头：走原有块结束逻辑
+  if (isFlowBlockStart(bodyStep)) return false
+
+  const cond = extractConditionFromBody(bodyStep)
+  const asCondOnly = isAssertAsConditionBody(bodyStep)
+    && (logic === 'if' || logic === 'while' || logic === 'else_if')
+
+  if (logic === 'else_if' || logic === 'else') {
+    const endIdx = findNearestChainEndIndex()
+    if (endIdx < 0) {
+      ElMessage.warning(logic === 'else'
+        ? '请先添加 if 判断块，再添加 else'
+        : '请先添加 if 判断块，再添加 else if')
+      return true // 已处理（失败提示），阻止再当普通步骤插入
+    }
+    if (logic === 'else') {
+      let start = null
+      for (let i = endIdx - 1; i >= 0; i--) {
+        if (isFlowBlockStart(steps.value[i]) && findBlockEndIndex(steps.value, i) === endIdx) {
+          start = steps.value[i]
+          break
+        }
+      }
+      if (start?.type === 'else') {
+        ElMessage.warning('else 已是链路末尾，不能再追加')
+        return true
+      }
+    }
+    const depths = computeStepDepths(steps.value)
+    const indent = depths[endIdx] ?? 0
+    const header = mkControlStep(logic === 'else' ? 'else' : 'else_if', {
+      indent,
+      ...(logic === 'else' ? {} : cond)
+    })
+    const end = mkControlStep('end_block', { block_type: 'branch', remark: '', indent })
+    const chunk = [header]
+    if (!asCondOnly) {
+      const body = {
+        ...bodyStep,
+        id: stepSeq++,
+        logic_process: 'none',
+        indent: Math.min(6, indent + 1)
+      }
+      chunk.push(body)
+    }
+    chunk.push(end)
+    steps.value.splice(endIdx + 1, 0, ...chunk)
+    insertAtIndex.value = null
+    nextTick(() => {
+      const next = new Set(collapsedBlockIds.value)
+      next.add(blockCollapseKey(header, endIdx + 1))
+      collapsedBlockIds.value = next
+    })
+    ElMessage.success(logic === 'else'
+      ? (asCondOnly ? '已接入 else 块（条件类步骤已并入逻辑头）' : '已接入 else 块，动作步骤已放入块内')
+      : (asCondOnly ? '已接入 else if 块（断言已作为判断条件）' : '已接入 else if 块，动作步骤已放入块内'))
+    return true
+  }
+
+  if (logic === 'if' || logic === 'while') {
+    const at = insertAtIndex.value
+    const depths = computeStepDepths(steps.value)
+    let indent = 0
+    if (at != null && at >= 0 && at <= steps.value.length) {
+      indent = suggestIndentForInsert(at)
+    } else if (depths.length) {
+      indent = depths[depths.length - 1] || 0
+    }
+    const isLoop = logic === 'while'
+    const header = mkControlStep(isLoop ? 'loop' : 'branch', {
+      indent,
+      ...cond,
+      ...(isLoop ? { loop_mode: 'while', loop_count: 10 } : {})
+    })
+    const end = mkControlStep('end_block', {
+      block_type: isLoop ? 'loop' : 'branch',
+      remark: '',
+      indent
+    })
+    const chunk = [header]
+    if (!asCondOnly) {
+      chunk.push({
+        ...bodyStep,
+        id: stepSeq++,
+        logic_process: 'none',
+        indent: Math.min(6, indent + 1)
+      })
+    }
+    chunk.push(end)
+    let insertPos
+    if (at != null && at >= 0 && at <= steps.value.length) {
+      steps.value.splice(at, 0, ...chunk)
+      insertPos = at
+      insertAtIndex.value = at + chunk.length
+    } else {
+      insertPos = steps.value.length
+      steps.value.push(...chunk)
+      insertAtIndex.value = null
+    }
+    nextTick(() => {
+      const next = new Set(collapsedBlockIds.value)
+      next.add(blockCollapseKey(header, insertPos))
+      collapsedBlockIds.value = next
+    })
+    ElMessage.success(isLoop
+      ? (asCondOnly ? '已创建 while 循环块（断言已作为循环条件）' : '已创建 while 循环块，动作步骤已放入循环体内')
+      : (asCondOnly ? '已创建 if 判断块（断言已作为判断条件）' : '已创建 if 判断块，动作步骤已放入成立分支内'))
+    return true
+  }
+
+  return false
 }
 
 function addStep() {
   const step = buildStepFromForm()
   if (!step) return
+
+  // 逻辑处理：生成真实 if / else if / else / while 链路（脚本可执行）
+  if (addStepWithLogicProcess(step)) {
+    resetNewStep(step.type)
+    if (selectedCatalogId.value) {
+      const leaf = getCatalogLeaf(selectedCatalogId.value)
+      if (leaf && stepAddPanelRef.value?.applyLeaf) {
+        stepAddPanelRef.value.applyLeaf(leaf, { keepCurrent: false, openDialog: false })
+      }
+    }
+    return
+  }
+
   const at = insertAtIndex.value
   let insertedAt
   if (at != null && at >= 0 && at <= steps.value.length) {
@@ -2126,20 +2365,14 @@ function addStep() {
     insertedAt = steps.value.length - 1
     ElMessage.success('步骤已添加')
   }
-  // if / else if / else / while 各自带独立结束块
+  // 直接选流程指令时：if / else if / else / while 各自带独立结束块
   if (isFlowBlockStart(step)) {
     const endAt = insertedAt + 1
-    const endStep = {
-      id: stepSeq++,
-      enabled: true,
-      disable_reason: '',
-      disable_mode: '',
-      ...newStepDefaults(),
-      type: 'end_block',
+    const endStep = mkControlStep('end_block', {
       block_type: step.type === 'loop' ? 'loop' : 'branch',
       remark: '',
       indent: typeof step.indent === 'number' ? step.indent : 0
-    }
+    })
     steps.value.splice(endAt, 0, endStep)
     if (insertAtIndex.value != null) insertAtIndex.value = endAt + 1
   }
@@ -2147,7 +2380,7 @@ function addStep() {
   if (selectedCatalogId.value) {
     const leaf = getCatalogLeaf(selectedCatalogId.value)
     if (leaf && stepAddPanelRef.value?.applyLeaf) {
-      stepAddPanelRef.value.applyLeaf(leaf, { keepCurrent: false })
+      stepAddPanelRef.value.applyLeaf(leaf, { keepCurrent: false, openDialog: false })
     }
   }
 }
@@ -2180,6 +2413,7 @@ function beginInsertAt(idx, mode = 'after') {
   ElMessage.info(`将插入到第 ${insertAtIndex.value + 1} 步位置（可连续添加）`)
   nextTick(() => {
     document.querySelector('.workspace-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    stepAddPanelRef.value?.openStepDialog?.()
   })
 }
 
@@ -2196,6 +2430,7 @@ function editStep(idx) {
   rightTab.value = 'add'
   nextTick(() => {
     document.querySelector('.workspace-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    stepAddPanelRef.value?.openStepDialog?.()
   })
 }
 
@@ -2310,6 +2545,7 @@ function poolLocatorTypeLabel(type) {
 async function openPoolPicker(mode = 'locator') {
   poolPickMode.value = mode || 'locator'
   poolKeyword.value = ''
+  poolPageFilter.value = ''
   selectedPoolRows.value = []
   selectedPoolRow.value = null
   poolBoundsOnly.value = isCoordPoolMode.value
@@ -3068,6 +3304,11 @@ function focusAddPanel(type = 'wait') {
   rightTab.value = 'add'
   nextTick(() => {
     document.querySelector('.workspace-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (catalogId) {
+      stepAddPanelRef.value?.selectCatalog?.(catalogId, { keepCurrent: false, openDialog: true })
+    } else {
+      stepAddPanelRef.value?.startAddStep?.()
+    }
   })
 }
 

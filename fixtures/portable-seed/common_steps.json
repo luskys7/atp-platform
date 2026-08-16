@@ -1,0 +1,61 @@
+[ {
+  "id" : 1,
+  "createdAt" : "2026-08-15T03:29:18.948510",
+  "createdBy" : 1,
+  "deletedAt" : null,
+  "description" : "基础原子步骤 · 点击控件 · 安卓",
+  "inputParams" : null,
+  "name" : "【F】【国内】通过密码登录app",
+  "outputParams" : null,
+  "status" : "active",
+  "stepsContent" : "{\n  \"steps\": [\n    {\n      \"type\": \"click\",\n      \"enabled\": true,\n      \"timeout\": 3,\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//ImageView[contains(@content-desc,\\\"其他方式登录\\\")]\",\n      \"element_name\": \"登录-其他方式登录\"\n    },\n    {\n      \"type\": \"click\",\n      \"enabled\": true,\n      \"timeout\": 2,\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//View[contains(@content-desc,\\\"同意并继续\\\")]\",\n      \"element_name\": \"登录-同意协议（同意并继续）\"\n    },\n    {\n      \"type\": \"tap_xy\",\n      \"enabled\": true,\n      \"timeout\": 3,\n      \"x\": 618,\n      \"y\": 2345,\n      \"element_name\": \"登录-选择登录方式\",\n      \"pool_id\": 4,\n      \"locator_type\": \"bounds\",\n      \"locator_value\": \"618,2345\"\n    },\n    {\n      \"type\": \"click\",\n      \"enabled\": true,\n      \"timeout\": 3,\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//FrameLayout[1]/LinearLayout[1]/FrameLayout[1]/FrameLayout[1]/View[1]/View[1]/View[1]/View[1]/EditText[1]\",\n      \"element_name\": \"登录-账号输入框（手机号）\"\n    },\n    {\n      \"type\": \"input\",\n      \"enabled\": true,\n      \"timeout\": 3,\n      \"text\": \"13342905882\",\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//FrameLayout[1]/LinearLayout[1]/FrameLayout[1]/FrameLayout[1]/View[1]/View[1]/View[1]/View[1]/EditText[1]\",\n      \"element_name\": \"登录-账号输入框（手机号）\"\n    },\n    {\n      \"type\": \"wait\",\n      \"enabled\": true,\n      \"seconds\": 1\n    },\n    {\n      \"type\": \"click\",\n      \"enabled\": true,\n      \"timeout\": 3,\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//FrameLayout[1]/LinearLayout[1]/FrameLayout[1]/FrameLayout[1]/View[1]/View[1]/View[1]/View[1]/ImageView[3]\",\n      \"element_name\": \"登录-输入密码可视化按钮\"\n    },\n    {\n      \"type\": \"wait\",\n      \"enabled\": true,\n      \"seconds\": 1\n    },\n    {\n      \"type\": \"click\",\n      \"enabled\": true,\n      \"timeout\": 2,\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//FrameLayout[1]/LinearLayout[1]/FrameLayout[1]/FrameLayout[1]/View[1]/View[1]/View[1]/View[1]/EditText[2]\",\n      \"element_name\": \"登录-输入密码框\"\n    },\n    {\n      \"type\": \"input\",\n      \"enabled\": true,\n      \"timeout\": 2,\n      \"text\": \"Aa123456\",\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//FrameLayout[1]/LinearLayout[1]/FrameLayout[1]/FrameLayout[1]/View[1]/View[1]/View[1]/View[1]/EditText[2]\",\n      \"element_name\": \"登录-输入密码框\"\n    },\n    {\n      \"type\": \"click\",\n      \"enabled\": true,\n      \"timeout\": 2,\n      \"locator_type\": \"xpath\",\n      \"locator_value\": \"//View[contains(@content-desc,\\\"登录\\\")]\",\n      \"element_name\": \"登录\"\n    }\n  ],\n  \"meta\": {\n    \"category\": \"atomic\",\n    \"platform\": \"android\",\n    \"action_key\": \"click\",\n    \"ui_mode\": \"simple\",\n    \"template_id\": \"\"\n  }\n}",
+  "updatedAt" : "2026-08-15T03:30:31.788616"
+}, {
+  "id" : 10001,
+  "createdAt" : "2026-07-05T04:39:15.697562",
+  "createdBy" : 1,
+  "deletedAt" : "2026-07-05T04:39:15.708564",
+  "description" : "d2",
+  "inputParams" : null,
+  "name" : "CRUD-Step-Updated",
+  "outputParams" : null,
+  "status" : "active",
+  "stepsContent" : "{\"steps\":[]}",
+  "updatedAt" : "2026-07-05T04:39:15.709564"
+}, {
+  "id" : 10002,
+  "createdAt" : "2026-07-17T02:20:20.686879",
+  "createdBy" : 1,
+  "deletedAt" : "2026-07-17T02:20:29.771073",
+  "description" : "行业标准登录模板：打开应用并完成账号密码登录",
+  "inputParams" : null,
+  "name" : "模板_通用登录",
+  "outputParams" : null,
+  "status" : "active",
+  "stepsContent" : "{\n  \"steps\": [\n    {\n      \"type\": \"launch_app\",\n      \"name\": \"启动应用\"\n    },\n    {\n      \"type\": \"input\",\n      \"name\": \"输入账号\",\n      \"locator_type\": \"id\",\n      \"locator_value\": \"username\"\n    },\n    {\n      \"type\": \"input\",\n      \"name\": \"输入密码\",\n      \"locator_type\": \"id\",\n      \"locator_value\": \"password\"\n    },\n    {\n      \"type\": \"click\",\n      \"name\": \"点击登录\",\n      \"locator_type\": \"id\",\n      \"locator_value\": \"login_btn\"\n    }\n  ]\n}",
+  "updatedAt" : "2026-07-17T02:20:29.772072"
+}, {
+  "id" : 10003,
+  "createdAt" : "2026-07-17T02:20:20.943880",
+  "createdBy" : 1,
+  "deletedAt" : "2026-07-17T02:20:28.327632",
+  "description" : "行业标准清理模板：清理应用缓存并回到首页",
+  "inputParams" : null,
+  "name" : "模板_清理缓存",
+  "outputParams" : null,
+  "status" : "active",
+  "stepsContent" : "{\n  \"steps\": [\n    {\n      \"type\": \"shell\",\n      \"name\": \"清理应用缓存\",\n      \"command\": \"pm clear ${app_package}\"\n    },\n    {\n      \"type\": \"launch_app\",\n      \"name\": \"重新启动应用\"\n    }\n  ]\n}",
+  "updatedAt" : "2026-07-17T02:20:28.329631"
+}, {
+  "id" : 10004,
+  "createdAt" : "2026-07-17T02:20:21.005880",
+  "createdBy" : 1,
+  "deletedAt" : "2026-07-17T02:20:26.798283",
+  "description" : "行业标准初始化模板：授权弹窗处理与首页就绪等待",
+  "inputParams" : null,
+  "name" : "模板_应用初始化",
+  "outputParams" : null,
+  "status" : "active",
+  "stepsContent" : "{\n  \"steps\": [\n    {\n      \"type\": \"launch_app\",\n      \"name\": \"启动应用\"\n    },\n    {\n      \"type\": \"click\",\n      \"name\": \"同意隐私协议\",\n      \"locator_type\": \"text\",\n      \"locator_value\": \"同意\",\n      \"optional\": true\n    },\n    {\n      \"type\": \"wait\",\n      \"name\": \"等待首页加载\",\n      \"timeout\": 5000\n    }\n  ]\n}",
+  "updatedAt" : "2026-07-17T02:20:26.800282"
+} ]

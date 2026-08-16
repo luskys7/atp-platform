@@ -12,6 +12,8 @@ backend-java/data/
 tools/
 *.jar
 *.zip
+!fixtures/**/*.zip
+!backend-java/src/main/resources/seed/**/*.zip
 *.7z
 *.rar
 *.mp4
@@ -46,4 +48,14 @@ executor/dist/
 
 # Local build artifacts
 build/
+
+
+# local secrets override
+**/application-local.override.yml
+
+
+scripts/_seed_build/
+
+
+atp-platform.bundle
 

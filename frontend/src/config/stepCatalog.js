@@ -443,7 +443,7 @@ export function toElTreeData(catalog = STEP_CATALOG) {
   return catalog.map(mapNode)
 }
 
-export const COMMON_FORM_FIELDS = ['remark', 'on_fail']
+export const COMMON_FORM_FIELDS = ['remark', 'logic_process', 'on_fail']
 
 /** 步骤失败处理策略（单步可覆盖用例默认策略） */
 export const ON_FAIL_OPTIONS = [
@@ -458,16 +458,45 @@ export const ON_FAIL_LABELS = Object.fromEntries(
   ON_FAIL_OPTIONS.map(o => [o.value, o.label])
 )
 
+/** 步骤逻辑处理：分支 / 循环控制 */
+export const LOGIC_PROCESS_OPTIONS = [
+  { label: '无', value: 'none' },
+  { label: 'if', value: 'if' },
+  { label: 'else if', value: 'else_if' },
+  { label: 'else', value: 'else' },
+  { label: 'while', value: 'while' }
+]
+
 /** 兼容旧值 restart_app → fail */
 export function normalizeOnFail(value) {
   if (!value || value === 'restart_app') return 'fail'
   return ON_FAIL_LABELS[value] ? value : 'fail'
 }
 
+/** el-cascader 选项（仅叶子可选） */
+export function toCascaderOptions(catalog = STEP_CATALOG) {
+  const mapNode = (n) => {
+    const node = { value: n.id, label: n.label }
+    if (n.children?.length) {
+      node.children = n.children.map(mapNode)
+    } else if (n.isLeaf) {
+      node.leaf = true
+    }
+    return node
+  }
+  return catalog.map(mapNode)
+}
+
 export const FIELD_META = {
   remark: { label: '描述信息', kind: 'textarea', placeholder: '' },
+  logic_process: {
+    label: '逻辑处理',
+    kind: 'select',
+    options: LOGIC_PROCESS_OPTIONS,
+    tip: '生成真实 if/else if/else/while 控制块（脚本可执行），非仅选项'
+  },
   on_fail: {
-    label: '失败处理策略',
+    label: '异常处理',
     kind: 'select',
     options: ON_FAIL_OPTIONS
   },

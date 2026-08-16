@@ -27,9 +27,7 @@ const routes = [
       },
       {
         path: 'public-assets',
-        name: 'PublicAssets',
-        component: () => import('@/views/PublicAssets.vue'),
-        meta: { title: '公共组件' }
+        redirect: '/common-steps'
       },
       {
         path: 'project-hub',
@@ -106,6 +104,18 @@ const routes = [
         name: 'PlatformConfig',
         component: () => import('@/views/PlatformConfig.vue'),
         meta: { title: '平台配置' }
+      },
+      {
+        path: 'common-steps',
+        name: 'CommonSteps',
+        component: () => import('@/views/PlatformConfig.vue'),
+        meta: { title: '公共步骤', soloTab: 'steps' }
+      },
+      {
+        path: 'global-params',
+        name: 'GlobalParams',
+        component: () => import('@/views/PlatformConfig.vue'),
+        meta: { title: '全局参数', soloTab: 'global-params', requiresAdmin: true }
       },
       {
         path: 'common-steps/new',
@@ -260,6 +270,17 @@ router.beforeEach((to, from, next) => {
     next('/login')
   } else if (to.path === '/login' && token) {
     next('/dashboard')
+  } else if (to.meta.requiresAdmin) {
+    try {
+      const raw = localStorage.getItem('user')
+      const user = raw ? JSON.parse(raw) : null
+      const role = user?.role || ''
+      if (!['super_admin', 'test_admin'].includes(role)) {
+        next('/platform-config')
+        return
+      }
+    } catch { /* ignore */ }
+    next()
   } else {
     next()
   }

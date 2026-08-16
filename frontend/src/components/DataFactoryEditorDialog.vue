@@ -790,7 +790,7 @@ async function goGlobalParams() {
     }
   }
   emit('update:modelValue', false)
-  router.push({ path: '/platform-config', query: { tab: 'global-params' } })
+  router.push('/global-params')
 }
 
 function validateAll() {

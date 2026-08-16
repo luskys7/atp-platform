@@ -2,6 +2,7 @@ package com.atp.platform.config;
 
 import com.atp.platform.entity.*;
 import com.atp.platform.repository.*;
+import com.atp.platform.service.SeedDataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -33,6 +34,7 @@ public class LocalDataInitializer {
     private final MachineTagRelRepository machineTagRelRepository;
     private final CaseTagRelRepository caseTagRelRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SeedDataService seedDataService;
 
     @Bean
     CommandLineRunner initLocalData() {
@@ -61,6 +63,16 @@ public class LocalDataInitializer {
             }
             userRepository.save(admin);
             log.info("默认管理员已就绪: admin / admin123");
+
+            // 空库优先导入便携种子（控件/用例），避免随后再造空目录占位
+            try {
+                var seedResult = seedDataService.importIfEmpty();
+                if (seedResult != null && !Boolean.TRUE.equals(seedResult.get("skipped"))) {
+                    log.info("便携种子导入结果: {}", seedResult);
+                }
+            } catch (Exception e) {
+                log.warn("便携种子导入跳过: {}", e.getMessage());
+            }
 
             if (whitelistRepository.findBySerialNumber("local-test-device").isEmpty()) {
                 DeviceWhitelist wl = new DeviceWhitelist();

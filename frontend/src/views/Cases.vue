@@ -213,11 +213,11 @@
 
     <!-- 模块 5：底部快捷区 -->
     <section class="shortcut-bar">
-      <div class="shortcut-card" @click="$router.push({ path: '/platform-config', query: { tab: 'steps' } })">
+      <div class="shortcut-card" @click="$router.push('/common-steps')">
         <el-icon :size="22"><Connection /></el-icon>
         <div>
           <h4>公共步骤库</h4>
-          <p>跳转公共组件页面，拖拽复用通用操作步骤</p>
+          <p>跳转公共步骤页，拖拽复用通用操作步骤</p>
         </div>
       </div>
       <div class="shortcut-card" @click="$router.push('/element-picker')">

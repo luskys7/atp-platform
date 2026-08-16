@@ -36,6 +36,8 @@ public class BackupService {
     private final TestAccountRepository accountRepository;
     private final ControlPoolRepository controlPoolRepository;
     private final GlobalParameterRepository globalParameterRepository;
+    private final CaseFolderRepository caseFolderRepository;
+    private final TestSuiteItemRepository suiteItemRepository;
 
     private final ObjectMapper backupMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -70,7 +72,9 @@ public class BackupService {
             try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
                 writeEntry(zos, "manifest.json", manifest);
                 writeEntry(zos, "test_cases.json", caseRepository.findAll());
+                writeEntry(zos, "case_folders.json", caseFolderRepository.findAll());
                 writeEntry(zos, "test_suites.json", suiteRepository.findAll());
+                writeEntry(zos, "test_suite_items.json", suiteItemRepository.findAll());
                 writeEntry(zos, "common_steps.json", commonStepRepository.findAll());
                 writeEntry(zos, "environments.json", environmentRepository.findAll());
                 writeEntry(zos, "data_sets.json", dataSetRepository.findAll());
@@ -101,8 +105,10 @@ public class BackupService {
                 int count = switch (entry.getName()) {
                     case "environments.json" -> restoreEnvironments(data);
                     case "common_steps.json" -> restoreCommonSteps(data);
+                    case "case_folders.json" -> restoreCaseFolders(data);
                     case "test_cases.json" -> restoreCases(data);
                     case "test_suites.json" -> restoreSuites(data);
+                    case "test_suite_items.json" -> restoreSuiteItems(data);
                     case "data_sets.json" -> restoreDataSets(data);
                     case "secure_credentials.json" -> restoreCredentials(data);
                     case "test_accounts.json" -> restoreAccounts(data);
@@ -165,6 +171,24 @@ public class BackupService {
         } catch (IOException e) {
             throw new AppException("BACKUP", "下载失败", HttpStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    private int restoreCaseFolders(byte[] data) throws IOException {
+        List<CaseFolder> list = backupMapper.readValue(data, backupMapper.getTypeFactory()
+                .constructCollectionType(List.class, CaseFolder.class));
+        for (CaseFolder f : list) {
+            caseFolderRepository.save(f);
+        }
+        return list.size();
+    }
+
+    private int restoreSuiteItems(byte[] data) throws IOException {
+        List<TestSuiteItem> list = backupMapper.readValue(data, backupMapper.getTypeFactory()
+                .constructCollectionType(List.class, TestSuiteItem.class));
+        for (TestSuiteItem item : list) {
+            suiteItemRepository.save(item);
+        }
+        return list.size();
     }
 
     private int restoreCases(byte[] data) throws IOException {

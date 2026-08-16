@@ -621,6 +621,21 @@
       @closed="onPoolPickerClosed"
     >
       <div class="pool-toolbar">
+        <el-select
+          v-model="poolPageFilter"
+          clearable
+          filterable
+          placeholder="全部页面"
+          style="width: 160px"
+        >
+          <el-option label="全部页面" value="" />
+          <el-option
+            v-for="p in poolPageOptions"
+            :key="p"
+            :label="p"
+            :value="p"
+          />
+        </el-select>
         <el-input
           v-model="poolKeyword"
           clearable
@@ -737,6 +752,7 @@ const errors = reactive({ name: '', steps: '' })
 const showPoolPicker = ref(false)
 const poolItems = ref([])
 const poolKeyword = ref('')
+const poolPageFilter = ref('')
 const poolBoundsOnly = ref(true)
 const poolPickMode = ref('locator') // locator | swipe_start | swipe_end | tap
 const selectedPoolRow = ref(null)
@@ -755,10 +771,23 @@ const isCoordPickMode = computed(() =>
   ['swipe_start', 'swipe_end', 'tap', 'swipe'].includes(poolPickMode.value)
 )
 
+const poolPageOptions = computed(() => {
+  const set = new Set()
+  for (const p of poolItems.value || []) {
+    const name = String(p.page_name || '').trim()
+    if (name) set.add(name)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
 const filteredPoolItems = computed(() => {
   let list = poolItems.value || []
   if (isCoordPickMode.value && poolBoundsOnly.value) {
     list = list.filter(isCoordinateControl)
+  }
+  const page = poolPageFilter.value.trim()
+  if (page) {
+    list = list.filter(p => String(p.page_name || '').trim() === page)
   }
   const k = poolKeyword.value.trim().toLowerCase()
   if (!k) return list
@@ -1515,6 +1544,7 @@ function locatorTypeLabel(type) {
 async function openPoolPicker(mode = 'locator') {
   poolPickMode.value = mode
   poolKeyword.value = ''
+  poolPageFilter.value = ''
   selectedPoolRow.value = null
   poolBoundsOnly.value = ['swipe_start', 'swipe_end', 'tap', 'swipe'].includes(mode)
   showPoolPicker.value = true

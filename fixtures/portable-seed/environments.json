@@ -1,0 +1,11 @@
+[ {
+  "id" : 1,
+  "baseUrl" : "https://test.example.com",
+  "configJson" : "IntcImVudlwiOlwidGVzdFwifSI=",
+  "createdAt" : "2026-08-15T00:55:01.854968",
+  "description" : null,
+  "envType" : "test",
+  "name" : "测试环境",
+  "status" : "active",
+  "updatedAt" : "2026-08-15T00:55:01.854968"
+} ]

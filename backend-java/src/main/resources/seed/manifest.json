@@ -1,0 +1,12 @@
+{
+  "created_at" : "2026-08-16T23:29:12.575349400",
+  "version" : "1.0",
+  "purpose" : "portable-seed",
+  "counts" : {
+    "control_pools" : 78,
+    "test_cases" : 23,
+    "test_suites" : 7,
+    "common_steps" : 5,
+    "case_folders" : 5
+  }
+}

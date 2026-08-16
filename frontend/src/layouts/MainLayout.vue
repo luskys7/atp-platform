@@ -219,9 +219,10 @@ const menuGroups = computed(() => {
         { path: '/devices', title: '设备管理', icon: 'Iphone' },
         { path: '/element-picker', title: '控件拾取', icon: 'Aim' },
         { path: '/controls', title: '控件库', icon: 'Grid' },
-        { path: '/public-assets', title: '公共组件', icon: 'Box' },
+        { path: '/common-steps', title: '公共步骤', icon: 'Connection' },
+        { path: '/global-params', title: '全局参数', icon: 'SetUp', adminOnly: true },
         { path: '/project-hub', title: '项目中心', icon: 'FolderOpened' }
-      ]
+      ].filter(i => !i.adminOnly || userStore.isAdmin)
     },
     {
       label: '数据管理',
@@ -236,6 +237,7 @@ const menuGroups = computed(() => {
       label: '系统配置',
       items: [
         { path: '/platform-config', title: '成员权限', icon: 'User', query: { tab: 'teams' }, adminOnly: true },
+        { path: '/platform-config', title: '平台配置', icon: 'Tools' },
         { path: '/settings-hub', title: '全局设置', icon: 'Setting' },
         { path: '/platform-config', title: '日志中心', icon: 'Notebook', query: { tab: 'audit' }, adminOnly: true },
         { path: '/ci', title: 'CI/CD流水', icon: 'Connection', adminOnly: true },
@@ -290,6 +292,10 @@ function viewInstanceKey(r) {
   if (r.name === 'CaseAuthor' || r.name === 'CaseAuthorNew') {
     return 'CaseAuthorWorkspace'
   }
+  // 公共步骤 / 全局参数 / 平台配置共用组件，按路由名区分实例
+  if (r.name === 'CommonSteps' || r.name === 'GlobalParams' || r.name === 'PlatformConfig') {
+    return r.name
+  }
   return r.name || r.path
 }
 
@@ -309,9 +315,10 @@ function isActive(item) {
   }
   if (path === '/suites') return route.path.startsWith('/suites')
   if (path === '/machine-adaptation') return route.path.startsWith('/machine-adaptation')
-  if (path === '/public-assets') {
-    return route.path === '/public-assets' || route.path.startsWith('/common-steps')
+  if (path === '/common-steps') {
+    return route.path === '/common-steps' || route.path.startsWith('/common-steps/')
   }
+  if (path === '/global-params') return route.path === '/global-params'
   if (path === '/controls') return route.path.startsWith('/controls')
   if (path === '/element-picker') return route.path.startsWith('/element-picker')
   if (path === '/app-packages') return route.path.startsWith('/app-packages')
@@ -325,7 +332,10 @@ function isActive(item) {
   if (path === '/reports') return route.path.startsWith('/reports')
   if (path === '/recording-quality') return route.path === '/recording-quality'
   if (path === '/wallboard') return route.path === '/wallboard'
-  if (path === '/platform-config') return route.path === '/platform-config' && !route.query.tab
+  // 「平台配置」入口：无 tab 的 /platform-config；带 tab 的侧栏项（定时任务等）走上方 query 判断
+  if (path === '/platform-config' && !query?.tab) {
+    return route.path === '/platform-config' && !route.query.tab
+  }
   if (path === '/ci') return route.path.startsWith('/ci')
   return route.path === path || route.path.startsWith(path + '/')
 }

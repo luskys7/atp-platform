@@ -4,6 +4,7 @@ import com.atp.platform.common.ApiResponse;
 import com.atp.platform.security.SecurityUtils;
 import com.atp.platform.service.AuthService;
 import com.atp.platform.service.BackupService;
+import com.atp.platform.service.SeedDataService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class BackupController {
 
     private final BackupService service;
+    private final SeedDataService seedDataService;
     private final AuthService authService;
 
     @GetMapping
@@ -40,6 +42,15 @@ public class BackupController {
     public ApiResponse<Map<String, Object>> restore(@PathVariable String filename, HttpServletRequest request) {
         Map<String, Object> result = service.restore(filename);
         authService.createAuditLog(SecurityUtils.currentUserId(), "restore", "backup", filename,
+                String.valueOf(result.get("count")), request.getRemoteAddr());
+        return ApiResponse.ok(result);
+    }
+
+    @PostMapping("/install-portable-seed")
+    @PreAuthorize("hasAnyRole('super_admin', 'test_admin')")
+    public ApiResponse<Map<String, Object>> installPortableSeed(HttpServletRequest request) {
+        Map<String, Object> result = seedDataService.importPortableSeed();
+        authService.createAuditLog(SecurityUtils.currentUserId(), "restore", "seed", "atp_portable_seed.zip",
                 String.valueOf(result.get("count")), request.getRemoteAddr());
         return ApiResponse.ok(result);
     }

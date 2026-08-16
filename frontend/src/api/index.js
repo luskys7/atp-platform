@@ -620,7 +620,8 @@ export const backupApi = {
   create: () => request.post('/backups'),
   restore: (filename) => request.post(`/backups/${encodeURIComponent(filename)}/restore`),
   delete: (filename) => request.delete(`/backups/${encodeURIComponent(filename)}`),
-  downloadUrl: (filename) => `/api/v1/backups/${encodeURIComponent(filename)}/download`
+  downloadUrl: (filename) => `/api/v1/backups/${encodeURIComponent(filename)}/download`,
+  installPortableSeed: () => request.post('/backups/install-portable-seed')
 }
 
 export const monitorApi = {

@@ -11,22 +11,8 @@
       </template>
     </PageHeader>
 
-    <!-- 模块 2：统计卡片 -->
+    <!-- 模块 2：统计卡片（公共步骤 / 全局参数已迁至左侧导航） -->
     <div class="stats-row" v-loading="statsLoading">
-      <div class="stat-card tone-primary" @click="goCard(cardByKey('steps'))">
-        <div class="stat-icon"><el-icon :size="20"><Connection /></el-icon></div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stats.steps }}<span class="stat-unit">套</span></div>
-          <div class="stat-label">公共步骤总数</div>
-        </div>
-      </div>
-      <div class="stat-card tone-warning" @click="goCard(cardByKey('params'))">
-        <div class="stat-icon"><el-icon :size="20"><SetUp /></el-icon></div>
-        <div class="stat-body">
-          <div class="stat-value">{{ stats.params }}<span class="stat-unit">条</span></div>
-          <div class="stat-label">全局参数总数</div>
-        </div>
-      </div>
       <div class="stat-card tone-success" @click="goCard(cardByKey('controls'))">
         <div class="stat-icon"><el-icon :size="20"><Grid /></el-icon></div>
         <div class="stat-body">
@@ -199,8 +185,7 @@ const cards = computed(() => {
       title: '公共步骤',
       desc: '封装可复用操作积木，全项目用例、套件钩子共享调用',
       icon: 'Connection',
-      path: '/platform-config',
-      query: { tab: 'steps' },
+      path: '/common-steps',
       tone: 'primary',
       countText: `当前共 ${stats.steps} 套通用步骤`,
       quickLabel: '新建步骤',
@@ -211,8 +196,7 @@ const cards = computed(() => {
       title: '全局参数',
       desc: '平台 / 环境级变量，执行自动化时自动注入用例',
       icon: 'SetUp',
-      path: '/platform-config',
-      query: { tab: 'global-params' },
+      path: '/global-params',
       tone: 'warning',
       adminOnly: true,
       countText: `当前共 ${stats.params} 条环境参数`,
@@ -472,7 +456,7 @@ onMounted(loadStats)
 
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
   margin-bottom: 18px;
 }

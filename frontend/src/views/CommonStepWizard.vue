@@ -40,7 +40,7 @@ const returnTo = computed(() => (typeof route.query.returnTo === 'string' ? rout
 
 function goBack() {
   if (returnTo.value) router.push(returnTo.value)
-  else router.push({ path: '/platform-config', query: { tab: 'steps' } })
+  else router.push('/common-steps')
 }
 
 function onSaved(payload) {

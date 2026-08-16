@@ -1,0 +1,43 @@
+[ {
+  "id" : 10001,
+  "caseId" : 10001,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10001
+}, {
+  "id" : 10002,
+  "caseId" : 10002,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10002
+}, {
+  "id" : 10003,
+  "caseId" : 10003,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10003
+}, {
+  "id" : 10004,
+  "caseId" : 10004,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10004
+}, {
+  "id" : 10005,
+  "caseId" : 10005,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10005
+}, {
+  "id" : 10006,
+  "caseId" : 10006,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10006
+}, {
+  "id" : 10008,
+  "caseId" : 10001,
+  "enabled" : true,
+  "sortOrder" : 0,
+  "suiteId" : 10007
+} ]

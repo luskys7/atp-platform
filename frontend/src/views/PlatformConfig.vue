@@ -1,9 +1,9 @@
 <template>
-  <div class="page-container config-page">
-    <PageHeader title="平台配置" subtitle="侧栏已覆盖的高频入口不再重复展示；此处集中维护数据集、断言、录屏、账号池、团队基线与运维配置" />
+  <div class="page-container config-page" :class="{ 'is-solo': !!soloTab }">
+    <PageHeader :title="pageTitle" :subtitle="pageSubtitle" />
 
-    <!-- 模块 2：分组标签导航（紧凑双行） -->
-    <nav class="config-nav" aria-label="配置分组导航">
+    <!-- 模块 2：分组标签导航（独立入口页不展示，避免夹杂其它配置） -->
+    <nav v-if="!soloTab" class="config-nav" aria-label="配置分组导航">
       <div class="nav-groups">
         <el-tooltip
           v-for="group in visibleNavGroups"
@@ -59,7 +59,7 @@
     </div>
 
     <el-tabs v-model="activeTab" class="core-tabs core-tabs--headless" @tab-change="onTabChange">
-      <el-tab-pane label="环境配置" name="env">
+      <el-tab-pane v-if="showPane('env')" label="环境配置" name="env">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openEnv()">添加环境</el-button></div>
           <el-table :data="envs" stripe size="small">
@@ -78,7 +78,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="数据集" name="dataset">
+      <el-tab-pane v-if="showPane('dataset')" label="数据集" name="dataset">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openDataset()">添加数据集</el-button></div>
           <el-table :data="datasets" stripe size="small">
@@ -94,7 +94,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="公共步骤" name="steps">
+      <el-tab-pane v-if="showPane('steps')" label="公共步骤" name="steps">
         <AppCard :hover="false" class="steps-card">
           <div class="toolbar-row">
             <el-button v-if="userStore.isAdmin" type="primary" @click="openStep()">+ 快速新建</el-button>
@@ -171,9 +171,10 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="320" fixed="right">
+            <el-table-column label="操作" width="380" fixed="right">
               <template #default="{ row }">
                 <div class="row-actions">
+                  <el-button size="small" class="btn-muted-sm" @click="viewStepDetail(row)">查看步骤</el-button>
                   <el-button v-if="userStore.isAdmin" size="small" type="primary" @click="openStep(row)">编辑</el-button>
                   <el-button v-if="userStore.isAdmin" size="small" class="btn-muted-sm" @click="copyStep(row)">复制</el-button>
                   <el-button
@@ -211,7 +212,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="录屏配置" name="recording">
+      <el-tab-pane v-if="showPane('recording')" label="录屏配置" name="recording">
         <AppCard title="录屏运行时配置" :hover="false" v-loading="recordingFeaturesLoading">
           <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
             <el-tag :type="recordingFeatures.source === 'runtime' ? 'warning' : 'info'" size="small">
@@ -246,7 +247,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="定时调度" name="schedule">
+      <el-tab-pane v-if="showPane('schedule')" label="定时调度" name="schedule">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openSchedule()">添加定时任务</el-button></div>
           <el-table :data="schedules" stripe size="small">
@@ -270,7 +271,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="团队空间" name="teams">
+      <el-tab-pane v-if="showPane('teams') && userStore.isAdmin" label="团队空间" name="teams">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openTeam()">新建团队</el-button></div>
           <el-table :data="teams" stripe size="small">
@@ -303,7 +304,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="版本基线" name="baseline">
+      <el-tab-pane v-if="showPane('baseline')" label="版本基线" name="baseline">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button v-if="userStore.isAdmin" type="primary" size="small" @click="openBaseline()">添加基线</el-button></div>
           <el-table :data="baselines" stripe size="small">
@@ -323,7 +324,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="全局参数" name="global-params">
+      <el-tab-pane v-if="showPane('global-params') && userStore.isAdmin" label="全局参数" name="global-params">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openGlobalParam()">添加参数</el-button></div>
           <el-table :data="globalParams" stripe size="small">
@@ -349,7 +350,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="断言策略" name="assert-policy">
+      <el-tab-pane v-if="showPane('assert-policy') && userStore.isAdmin" label="断言策略" name="assert-policy">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openAssertPolicy()">添加规则</el-button></div>
           <el-table :data="assertPolicies" stripe size="small">
@@ -375,7 +376,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="动态造数" name="data-factory">
+      <el-tab-pane v-if="showPane('data-factory') && userStore.isAdmin" label="动态造数" name="data-factory">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openDataFactory()">添加模板</el-button></div>
           <el-table :data="dataFactoryTemplates" stripe size="small">
@@ -399,7 +400,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="加密凭据" name="credentials">
+      <el-tab-pane v-if="showPane('credentials') && userStore.isAdmin" label="加密凭据" name="credentials">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button type="primary" size="small" @click="openCredential()">添加凭据</el-button></div>
           <el-table :data="credentials" stripe size="small">
@@ -426,10 +427,11 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="灾备备份" name="backup">
+      <el-tab-pane v-if="showPane('backup') && userStore.isAdmin" label="灾备备份" name="backup">
         <AppCard :hover="false">
           <div style="margin-bottom:12px;display:flex;gap:8px">
             <el-button type="primary" size="small" @click="createBackup" :loading="backupCreating">立即备份</el-button>
+            <el-button size="small" @click="installPortableSeed" :loading="seedInstalling">导入便携种子</el-button>
             <el-button size="small" @click="loadBackups">刷新</el-button>
           </div>
           <el-table :data="backups" stripe size="small">
@@ -448,11 +450,16 @@
               </template>
             </el-table-column>
           </el-table>
-          <p class="tab-hint">每日 02:00 自动全量备份（用例/套件/环境/数据集/凭据/账号），保留 30 天</p>
+          <p class="tab-hint">
+            每日 02:00 自动全量备份（用例/目录/套件/公共步骤/控件池/环境/数据集/凭据/账号），保留 30 天。
+            换机或同事开箱：用「立即备份」后下载 zip；或仓库内
+            <code>fixtures/portable-seed/atp_portable_seed.zip</code>
+            / <code>data/seed/</code>，空库启动会自动导入。
+          </p>
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="健康监控" name="monitor">
+      <el-tab-pane v-if="showPane('monitor') && userStore.isAdmin" label="健康监控" name="monitor">
         <AppCard :hover="false">
           <HealthMonitorPanel
             :active="activeTab === 'monitor'"
@@ -461,7 +468,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane v-if="userStore.isAdmin" label="安全审计" name="audit">
+      <el-tab-pane v-if="showPane('audit') && userStore.isAdmin" label="安全审计" name="audit">
         <AppCard :hover="false">
           <AuditLogPanel
             :active="activeTab === 'audit'"
@@ -470,7 +477,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="账号池" name="accounts">
+      <el-tab-pane v-if="showPane('accounts')" label="账号池" name="accounts">
         <AppCard :hover="false">
           <div style="margin-bottom:12px"><el-button v-if="userStore.isAdmin" type="primary" size="small" @click="openAccount()">添加账号</el-button></div>
           <el-table :data="accounts" stripe size="small">
@@ -508,7 +515,7 @@
         </AppCard>
       </el-tab-pane>
 
-      <el-tab-pane label="回收站" name="recycle">
+      <el-tab-pane v-if="showPane('recycle')" label="回收站" name="recycle">
         <AppCard :hover="false">
           <RecycleBinPanel
             :active="activeTab === 'recycle'"
@@ -519,7 +526,7 @@
     </el-tabs>
 
     <!-- 模块 7：底部辅助指引（公共步骤） -->
-    <section v-if="activeTab === 'steps'" class="guide-bar">
+    <section v-if="showPane('steps') && activeTab === 'steps'" class="guide-bar">
       <div class="guide-left">
         <h4>公共步骤使用指引</h4>
         <ul>
@@ -540,25 +547,27 @@
         <div class="guide-actions">
           <el-button @click="$router.push('/cases')">前往测试用例</el-button>
           <el-button @click="$router.push('/suites')">前往测试套件</el-button>
-          <el-button type="primary" plain @click="$router.push('/public-assets')">公共组件首页</el-button>
+          <el-button type="primary" plain @click="$router.push('/common-steps')">公共步骤</el-button>
         </div>
         <p class="guide-hint">编辑用例时可拖拽引用公共步骤；套件可配置前置 / 后置钩子调用复用步骤。</p>
       </div>
     </section>
 
     <EnvEditorDialog
+      v-if="!soloTab || soloTab === 'env'"
       v-model="showEnvDialog"
       :edit-row="editingEnvRow"
       @saved="loadEnvs"
     />
 
     <DatasetEditorDialog
+      v-if="!soloTab || soloTab === 'dataset'"
       v-model="showDatasetDialog"
       :edit-row="editingDatasetRow"
       @saved="loadDatasets"
     />
 
-    <el-dialog v-model="showStepTemplates" title="高频公共步骤模板" width="520px">
+    <el-dialog v-if="showPane('steps')" v-model="showStepTemplates" title="高频公共步骤模板" width="520px">
       <div class="tpl-grid">
         <button
           v-for="t in stepTemplateList"
@@ -574,18 +583,20 @@
     </el-dialog>
 
     <ScheduleEditorDialog
+      v-if="!soloTab || soloTab === 'schedule'"
       v-model="showScheduleDialog"
       :edit-row="editingScheduleRow"
       @saved="loadSchedules"
     />
 
     <TestAccountEditorDialog
+      v-if="!soloTab || soloTab === 'accounts'"
       v-model="showAccountDialog"
       :edit-row="editingAccountRow"
       @saved="loadAccounts"
     />
 
-    <el-dialog v-model="showCommentDialog" :title="`协同批注 · ${commentAssetName}`" width="560px">
+    <el-dialog v-if="showPane('steps')" v-model="showCommentDialog" :title="`协同批注 · ${commentAssetName}`" width="560px">
       <div class="comment-list">
         <div v-if="!comments.length" class="comment-empty">暂无批注</div>
         <div v-for="c in comments" :key="c.id" class="comment-item">
@@ -604,13 +615,22 @@
       </template>
     </el-dialog>
 
+    <CommonStepViewDialog
+      v-if="showPane('steps')"
+      v-model="showStepViewDialog"
+      :step-row="viewingStepRow"
+      :can-edit="userStore.isAdmin"
+    />
+
     <BaselineEditorDialog
+      v-if="!soloTab || soloTab === 'baseline'"
       v-model="showBaselineDialog"
       :edit-row="editingBaselineRow"
       @saved="loadBaselines"
     />
 
     <TeamEditorDialog
+      v-if="!soloTab || soloTab === 'teams'"
       v-model="showTeamDialog"
       :edit-row="editingTeamRow"
       @saved="onTeamSaved"
@@ -632,12 +652,13 @@
     </el-dialog>
 
     <GlobalParamEditorDialog
+      v-if="showPane('global-params')"
       v-model="showGlobalParamDialog"
       :edit-row="editingGlobalParamRow"
       @saved="loadGlobalParams"
     />
 
-    <el-dialog v-model="showGlobalParamLogDialog" title="参数变更日志" width="640px">
+    <el-dialog v-if="showPane('global-params')" v-model="showGlobalParamLogDialog" title="参数变更日志" width="640px">
       <el-table :data="globalParamLogs" stripe size="small">
         <el-table-column prop="version_num" label="版本" width="70" />
         <el-table-column prop="before_value" label="变更前" show-overflow-tooltip />
@@ -650,24 +671,27 @@
     </el-dialog>
 
     <AssertPolicyEditorDialog
+      v-if="!soloTab || soloTab === 'assert-policy'"
       v-model="showAssertPolicyDialog"
       :edit-row="editingAssertPolicyRow"
       @saved="loadAssertPolicies"
     />
 
     <DataFactoryEditorDialog
+      v-if="!soloTab || soloTab === 'data-factory'"
       v-model="showDataFactoryDialog"
       :edit-row="editingDataFactoryRow"
       @saved="loadDataFactoryTemplates"
     />
 
     <CredentialEditorDialog
+      v-if="!soloTab || soloTab === 'credentials'"
       v-model="showCredentialDialog"
       :edit-row="editingCredentialRow"
       @saved="loadCredentials"
     />
 
-    <el-dialog v-model="showTransferDialog" title="资产移交" width="420px">
+    <el-dialog v-if="showPane('steps')" v-model="showTransferDialog" title="资产移交" width="420px">
       <el-form label-width="90px">
         <el-form-item label="新负责人">
           <el-select v-model="transferOwnerId" filterable placeholder="选择用户" style="width:100%">
@@ -681,11 +705,11 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showTutorialDialog" title="公共步骤引用教程" width="640px" class="tutorial-dialog">
+    <el-dialog v-if="showPane('steps')" v-model="showTutorialDialog" title="公共步骤引用教程" width="640px" class="tutorial-dialog">
       <ol class="tutorial-list">
         <li>
           <div class="tutorial-title">创建并保存可复用流程</div>
-          <p>进入本页「公共步骤」标签，点击「添加步骤」，填写名称、功能描述与步骤 JSON。</p>
+          <p>在「公共步骤」页点击「快速新建」，填写名称、功能描述与步骤内容。</p>
           <p>建议优先封装高频流程，例如：通用登录、清理缓存、应用初始化、切换账号等。</p>
           <p>保存后状态为「已启用」，即可被用例与套件引用；不需要时可随时停用，停用后引用处会提示不可使用。</p>
         </li>
@@ -693,7 +717,7 @@
           <div class="tutorial-title">在测试用例中添加调用节点</div>
           <p>前往「测试用例」→ 打开可视化用例编辑器。</p>
           <p>在步骤列表中新增节点，选择类型为「调用公共步骤」（invoke_common）。</p>
-          <p>也可在公共组件首页快捷跳转到用例编辑，边写边引用。</p>
+          <p>也可从侧栏「公共步骤」进入管理页，再跳转到用例编辑边写边引用。</p>
         </li>
         <li>
           <div class="tutorial-title">按名称选择并一键复用</div>
@@ -748,10 +772,39 @@ import CredentialEditorDialog from '@/components/CredentialEditorDialog.vue'
 import HealthMonitorPanel from '@/components/HealthMonitorPanel.vue'
 import AuditLogPanel from '@/components/AuditLogPanel.vue'
 import RecycleBinPanel from '@/components/RecycleBinPanel.vue'
+import CommonStepViewDialog from '@/components/common-step/CommonStepViewDialog.vue'
 
 const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
+
+/** 侧栏独立入口：仅展示对应模块，不夹杂其它平台配置 */
+const SOLO_TAB_META = {
+  steps: {
+    title: '公共步骤',
+    subtitle: '封装登录、清理等可复用操作流程，供用例与套件一键引用'
+  },
+  'global-params': {
+    title: '全局参数',
+    subtitle: '平台 / 项目 / 团队三级变量统一注入执行上下文'
+  }
+}
+
+const soloTab = computed(() => {
+  const meta = route.meta?.soloTab
+  return typeof meta === 'string' && meta ? meta : ''
+})
+
+const pageTitle = computed(() => SOLO_TAB_META[soloTab.value]?.title || '平台配置')
+const pageSubtitle = computed(() => SOLO_TAB_META[soloTab.value]?.subtitle
+  || '集中维护数据集、断言、录屏、账号池、团队基线与运维配置；公共步骤 / 全局参数请从左侧导航进入')
+
+function showPane(name) {
+  if (soloTab.value) return soloTab.value === name
+  // 平台配置入口不再内嵌公共步骤 / 全局参数（已拆到侧栏独立页）
+  return name !== 'steps' && name !== 'global-params'
+}
+
 const TAB_ALLOW = new Set([
   'env', 'dataset', 'steps', 'recording', 'schedule', 'teams', 'baseline',
   'global-params', 'assert-policy', 'data-factory', 'credentials', 'backup',
@@ -763,10 +816,10 @@ const NAV_GROUPS = [
   {
     id: 'reuse',
     title: '环境与复用组件',
-    tip: '数据集与断言策略等复用配置；环境 / 公共步骤 / 全局参数请从左侧导航进入',
+    tip: '数据集与断言策略等复用配置；公共步骤 / 全局参数请从左侧导航进入',
     tabs: [
-      // 侧栏已有：环境配置、公共步骤、全局参数 —— 不在此重复展示
-      { name: 'env', label: '环境配置', hint: '管理测试 / 预发 / 生产等执行环境与 Base URL', adminOnly: false, sidebarOnly: true },
+      // 侧栏独立页：公共步骤、全局参数 —— 不在此重复展示
+      { name: 'env', label: '环境配置', hint: '管理测试 / 预发 / 生产等执行环境与 Base URL', adminOnly: false },
       { name: 'dataset', label: '数据集', hint: '维护参数化测试数据，支持多行数据驱动', adminOnly: false },
       { name: 'steps', label: '公共步骤', hint: '封装登录、清理等可复用操作流程，供用例与套件引用', adminOnly: false, sidebarOnly: true },
       { name: 'global-params', label: '全局参数', hint: '平台 / 项目 / 团队三级变量统一注入执行上下文', adminOnly: true, sidebarOnly: true },
@@ -860,14 +913,36 @@ function onTabChange(name) {
 }
 
 function syncTabToRoute(name) {
+  if (soloTab.value) return
   if (String(route.query.tab || '') === name) return
   router.replace({ query: { ...route.query, tab: name } })
 }
 
 function applyTabFromRoute() {
+  // 独立入口：强制锁定到对应模块
+  if (soloTab.value) {
+    if (soloTab.value === 'global-params' && !userStore.isAdmin) {
+      router.replace('/platform-config')
+      return
+    }
+    activeTab.value = soloTab.value
+    activeGroupId.value = findGroupIdByTab(soloTab.value)
+    groupTabsCollapsed.value = true
+    return
+  }
+
   const tab = String(route.query.tab || '')
+  // 旧链接兼容：平台配置内的公共步骤 / 全局参数 → 独立路由
+  if (tab === 'steps') {
+    router.replace('/common-steps')
+    return
+  }
+  if (tab === 'global-params') {
+    router.replace(userStore.isAdmin ? '/global-params' : '/platform-config')
+    return
+  }
   if (tab && TAB_ALLOW.has(tab)) {
-    if (['teams', 'global-params', 'assert-policy', 'data-factory', 'credentials', 'backup', 'monitor', 'audit'].includes(tab)
+    if (['teams', 'assert-policy', 'data-factory', 'credentials', 'backup', 'monitor', 'audit'].includes(tab)
       && !userStore.isAdmin) {
       activeTab.value = firstVisibleTab()
       activeGroupId.value = findGroupIdByTab(activeTab.value)
@@ -888,6 +963,7 @@ function applyTabFromRoute() {
 }
 
 watch(() => route.query.tab, () => applyTabFromRoute())
+watch(soloTab, () => applyTabFromRoute())
 const envs = ref([])
 const datasets = ref([])
 const commonSteps = ref([])
@@ -899,6 +975,7 @@ const editingTeamRow = ref(null)
 const credentials = ref([])
 const backups = ref([])
 const backupCreating = ref(false)
+const seedInstalling = ref(false)
 const monitor = ref({})
 const monitorLoading = ref(false)
 const executorEvents = ref([])
@@ -959,6 +1036,8 @@ const editingScheduleRow = ref(null)
 const showAccountDialog = ref(false)
 const editingAccountRow = ref(null)
 const showCommentDialog = ref(false)
+const showStepViewDialog = ref(false)
+const viewingStepRow = ref(null)
 const commentAssetType = ref('common_step')
 const commentAssetId = ref(null)
 const commentAssetName = ref('')
@@ -1376,6 +1455,11 @@ function openStep(row) {
   router.push('/common-steps/new')
 }
 
+function viewStepDetail(row) {
+  viewingStepRow.value = row || null
+  showStepViewDialog.value = true
+}
+
 function createFromTemplate(templateId) {
   showStepTemplates.value = false
   router.push({ path: '/common-steps/new', query: { template: templateId } })
@@ -1655,6 +1739,22 @@ async function createBackup() {
     loadBackups()
   } finally {
     backupCreating.value = false
+  }
+}
+
+async function installPortableSeed() {
+  await ElMessageBox.confirm(
+    '将按 ID 合并导入便携种子（控件池/用例/公共步骤/套件等）。同 ID 会被覆盖，是否继续？',
+    '导入便携种子',
+    { type: 'warning' }
+  )
+  seedInstalling.value = true
+  try {
+    const res = await backupApi.installPortableSeed()
+    ElMessage.success(res.data?.message || `导入完成（${res.data?.count ?? 0} 条）`)
+    loadBackups()
+  } finally {
+    seedInstalling.value = false
   }
 }
 

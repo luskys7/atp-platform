@@ -16,6 +16,7 @@ public class AtpProperties {
     private Executor executor = new Executor();
     private Governance governance = new Governance();
     private Backup backup = new Backup();
+    private Seed seed = new Seed();
     private Security security = new Security();
     private Sso sso = new Sso();
     private IosWda iosWda = new IosWda();
@@ -94,6 +95,14 @@ public class AtpProperties {
         private String cron = "0 0 2 * * *";
         /** 保留天数，超出自动清理 */
         private int retainDays = 30;
+    }
+
+    @Data
+    public static class Seed {
+        /** 空库（无控件且无用例）时自动导入便携种子 */
+        private boolean importOnEmpty = true;
+        /** 外部种子 zip 路径（优先于 classpath / data/seed） */
+        private String externalZip = "";
     }
 
     @Data

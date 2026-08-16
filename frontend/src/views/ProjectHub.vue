@@ -87,7 +87,7 @@
           <el-button @click="$router.push('/cases')">测试用例</el-button>
           <el-button @click="$router.push('/suites')">测试套件</el-button>
           <el-button @click="$router.push('/tasks')">测试任务</el-button>
-          <el-button type="primary" plain @click="$router.push('/public-assets')">公共组件</el-button>
+          <el-button type="primary" plain @click="$router.push('/common-steps')">公共步骤</el-button>
         </div>
         <p class="jump-hint">
           用例绑定环境与数据集 · 套件配置回归基线与安装包 · 任务执行选用项目环境 · 全局参数联动环境配置

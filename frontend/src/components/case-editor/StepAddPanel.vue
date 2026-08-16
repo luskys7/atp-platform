@@ -1,136 +1,172 @@
 <template>
   <div class="step-add-panel">
-    <!-- 高频快捷 -->
-    <div class="quick-bar">
-      <span class="quick-bar-label">常用</span>
-      <div class="quick-bar-btns">
+    <div class="add-toolbar">
+      <div class="add-toolbar-left">
+        <strong>已添加步骤</strong>
+        <span class="add-count">共 {{ addedSteps.length }} 步</span>
         <el-button
-          v-for="q in quickActions"
-          :key="q.id"
+          v-if="editingIndex !== null || insertAtIndex !== null"
           size="small"
-          plain
-          class="quick-btn"
-          :class="{ 'is-active': q.id === catalogId }"
-          @click="selectQuick(q.id)"
-        >{{ q.label }}</el-button>
+          text
+          type="primary"
+          @click="onCancelEdit"
+        >{{ editingIndex !== null ? '取消编辑' : '取消插入' }}</el-button>
+      </div>
+      <el-button type="primary" @click="startAddStep">添加步骤</el-button>
+    </div>
+
+    <div class="added-steps-body">
+      <el-empty
+        v-if="!addedSteps.length"
+        description="暂无已添加步骤，点击右上角「添加步骤」开始配置"
+        :image-size="80"
+      />
+      <div v-else class="added-steps-list">
+        <div
+          v-for="(step, idx) in addedSteps"
+          :key="step.id ?? idx"
+          class="added-step-row"
+          :class="{ editing: editingIndex === idx, disabled: step.enabled === false }"
+        >
+          <span class="step-idx">{{ idx + 1 }}</span>
+          <el-tag size="small" effect="plain" :type="tagType(step.type)">{{ typeLabel(step) }}</el-tag>
+          <span class="step-desc" :title="summaryOf(step)">{{ summaryOf(step) || '—' }}</span>
+          <div class="step-row-actions">
+            <el-button size="small" type="primary" link @click="emit('edit', idx)">编辑</el-button>
+            <el-button size="small" type="danger" link @click="emit('remove', idx)">删除</el-button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="add-body">
-      <div class="tree-pane">
-        <div class="pane-title">完整指令分类</div>
-        <el-input
-          v-model="treeFilter"
-          clearable
-          size="small"
-          placeholder="搜索指令"
-          class="tree-filter"
-        />
-        <el-tree
-          ref="treeRef"
-          class="step-tree"
-          :data="treeData"
-          node-key="id"
-          :props="{ label: 'label', children: 'children' }"
-          highlight-current
-          :default-expanded-keys="expandedKeys"
-          :filter-node-method="filterNode"
-          @node-click="onTreeClick"
-          @node-expand="onExpand"
-          @node-collapse="onCollapse"
-        >
-          <template #default="{ data }">
-            <span
-              class="tree-node"
-              :class="{
-                leaf: data.isLeaf,
-                folder: !data.isLeaf,
-                current: data.id === catalogId
-              }"
-            >{{ data.label }}</span>
-          </template>
-        </el-tree>
-      </div>
+    <!-- 步骤信息弹窗 -->
+    <el-dialog
+      v-model="dialogVisible"
+      title="步骤信息"
+      width="880px"
+      top="6vh"
+      append-to-body
+      destroy-on-close
+      class="step-info-dialog"
+      @closed="onDialogClosed"
+    >
+      <el-form
+        :model="model"
+        label-width="128px"
+        size="large"
+        class="step-info-form"
+        @submit.prevent
+      >
+        <el-form-item label="步骤类型" required>
+          <el-cascader
+            :model-value="cascaderPath"
+            :options="cascaderOptions"
+            :props="{ expandTrigger: 'hover', label: 'label', value: 'value', children: 'children' }"
+            filterable
+            clearable
+            size="large"
+            style="width:100%"
+            placeholder="请选择步骤类型"
+            popper-class="step-type-cascader-popper"
+            @update:model-value="onCascaderChange"
+          />
+        </el-form-item>
 
-      <div class="form-pane">
-        <div class="pane-title">
-          <span>
-            {{
-              editingIndex !== null
-                ? `编辑第 ${editingIndex + 1} 步`
-                : insertAtIndex !== null
-                  ? `插入到第 ${insertAtIndex + 1} 步`
-                  : '步骤参数'
-            }}
-          </span>
-          <el-tag v-if="activeLeaf" size="small" type="primary" effect="plain">{{ activeLeaf.label }}</el-tag>
-          <el-button
-            v-if="editingIndex !== null || insertAtIndex !== null"
-            size="small"
-            text
-            type="primary"
-            @click="$emit('cancel')"
-          >{{ editingIndex !== null ? '取消编辑' : '取消插入' }}</el-button>
-        </div>
+        <el-divider class="step-info-divider">
+          <el-icon :size="16"><Document /></el-icon>
+        </el-divider>
 
-        <el-empty v-if="!activeLeaf" description="请从左侧树或上方快捷按钮选择指令" :image-size="72" />
-
-        <el-form v-else :model="model" label-width="118px" size="small" class="dyn-form" @submit.prevent>
-          <!-- 控件相关参数：统一从控件库选择 -->
+        <template v-if="activeLeaf">
           <template v-if="needsControlPick">
             <el-form-item v-if="coordsMode === 'swipe'" label="起点控件" required>
               <div class="pool-pick-row">
-                <el-input
-                  :model-value="model.swipe_start_name || ''"
-                  readonly
-                  placeholder="请从控件库选择起点坐标控件"
-                />
-                <el-button type="primary" plain @click="emit('pool', 'swipe_start')">控件库</el-button>
+                <el-select
+                  :model-value="model.swipe_start_name || undefined"
+                  filterable
+                  clearable
+                  placeholder="已选控件 请选择"
+                  style="width:100%"
+                  @clear="model.swipe_start_name = ''"
+                >
+                  <el-option
+                    v-if="model.swipe_start_name"
+                    :label="model.swipe_start_name"
+                    :value="model.swipe_start_name"
+                  />
+                </el-select>
+                <el-button type="primary" plain @click="emit('pool', 'swipe_start')">选择</el-button>
               </div>
             </el-form-item>
             <el-form-item v-if="coordsMode === 'swipe'" label="终点控件" required>
               <div class="pool-pick-row">
-                <el-input
-                  :model-value="model.swipe_end_name || ''"
-                  readonly
-                  placeholder="请从控件库选择终点坐标控件"
-                />
-                <el-button type="primary" plain @click="emit('pool', 'swipe_end')">控件库</el-button>
+                <el-select
+                  :model-value="model.swipe_end_name || undefined"
+                  filterable
+                  clearable
+                  placeholder="已选控件 请选择"
+                  style="width:100%"
+                  @clear="model.swipe_end_name = ''"
+                >
+                  <el-option
+                    v-if="model.swipe_end_name"
+                    :label="model.swipe_end_name"
+                    :value="model.swipe_end_name"
+                  />
+                </el-select>
+                <el-button type="primary" plain @click="emit('pool', 'swipe_end')">选择</el-button>
               </div>
             </el-form-item>
 
             <el-form-item v-else-if="coordsMode === 'tap'" label="坐标控件" required>
               <div class="pool-pick-row">
-                <el-input
-                  :model-value="model.element_name || ''"
-                  readonly
-                  placeholder="请从控件库选择坐标定位控件"
-                />
-                <el-button type="primary" plain @click="emit('pool', 'tap')">控件库</el-button>
-              </div>
-              <div v-if="model.element_name" class="pool-pick-meta">
-                已回填坐标：({{ model.x ?? '-' }}, {{ model.y ?? '-' }})
+                <el-select
+                  :model-value="model.element_name || undefined"
+                  filterable
+                  clearable
+                  placeholder="已选控件 请选择"
+                  style="width:100%"
+                  @clear="clearTapControl"
+                >
+                  <el-option
+                    v-if="model.element_name"
+                    :label="model.element_name"
+                    :value="model.element_name"
+                  />
+                </el-select>
+                <el-button type="primary" plain @click="emit('pool', 'tap')">选择</el-button>
               </div>
             </el-form-item>
 
-            <el-form-item v-else label="目标控件" required>
+            <el-form-item v-else label="控件元素" required>
               <div class="pool-pick-row">
-                <el-input
-                  :model-value="controlSummary"
-                  readonly
-                  placeholder="请从控件库选择控件"
-                />
-                <el-button type="primary" plain @click="emit('pool', 'locator')">控件库</el-button>
-                <el-button type="success" plain @click="emit('pick')">投屏拾取</el-button>
-              </div>
-              <div v-if="model.locator_value" class="pool-pick-meta">
-                {{ locatorTypeText }} · {{ model.locator_value }}
+                <el-select
+                  :model-value="controlSummary || undefined"
+                  filterable
+                  clearable
+                  placeholder="已选控件 请选择"
+                  style="width:100%"
+                  @clear="clearLocatorControl"
+                >
+                  <el-option
+                    v-if="controlSummary"
+                    :label="controlSummary"
+                    :value="controlSummary"
+                  />
+                </el-select>
+                <el-button type="primary" plain @click="emit('pool', 'locator')">选择</el-button>
               </div>
             </el-form-item>
           </template>
 
+          <el-form-item v-if="isExistsAssert" label="存在与否" required>
+            <el-select v-model="existExpect" placeholder="请选择" style="width:100%">
+              <el-option label="存在" value="exists" />
+              <el-option label="不存在" value="not_exists" />
+            </el-select>
+          </el-form-item>
+
           <el-form-item
-            v-for="key in visibleFields"
+            v-for="key in dialogExtraFields"
             :key="`${catalogId}-${key}`"
             :label="fieldLabel(key)"
             :required="isRequired(key)"
@@ -139,12 +175,6 @@
               <el-select v-model="model.common_step" filterable placeholder="选择公共步骤" style="width:100%">
                 <el-option v-for="s in commonSteps" :key="s.id" :label="s.name" :value="s.name" />
               </el-select>
-              <el-button
-                type="primary"
-                link
-                style="margin-top:6px"
-                @click="emit('create-common')"
-              >新建公共步骤</el-button>
             </template>
             <template v-else-if="fieldMeta(key)?.kind === 'select'">
               <el-select
@@ -174,9 +204,8 @@
               <el-input
                 v-model="model[key]"
                 type="textarea"
-                :rows="fieldMeta(key)?.kind === 'code' ? 8 : 3"
+                :rows="fieldMeta(key)?.kind === 'code' ? 6 : 3"
                 :placeholder="fieldMeta(key)?.placeholder"
-                class="script-code-input"
                 @input="onFieldChanged(key)"
               />
             </template>
@@ -189,38 +218,67 @@
               />
             </template>
           </el-form-item>
+        </template>
+        <p v-else class="pick-type-hint">请先选择步骤类型，再配置控件与其它参数</p>
 
-          <div v-if="locatorHint" class="field-warn">{{ locatorHint }}</div>
-          <div v-else-if="needsControlPick" class="field-tip">控件参数请从「控件库」选择回填，勿手填定位/坐标</div>
-
-          <div class="form-actions">
-            <el-button type="primary" @click="$emit('submit')">
-              {{ editingIndex !== null ? '保存步骤修改' : (insertAtIndex !== null ? '插入步骤' : '添加步骤') }}
-            </el-button>
-            <el-button
-              v-if="needsControlPick"
-              type="primary"
-              plain
-              @click="emit('pool', defaultPoolMode)"
-            >控件库</el-button>
-            <el-button v-if="needsLocator && !coordsMode" type="success" plain @click="$emit('pick')">投屏拾取</el-button>
+        <el-form-item label="逻辑处理">
+          <div class="field-with-tip">
+            <el-select v-model="model.logic_process" style="width:100%">
+              <el-option
+                v-for="o in logicProcessOptions"
+                :key="o.value"
+                :label="o.label"
+                :value="o.value"
+              />
+            </el-select>
+            <el-tooltip
+              content="生成真实可执行控制流：会插入 if/else if/else/while 判断头、块内步骤与结束块；保存后脚本按条件跳转（非仅展示选项）"
+              placement="top"
+            >
+              <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
           </div>
-        </el-form>
-      </div>
-    </div>
+        </el-form-item>
+
+        <el-form-item label="异常处理">
+          <div class="field-with-tip">
+            <el-select v-model="model.on_fail" style="width:100%">
+              <el-option
+                v-for="o in onFailOptions"
+                :key="o.value"
+                :label="o.label"
+                :value="o.value"
+              />
+            </el-select>
+            <el-tooltip content="本步失败时的处理策略，可覆盖用例级默认策略" placement="top">
+              <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </div>
+        </el-form-item>
+
+        <div v-if="locatorHint" class="field-warn">{{ locatorHint }}</div>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-submit">
+          <el-button type="primary" class="submit-btn" :disabled="!activeLeaf" @click="onSubmit">提交</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { Document, QuestionFilled } from '@element-plus/icons-vue'
 import {
-  toElTreeData,
+  toCascaderOptions,
   getCatalogLeaf,
-  getQuickActions,
   findCatalogPath,
   resolveLeafFields,
   FIELD_META,
-  DEFAULT_QUICK_ACTION_IDS
+  ON_FAIL_OPTIONS,
+  LOGIC_PROCESS_OPTIONS
 } from '@/config/stepCatalog'
 import {
   conditionLabel,
@@ -237,8 +295,12 @@ const props = defineProps({
   catalogId: { type: String, default: '' },
   expandedKeys: { type: Array, default: () => [] },
   locatorHint: { type: String, default: '' },
-  /** 父组件提供的空白表单默认值工厂结果 */
-  blankStep: { type: Object, default: () => ({}) }
+  blankStep: { type: Object, default: () => ({}) },
+  /** 当前用例已添加的步骤列表 */
+  addedSteps: { type: Array, default: () => [] },
+  typeLabelFn: { type: Function, default: null },
+  summaryFn: { type: Function, default: null },
+  tagTypeFn: { type: Function, default: null }
 })
 
 const emit = defineEmits([
@@ -250,13 +312,15 @@ const emit = defineEmits([
   'pick',
   'pool',
   'field-change',
-  'create-common'
+  'create-common',
+  'edit',
+  'remove'
 ])
 
-const treeRef = ref(null)
-const treeFilter = ref('')
-const treeData = toElTreeData()
-const quickActions = getQuickActions(DEFAULT_QUICK_ACTION_IDS)
+const cascaderOptions = toCascaderOptions()
+const dialogVisible = ref(false)
+const onFailOptions = ON_FAIL_OPTIONS
+const logicProcessOptions = LOGIC_PROCESS_OPTIONS
 
 const model = computed({
   get: () => props.modelValue,
@@ -279,30 +343,40 @@ const needsControlPick = computed(() => {
   if (hasConditionKind.value && !conditionNeedsLocator(conditionKind.value)) return false
   return needsLocator.value || !!coordsMode.value
 })
-const defaultPoolMode = computed(() => {
-  if (coordsMode.value === 'tap') return 'tap'
-  if (coordsMode.value === 'swipe') return 'swipe_start'
-  return 'locator'
+
+const isExistsAssert = computed(() =>
+  ['assert_exists', 'assert_not_exists'].includes(model.value.type)
+    || (activeLeaf.value?.type === 'assert_exists')
+)
+
+const existExpect = computed({
+  get() {
+    return model.value.type === 'assert_not_exists' ? 'not_exists' : 'exists'
+  },
+  set(v) {
+    model.value.type = v === 'not_exists' ? 'assert_not_exists' : 'assert_exists'
+  }
 })
 
-/** 控件相关字段改由控件库区块展示，表单里不再手填 */
 const HIDDEN_WHEN_POOL = new Set([
   'element_name', 'locator_type', 'locator_value',
   'x', 'y', 'x1', 'y1', 'x2', 'y2',
   'swipe_start_name', 'swipe_end_name'
 ])
 const LOCATOR_FIELDS = new Set(['element_name', 'locator_type', 'locator_value'])
-const visibleFields = computed(() =>
+const DIALOG_DEDUP = new Set(['logic_process', 'on_fail', 'remark'])
+
+const dialogExtraFields = computed(() =>
   activeFields.value.filter(k => {
+    if (DIALOG_DEDUP.has(k)) return false
     if (needsControlPick.value && HIDDEN_WHEN_POOL.has(k)) return false
+    if (isExistsAssert.value && (k === 'expected' || k === 'condition_kind')) return false
     if (hasConditionKind.value) {
       if (LOCATOR_FIELDS.has(k) && !conditionNeedsLocator(conditionKind.value)) return false
       if (k === 'condition' && conditionKind.value !== 'custom') return false
       if (k === 'expected' && !conditionNeedsExpected(conditionKind.value)) return false
       if (k === 'var_name' && !conditionNeedsVarName(conditionKind.value)) return false
       if (k === 'timeout' && (conditionNeedsVarName(conditionKind.value) || conditionKind.value === 'custom')) return false
-    } else if (k === 'var_name' && !activeFields.value.includes('var_name')) {
-      return false
     }
     return true
   })
@@ -315,31 +389,35 @@ const controlSummary = computed(() => {
   return ''
 })
 
-const locatorTypeText = computed(() => {
-  const t = model.value.locator_type
-  const opt = (FIELD_META.locator_type?.options || []).find(o => o.value === t)
-  return opt?.label || t || '定位'
+const cascaderPath = computed(() => {
+  if (!props.catalogId) return []
+  return findCatalogPath(props.catalogId)
 })
 
-const KEEP_ON_SWITCH = new Set(['on_fail', 'retry_count', 'enabled'])
+const KEEP_ON_SWITCH = new Set(['on_fail', 'logic_process', 'retry_count', 'enabled'])
 
-watch(treeFilter, (v) => {
-  treeRef.value?.filter(v)
-})
-
-watch(() => props.catalogId, async (id) => {
-  if (!id) return
-  await nextTick()
-  treeRef.value?.setCurrentKey(id)
-  const path = findCatalogPath(id)
-  if (path.length) {
-    emit('update:expandedKeys', [...new Set([...props.expandedKeys, ...path.slice(0, -1)])])
+watch(
+  () => [props.editingIndex, props.insertAtIndex, props.catalogId],
+  ([editIdx, insertIdx, catId]) => {
+    if ((editIdx != null || insertIdx != null) && catId) {
+      dialogVisible.value = true
+    }
   }
-})
+)
 
-function filterNode(value, data) {
-  if (!value) return true
-  return String(data.label || '').toLowerCase().includes(String(value).toLowerCase())
+function typeLabel(step) {
+  if (typeof props.typeLabelFn === 'function') return props.typeLabelFn(step)
+  return step?.type || '步骤'
+}
+
+function summaryOf(step) {
+  if (typeof props.summaryFn === 'function') return props.summaryFn(step)
+  return step?.element_name || step?.remark || ''
+}
+
+function tagType(type) {
+  if (typeof props.tagTypeFn === 'function') return props.tagTypeFn(type)
+  return ''
 }
 
 function fieldMeta(key) {
@@ -356,15 +434,9 @@ function fieldMeta(key) {
 }
 
 function fieldLabel(key) {
-  if (key === 'element_name' && activeLeaf.value?.type === 'screenshot') {
-    return '截图名称'
-  }
-  if (key === 'expected' && hasConditionKind.value && conditionNeedsVarName(conditionKind.value)) {
-    return '期望值'
-  }
-  if (key === 'var_name' && hasConditionKind.value && conditionNeedsVarName(conditionKind.value)) {
-    return '变量名'
-  }
+  if (key === 'element_name' && activeLeaf.value?.type === 'screenshot') return '截图名称'
+  if (key === 'expected' && hasConditionKind.value && conditionNeedsVarName(conditionKind.value)) return '期望值'
+  if (key === 'var_name' && hasConditionKind.value && conditionNeedsVarName(conditionKind.value)) return '变量名'
   return fieldMeta(key).label || key
 }
 
@@ -398,15 +470,15 @@ function buildFormForLeaf(leaf, { keepCurrent = false } = {}) {
   const base = { ...(props.blankStep || {}) }
   const current = props.modelValue || {}
   if (keepCurrent) {
-    // 编辑态：保留已有字段，仅覆盖 type/extras
     Object.assign(base, current, { type: leaf.type }, leaf.extras || {})
   } else {
-    // 新建切换指令：清掉无关字段，仅保留备注/失败策略
     for (const k of KEEP_ON_SWITCH) {
       if (current[k] != null && current[k] !== '') base[k] = current[k]
     }
     Object.assign(base, { type: leaf.type }, leaf.extras || {})
   }
+  if (base.logic_process == null || base.logic_process === '') base.logic_process = 'none'
+  if (base.on_fail == null || base.on_fail === '') base.on_fail = 'interrupt'
   if (leaf.needsLocator && (base.wait_timeout == null || base.wait_timeout === '')) {
     base.wait_timeout = 10
   }
@@ -433,37 +505,73 @@ function applyLeaf(leaf, opts = {}) {
   emit('update:modelValue', buildFormForLeaf(leaf, { keepCurrent }))
   const path = findCatalogPath(leaf.id)
   emit('update:expandedKeys', [...new Set([...props.expandedKeys, ...path.slice(0, -1)])])
-  nextTick(() => {
-    treeRef.value?.setCurrentKey(leaf.id)
-    emit('field-change', 'locator_value')
-  })
+  emit('field-change', 'locator_value')
+  if (opts.openDialog !== false) dialogVisible.value = true
 }
 
-function onTreeClick(data) {
-  if (!data?.isLeaf) return
-  // 树选择视为切换指令：新建时重置；编辑时保留定位等
-  applyLeaf(getCatalogLeaf(data.id), { keepCurrent: props.editingIndex != null })
-}
-
-function selectQuick(id) {
-  applyLeaf(getCatalogLeaf(id), { keepCurrent: false })
-}
-
-function onExpand(data) {
-  if (!data?.id) return
-  if (!props.expandedKeys.includes(data.id)) {
-    emit('update:expandedKeys', [...props.expandedKeys, data.id])
+function onCascaderChange(val) {
+  if (!Array.isArray(val) || !val.length) {
+    emit('update:catalogId', '')
+    return
   }
+  const leafId = val[val.length - 1]
+  const leaf = getCatalogLeaf(leafId)
+  if (leaf) applyLeaf(leaf, { keepCurrent: props.editingIndex != null, openDialog: false })
 }
 
-function onCollapse(data) {
-  if (!data?.id) return
-  emit('update:expandedKeys', props.expandedKeys.filter(k => k !== data.id))
+function startAddStep() {
+  emit('cancel')
+  emit('update:catalogId', '')
+  if (model.value.logic_process == null || model.value.logic_process === '') {
+    model.value.logic_process = 'none'
+  }
+  if (model.value.on_fail == null || model.value.on_fail === '') {
+    model.value.on_fail = 'interrupt'
+  }
+  dialogVisible.value = true
+}
+
+function openStepDialog() {
+  if (model.value.logic_process == null || model.value.logic_process === '') {
+    model.value.logic_process = 'none'
+  }
+  if (model.value.on_fail == null || model.value.on_fail === '') {
+    model.value.on_fail = 'interrupt'
+  }
+  dialogVisible.value = true
+}
+
+function onSubmit() {
+  if (!activeLeaf.value) return
+  emit('submit')
+  dialogVisible.value = false
+}
+
+function onCancelEdit() {
+  dialogVisible.value = false
+  emit('cancel')
+}
+
+function onDialogClosed() {}
+
+function clearTapControl() {
+  model.value.element_name = ''
+  model.value.x = 0
+  model.value.y = 0
+}
+
+function clearLocatorControl() {
+  model.value.element_name = ''
+  model.value.locator_type = ''
+  model.value.locator_value = ''
+  model.value.pool_id = null
 }
 
 defineExpose({
   selectCatalog: (id, opts) => applyLeaf(getCatalogLeaf(id), opts),
-  applyLeaf
+  applyLeaf,
+  openStepDialog,
+  startAddStep
 })
 </script>
 
@@ -472,144 +580,89 @@ defineExpose({
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 0;
+  min-height: 360px;
   gap: 12px;
 }
-.quick-bar {
+.add-toolbar {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
-  border: 1px solid #e0e7ff;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--atp-border-neutral, #e8edf3);
   border-radius: 12px;
   flex-shrink: 0;
 }
-.quick-bar-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--atp-accent, #6366f1);
-  padding-top: 6px;
-  flex-shrink: 0;
-}
-.quick-bar-btns {
+.add-toolbar-left {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
-.quick-btn {
-  --el-button-bg-color: #fff;
-  --el-button-border-color: #e2e8f0;
-  --el-button-text-color: #475569;
-  --el-button-hover-bg-color: #eef2ff;
-  --el-button-hover-border-color: #c7d2fe;
-  --el-button-hover-text-color: var(--atp-accent, #6366f1);
+.add-toolbar-left strong {
+  font-size: 14px;
+  color: #0f172a;
 }
-.quick-btn.is-active,
-.quick-btn.is-active.is-plain {
-  --el-button-bg-color: var(--atp-accent, #6366f1) !important;
-  --el-button-border-color: var(--atp-accent, #6366f1) !important;
-  --el-button-text-color: #fff !important;
-  --el-button-hover-bg-color: #4f46e5 !important;
-  --el-button-hover-border-color: #4f46e5 !important;
-  --el-button-hover-text-color: #fff !important;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+.add-count {
+  font-size: 12px;
+  color: #94a3b8;
 }
-.add-body {
+.added-steps-body {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(220px, 280px) 1fr;
-  gap: 12px;
-}
-.tree-pane,
-.form-pane {
+  overflow: auto;
   border: 1px solid var(--atp-border-neutral, #e8edf3);
   border-radius: 12px;
   background: #fff;
-  padding: 12px 14px;
-  min-height: 0;
+  padding: 8px;
+}
+.added-steps-list {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: 6px;
 }
-.pane-title {
+.added-step-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.added-step-row:hover {
+  background: #f1f5f9;
+}
+.added-step-row.editing {
+  border-color: var(--atp-primary, #0284c7);
+  background: #f0f9ff;
+}
+.added-step-row.disabled {
+  opacity: 0.55;
+}
+.step-idx {
+  width: 22px;
+  text-align: center;
+  font-size: 12px;
   font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #eef2f7;
+  color: #64748b;
   flex-shrink: 0;
 }
-.pane-title :deep(.el-tag) {
-  --el-tag-bg-color: rgba(99, 102, 241, 0.1);
-  --el-tag-border-color: #c7d2fe;
-  --el-tag-text-color: var(--atp-accent, #6366f1);
-}
-.tree-filter { margin-bottom: 8px; flex-shrink: 0; }
-.step-tree {
+.step-desc {
   flex: 1;
-  min-height: 0;
-  overflow: auto;
-  background: transparent;
-}
-.step-tree :deep(.el-tree-node__content) {
-  border-radius: 6px;
-  height: 30px;
-}
-.step-tree :deep(.el-tree-node.is-current > .el-tree-node__content) {
-  background: rgba(99, 102, 241, 0.1);
-}
-.tree-node.folder {
-  font-weight: 700;
-  color: #1e293b;
-}
-.tree-node.leaf {
-  font-weight: 400;
+  min-width: 0;
+  font-size: 13px;
   color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tree-node.current {
-  color: var(--atp-accent, #6366f1);
-  font-weight: 600;
-}
-.dyn-form {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 4px;
-}
-.dyn-form :deep(.el-form-item__label) {
-  font-size: 12px;
-  color: #64748b;
-}
-.dyn-form :deep(.el-input__wrapper),
-.dyn-form :deep(.el-select .el-select__wrapper) {
-  min-height: 32px;
-  box-shadow: 0 0 0 1px #e2e8f0 inset;
-}
-.dyn-form :deep(.el-input__wrapper:hover),
-.dyn-form :deep(.el-select .el-select__wrapper:hover) {
-  box-shadow: 0 0 0 1px #c7d2fe inset;
-}
-.dyn-form :deep(.el-input__wrapper.is-focus),
-.dyn-form :deep(.el-select .el-select__wrapper.is-focused) {
-  box-shadow: 0 0 0 1px var(--atp-accent, #6366f1) inset !important;
-}
-.form-actions {
+.step-row-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid #eef2f7;
-  position: sticky;
-  bottom: 0;
-  background: #fff;
-  padding-bottom: 4px;
+  gap: 2px;
+  flex-shrink: 0;
 }
 .pool-pick-row {
   display: flex;
@@ -617,41 +670,140 @@ defineExpose({
   width: 100%;
   align-items: center;
 }
-.pool-pick-row .el-input { flex: 1; }
-.pool-pick-meta {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #64748b;
-  word-break: break-all;
+.field-with-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
-.form-actions :deep(.el-button--primary) {
-  --el-button-bg-color: var(--atp-primary, #0284c7);
-  --el-button-border-color: var(--atp-primary, #0284c7);
-}
-.form-actions :deep(.el-button--success.is-plain) {
-  --el-button-text-color: var(--atp-accent, #6366f1);
-  --el-button-bg-color: rgba(99, 102, 241, 0.08);
-  --el-button-border-color: #c7d2fe;
-  --el-button-hover-text-color: #fff;
-  --el-button-hover-bg-color: var(--atp-accent, #6366f1);
-  --el-button-hover-border-color: var(--atp-accent, #6366f1);
-}
-.field-tip {
-  margin: 4px 0 8px;
-  font-size: 12px;
-  color: #64748b;
+.tip-icon {
+  color: #94a3b8;
+  cursor: help;
+  flex-shrink: 0;
 }
 .field-warn {
-  margin: 4px 0 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #c2410c;
   font-size: 12px;
-  color: #ea580c;
 }
-.script-code-input :deep(textarea) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+.pick-type-hint {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
 }
-@media (max-width: 1100px) {
-  .add-body { grid-template-columns: 1fr; }
-  .tree-pane { max-height: 240px; }
+.dialog-submit {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.submit-btn {
+  min-width: 140px;
+  height: 40px;
+  padding: 0 28px;
+}
+</style>
+
+<style>
+.step-info-dialog .el-dialog__header {
+  padding: 20px 28px 12px;
+}
+.step-info-dialog .el-dialog__title {
+  font-size: 18px;
+  font-weight: 700;
+}
+.step-info-dialog .el-dialog__body {
+  padding: 8px 28px 20px;
+  min-height: 0;
+  max-height: calc(88vh - 140px);
+  overflow-y: auto;
+}
+.step-info-dialog .step-info-form .el-form-item {
+  margin-bottom: 22px;
+}
+.step-info-dialog .step-info-form .el-form-item__label {
+  line-height: 40px;
+  height: 40px;
+  color: #334155;
+  font-weight: 500;
+}
+.step-info-dialog .step-info-form .el-form-item__content {
+  line-height: 40px;
+}
+.step-info-dialog .step-info-divider {
+  margin: 4px 0 28px;
+}
+.step-info-dialog .step-info-divider .el-divider__text {
+  background: #fff;
+  padding: 0 14px;
+  color: #94a3b8;
+}
+.step-info-dialog .el-dialog__footer {
+  border-top: 1px solid #f1f5f9;
+  padding: 20px 28px 24px;
+}
+.step-info-dialog .pick-type-hint {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+}
+
+/* 步骤类型级联下拉：挂载在 body，需全局类名；宽度随实际列数伸缩，避免右侧空列留白 */
+.step-type-cascader-popper.el-cascader__dropdown,
+.step-type-cascader-popper {
+  min-width: 0 !important;
+}
+.step-type-cascader-popper .el-cascader-panel {
+  font-size: 15px;
+  height: auto !important;
+  max-height: none;
+  align-items: flex-start;
+}
+/* 一级分类：完整展示，不滚动 */
+.step-type-cascader-popper .el-cascader-menu:first-child {
+  min-width: 200px;
+  width: max-content;
+  max-width: 280px;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.step-type-cascader-popper .el-cascader-menu:first-child .el-scrollbar {
+  height: auto !important;
+  max-height: none !important;
+}
+.step-type-cascader-popper .el-cascader-menu:first-child .el-scrollbar__wrap {
+  max-height: none !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+.step-type-cascader-popper .el-cascader-menu:first-child .el-scrollbar__bar {
+  display: none !important;
+}
+/* 二、三级：选项多时再滚动 */
+.step-type-cascader-popper .el-cascader-menu:not(:first-child) {
+  min-width: 200px;
+  width: max-content;
+  max-width: 280px;
+  height: auto !important;
+  max-height: min(480px, 65vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.step-type-cascader-popper .el-cascader-node {
+  padding: 4px 24px 4px 16px;
+  height: 40px;
+  line-height: 40px;
+}
+.step-type-cascader-popper .el-cascader-node__label {
+  font-size: 15px;
+  padding: 0 8px;
+}
+.step-type-cascader-popper .el-cascader__search-input {
+  font-size: 15px;
 }
 </style>

@@ -98,9 +98,10 @@
         @selection-change="onSelectionChange"
       >
         <el-table-column type="selection" width="48" />
-        <el-table-column prop="element_name" label="控件名称" min-width="140" show-overflow-tooltip />
-        <el-table-column label="设备关联元素值" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ formatDeviceElementValue(row) }}</template>
+        <el-table-column prop="element_name" label="控件名称" min-width="180" class-name="name-col">
+          <template #default="{ row }">
+            <span class="name-cell">{{ row.element_name || '-' }}</span>
+          </template>
         </el-table-column>
         <el-table-column prop="page_name" label="所属页面" width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ formatPageName(row.page_name) }}</template>
@@ -144,32 +145,31 @@
         <el-table-column prop="version_tag" label="版本" width="90" show-overflow-tooltip>
           <template #default="{ row }">{{ row.version_tag || '-' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="480" fixed="right">
+        <el-table-column label="操作" width="268" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-tooltip v-if="!canEditPool(row)" content="生产环境核心控件仅管理员可改" placement="top">
-                <el-button size="small" type="primary" disabled>编辑</el-button>
+                <el-button size="small" class="btn-act btn-act-primary" disabled>编辑</el-button>
               </el-tooltip>
-              <el-button v-else size="small" type="primary" @click="openPoolFormEdit(row)">编辑</el-button>
-              <el-button size="small" type="warning" @click="scanDeps(row)">依赖</el-button>
-              <el-button size="small" class="btn-muted-sm" @click="showChangeLogs(row)">变更</el-button>
-              <el-button size="small" class="btn-muted-sm" @click="showVersions(row)">版本</el-button>
-              <el-button size="small" class="btn-muted-sm" @click="copyControl(row)">复制</el-button>
+              <el-button v-else size="small" class="btn-act btn-act-primary" @click="openPoolFormEdit(row)">编辑</el-button>
+              <el-button size="small" class="btn-act btn-act-warn" @click="scanDeps(row)">依赖</el-button>
+              <el-button size="small" class="btn-act" @click="showChangeLogs(row)">变更</el-button>
+              <el-button size="small" class="btn-act" @click="showVersions(row)">版本</el-button>
+              <el-button size="small" class="btn-act" @click="copyControl(row)">复制</el-button>
               <el-button
                 v-if="row.status === 'active'"
                 size="small"
-                type="danger"
-                plain
+                class="btn-act btn-act-danger"
                 @click="archiveRow(row)"
               >归档</el-button>
               <el-button
                 v-if="canEditPool(row)"
                 size="small"
-                type="danger"
+                class="btn-act btn-act-danger"
                 @click="deleteRow(row)"
               >删除</el-button>
               <el-tooltip v-else content="生产环境核心控件仅管理员可删" placement="top">
-                <el-button size="small" type="danger" disabled>删除</el-button>
+                <el-button size="small" class="btn-act btn-act-danger" disabled>删除</el-button>
               </el-tooltip>
             </div>
           </template>
@@ -205,7 +205,7 @@
           <p>一键跳转控件拾取页面，投屏抓取新控件自动入库</p>
         </div>
       </div>
-      <div class="shortcut-card" @click="$router.push({ path: '/platform-config', query: { tab: 'steps' } })">
+      <div class="shortcut-card" @click="$router.push('/common-steps')">
         <el-icon :size="22"><Connection /></el-icon>
         <div>
           <h4>公共步骤库</h4>
@@ -533,24 +533,7 @@ const PAGE_NAME_MAP = {
   wallet: '钱包页'
 }
 
-function formatDeviceElementValue(row) {
-  let raw = row?.device_element_bindings
-  if (typeof raw === 'string' && raw.trim()) {
-    try { raw = JSON.parse(raw) } catch { raw = null }
-  }
-  if (Array.isArray(raw) && raw.length) {
-    const parts = raw
-      .map(item => {
-        const model = (item?.device_model || item?.deviceModel || '*').trim() || '*'
-        const val = (item?.element_value || item?.elementValue || '').trim()
-        if (!val) return null
-        return model === '*' ? val : `${model}:${val}`
-      })
-      .filter(Boolean)
-    if (parts.length) return parts.join('；')
-  }
-  return row?.device_element_value || '-'
-}
+
 
 function formatPageName(name) {
   const raw = String(name || '').trim()
@@ -1204,10 +1187,77 @@ onActivated(() => {
 .stab-bad { color: #ea580c; }
 .hint-inline { color: #94a3b8; font-size: 12px; }
 
+.name-cell {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  color: var(--atp-text-primary, #0f172a);
+}
+
+:deep(.el-table .name-col .cell) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.45;
+}
+
 .row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 4px;
+  width: 100%;
+}
+
+.row-actions > .el-button,
+.row-actions > .el-tooltip {
+  min-width: 0;
+}
+
+.row-actions :deep(.el-button) {
+  width: 100%;
+  margin: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.row-actions :deep(.btn-act) {
+  --el-button-bg-color: #f8fafc;
+  --el-button-border-color: #e2e8f0;
+  --el-button-text-color: #64748b;
+  --el-button-hover-bg-color: #f1f5f9;
+  --el-button-hover-border-color: #cbd5e1;
+  --el-button-hover-text-color: #475569;
+  --el-button-disabled-bg-color: #f8fafc;
+  --el-button-disabled-border-color: #e2e8f0;
+  --el-button-disabled-text-color: #94a3b8;
+}
+
+.row-actions :deep(.btn-act-primary) {
+  --el-button-bg-color: #eef2ff;
+  --el-button-border-color: #c7d2fe;
+  --el-button-text-color: #4f46e5;
+  --el-button-hover-bg-color: #e0e7ff;
+  --el-button-hover-border-color: #a5b4fc;
+  --el-button-hover-text-color: #4338ca;
+}
+
+.row-actions :deep(.btn-act-warn) {
+  --el-button-bg-color: #fff7ed;
+  --el-button-border-color: #fed7aa;
+  --el-button-text-color: #c2410c;
+  --el-button-hover-bg-color: #ffedd5;
+  --el-button-hover-border-color: #fdba74;
+  --el-button-hover-text-color: #9a3412;
+}
+
+.row-actions :deep(.btn-act-danger) {
+  --el-button-bg-color: #fef2f2;
+  --el-button-border-color: #fecaca;
+  --el-button-text-color: #b91c1c;
+  --el-button-hover-bg-color: #fee2e2;
+  --el-button-hover-border-color: #fca5a5;
+  --el-button-hover-text-color: #991b1b;
 }
 
 .table-empty {
